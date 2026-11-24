@@ -2,7 +2,7 @@
 
 Status: reviewed by the project owner on 2026-11-24, who accepted the
 recommended answer to every decision below (write scope `JottaFS-Test` only,
-upload on close, deletes to trash, refuse `.DS_Store`/`._*`, case-insensitive
+upload on close, deletes to trash, case-insensitive
 volume). Implemented 2026-11-24 (`WriteSupport.swift`, `StagingArea.swift`,
 `JottaFSVolume+Write.swift`); not yet verified on a live mount. For an
 unlimited quota the volume reports a nominal 1 TiB free, because the kernel
@@ -110,10 +110,10 @@ up as it is written.
 - Names Jottacloud cannot store (`" * : < > ? | %`, control characters, more
   than 255 characters, `.` and `..`) are rejected with `EINVAL` rather than
   silently re-encoded, per `AGENTS.md`.
-- macOS metadata files: `.DS_Store` and AppleDouble `._*` files would
-  otherwise be uploaded next to the user's files. Proposal: refuse to create
-  them (`EPERM`) and check that Finder copies still succeed; fall back to
-  keeping them local-only if Finder does not tolerate that.
+- macOS metadata files: `.DS_Store` and AppleDouble `._*` files are
+  allowed and uploaded like other files (inside the scope). Refusing them,
+  as first decided, made Finder abort folder copies with error -8062, and
+  the owner chose to allow them (2026-11-24).
 
 ## Caches and identity
 
@@ -146,5 +146,5 @@ sent.
 1. Write scope: `Jotta/Archive/JottaFS-Test` as the only writable folder?
 2. Upload on close (write-back) with the failure behaviour above?
 3. Deletes always to the Jottacloud trash?
-4. Refuse `.DS_Store` / `._*` files, as proposed?
+4. Refuse `.DS_Store` / `._*` files, as proposed? (Later reversed: allowed.)
 5. Switch the volume to case-insensitive?

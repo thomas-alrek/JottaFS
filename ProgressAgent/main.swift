@@ -53,7 +53,12 @@ private final class ProgressRegistry {
         // The agent is sandboxed; fall back to the usual mount point if the
         // mount table is not readable.
         let mountPoint = jottaCloudMountPoint() ?? URL(fileURLWithPath: "/Volumes/JottaCloud", isDirectory: true)
-        let fileURL = components.reduce(mountPoint) { $0.appendingPathComponent($1) }
+        // String-built with an explicit isDirectory: inferring it would lstat
+        // the path on the JottaCloud volume while its extension may be busy.
+        let fileURL = URL(
+            fileURLWithPath: ([mountPoint.path] + components).joined(separator: "/"),
+            isDirectory: false
+        )
         let progress = Progress(totalUnitCount: max(totalBytes, 1))
         progress.kind = .file
         progress.fileOperationKind = .uploading

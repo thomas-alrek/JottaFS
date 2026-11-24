@@ -58,7 +58,6 @@ public enum JottaFSWriteScope {
 
 public enum JottaFSNameError: Error, Equatable {
     case invalid
-    case macMetadata
 }
 
 public enum JottaFSNames {
@@ -78,15 +77,9 @@ public enum JottaFSNames {
         else {
             throw JottaFSNameError.invalid
         }
-        if isMacMetadata(name) {
-            throw JottaFSNameError.macMetadata
-        }
-    }
-
-    /// `.DS_Store` and AppleDouble (`._*`) files are refused so Finder does
-    /// not upload Mac-only metadata next to the user's files.
-    public static func isMacMetadata(_ name: String) -> Bool {
-        name == ".DS_Store" || name.hasPrefix("._")
+        // `.DS_Store` and AppleDouble (`._*`) files are allowed and uploaded
+        // like any other file: refusing them made Finder abort folder copies
+        // (error -8062).
     }
 }
 

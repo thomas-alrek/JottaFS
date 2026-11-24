@@ -182,7 +182,9 @@ enum RemoteAPIChecks {
     }
 
     private static func validatesNewNames() throws {
-        for name in ["a.txt", "Notes 2026.md", "æøå.txt", ".hidden", String(repeating: "x", count: 255)] {
+        // Mac metadata files are allowed (Finder aborts folder copies otherwise).
+        for name in ["a.txt", "Notes 2026.md", "æøå.txt", ".hidden", ".DS_Store", "._a.txt",
+                     String(repeating: "x", count: 255)] {
             try JottaFSNames.validate(name)
         }
         for name in ["", ".", "..", "a/b", "a:b", "a*b", "a?b", "a|b", "a<b", "a>b", "a\"b", "a%b",
@@ -191,13 +193,6 @@ enum RemoteAPIChecks {
                 try JottaFSNames.validate(name)
                 throw CheckFailure.expectedAnError
             } catch JottaFSNameError.invalid {
-            }
-        }
-        for name in [".DS_Store", "._a.txt", "._"] {
-            do {
-                try JottaFSNames.validate(name)
-                throw CheckFailure.expectedAnError
-            } catch JottaFSNameError.macMetadata {
             }
         }
     }

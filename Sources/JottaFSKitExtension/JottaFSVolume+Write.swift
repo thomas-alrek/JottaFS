@@ -47,8 +47,6 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         }
         do {
             try JottaFSNames.validate(string)
-        } catch JottaFSNameError.macMetadata {
-            throw POSIXError(.EPERM)
         } catch {
             throw POSIXError(.EINVAL)
         }
@@ -316,10 +314,15 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         let id = item.identifier
         let staging = staging
         let client = client
-        // Path as seen through the mount, for Finder's upload progress.
+        // Path as seen through the mount, for Finder's upload progress. Built
+        // as a string with an explicit isDirectory: URL path APIs that infer
+        // directory-ness lstat the path, which re-enters this very volume and
+        // deadlocks the extension (seen during a sync of a folder copy).
         let volumePath = item.path
-        let mountedURL = URL(fileURLWithPath: "/Volumes/\(JottaFSStorage.volumeName)", isDirectory: true)
-            .appendingPathComponent(item.path)
+        let mountedURL = URL(
+            fileURLWithPath: "/Volumes/\(JottaFSStorage.volumeName)/\(item.path)",
+            isDirectory: false
+        )
         let uploaded = UploadFlag()
         try await staging.serializeUpload(id) {
             guard let staged = staging.file(id), staged.dirty else {

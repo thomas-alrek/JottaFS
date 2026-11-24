@@ -41,7 +41,9 @@ fails with `EPERM` before any request and items report no write bits. Deletes
 go to the Jottacloud trash only. Files are staged in the extension's Caches
 container (`StagingArea`) and uploaded on close/sync through
 `files/v1/allocate` + `upload_url`, then verified by size and MD5. `.DS_Store`
-and `._*` are refused; the volume is case-insensitive, case-preserving.
+and `._*` files are uploaded like other files (refusing them made Finder
+abort folder copies with error -8062); the volume is case-insensitive,
+case-preserving.
 
 First live round (2026-11-24): the scope guard held (creating in
 `Jotta/Archive` → EPERM, in `Jotta/Sync` → EACCES, moving a folder out of the
@@ -144,7 +146,8 @@ and delete; and confirm writes outside the scope fail.
   is confirmed on Jottacloud. Incident: switching the extension off and
   unmounting during that wait unmounted the volume mid-upload and hung
   Finder (recovered by force-stopping the extension). `unmount()` now waits
-  for pending and running uploads (built, not yet verified). Not yet used:
+  for pending and running uploads (built; loaded in the verified build, but
+  unmounting during an upload has not been retested). Not yet used:
   Jottacloud keeps interrupted uploads in 32 MiB blocks per MD5, so large
   uploads could resume after a connection drop. The agent
   accepts only
@@ -158,6 +161,17 @@ and delete; and confirm writes outside the scope fail.
   up to 512 folders of up to 20,000 entries, treats listings as fresh for
   15 s, and serves older ones (up to 5 min) immediately while refreshing in
   the background.
+
+## Rule: never touch the volume from its own extension
+
+The extension (and the progress agent) must never call APIs that access a
+path on `/Volumes/JottaCloud`. `URL.appendingPathComponent` without an
+explicit `isDirectory` lstat()s the path; called inside `flush` during a
+volume `synchronize`, that lookup re-entered the volume and deadlocked the
+extension (Finder's folder copy hung at "0 bytes"; recovered by `kill -9`
+of the extension). Volume paths are now built as strings with
+`isDirectory: false` (fixed and verified 2026-11-24: the folder copy that
+hung now completes).
 
 ## Deferred
 
