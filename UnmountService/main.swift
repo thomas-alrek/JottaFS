@@ -2,10 +2,26 @@ import DiskArbitration
 import Foundation
 import Security
 
-// Keep in sync with `JottaFSStorage.filesystemResourceURL` and the extension's
+// Keep in sync with `JottaFSStorage.filesystemResourceURL`,
+// `JottaFSStorage.mountAnchorDirectoryURL()` and the extension's
 // `FSShortName`. The service deliberately does not link JottaFSCore.
 private let resourceURL = "jottafs://mount"
+private let mountAnchorSuffix = "/group.no.alrek.jottafs/JottaCloudMount"
 private let fileSystemType = "jottacloud"
+
+/// The volume is mounted from `jottafs://mount` or from the app group's
+/// mount-anchor directory (reported as a `file://` URL or a plain path).
+private func isJottaFSMountSource(_ source: String) -> Bool {
+    if source == resourceURL {
+        return true
+    }
+    let path = source.hasPrefix("file://") ? (URL(string: source)?.path ?? "") : source
+    var trimmed = path
+    while trimmed.hasSuffix("/") {
+        trimmed.removeLast()
+    }
+    return trimmed.hasSuffix(mountAnchorSuffix)
+}
 private let hostAppIdentifier = "no.alrek.jottafs"
 
 private let busyMessage = "Jottacloud is in use. Close any windows or terminals using it and try again."
@@ -39,7 +55,7 @@ private func jottaFSMountPoint() throws -> URL? {
     }
     for index in 0..<Int(count) {
         var mount = mounts[index]
-        guard cString(&mount.f_mntfromname) == resourceURL,
+        guard isJottaFSMountSource(cString(&mount.f_mntfromname)),
               cString(&mount.f_fstypename) == fileSystemType
         else {
             continue

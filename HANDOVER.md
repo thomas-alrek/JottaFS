@@ -72,15 +72,21 @@ tested.
   icon shows. The icon file is now omitted from directory enumeration but
   still resolved by `lookupItem`; verified that Finder still shows the icon and
   `ls -a` no longer lists it.
-- Sidebar: Finder logs "Unexpected volume format: jottacloud" and then probes
-  NetFS, i.e. treats the non-local volume as a server volume; with no server or
-  remount URL it gets no Locations entry. FSKit's only mount option is
-  read-only, so the volume cannot ask to be local. Open, deferred (lower
-  priority): dragging the volume into Favorites works meanwhile. Untried idea:
-  mount from an `FSPathURLResource` (not near the credentials directory) and
-  see whether the volume becomes local. Supporting evidence: Xcode's CoreDevice
-  DeviceFS FSKit volume is mounted from a `file://` path and is flagged
-  `local` (it is also `nobrowse`).
+- Sidebar (fixed 2026-11-24): mounted from the generic `jottafs://mount`
+  resource, the volume was non-local; Finder logged "Unexpected volume format:
+  jottacloud", probed NetFS (server volume without a server) and gave it no
+  Locations entry. FSKit's only mount option is read-only, but the resource
+  type decides locality (Xcode's DeviceFS, mounted from a `file://` path, is
+  `local`). The app now mounts an `FSPathURLResource` for the empty
+  `<group>/JottaCloudMount` directory (`JottaFSStorage.mountAnchorDirectoryURL`,
+  deliberately not the credentials directory); the extension declares
+  `FSSupportsPathURLs` and accepts that path or the old `jottafs://mount`; the
+  app's mount check and the unmount service match either source. Verified: the
+  mount is `local`, DiskArbitration reports `DAVolumeNetwork = 0`, the volume
+  appears in the Finder sidebar, and reads are byte-identical. Unmount now
+  goes through a non-network authorization right (the external/removable
+  rules are the same is-admin/on-console rule); verified that the app's
+  Unmount still works.
 - Format shows as "Unknown (jottacloud)". Open, deferred. Classic lookup is
   `/Library/Filesystems/<f_fstypename>.fs` → `FSPersonalities` entry whose
   `FSSubType` matches `f_fssubtype` → `FSName` (as macFUSE does). Adding
@@ -182,13 +188,13 @@ optional.
 
 ## Remaining work, in order
 
-1. Finder visibility. The generic URL-backed FSKit resource is not recognized
-   by `diskutil`; comparison with block-device-based FSKit projects is
-   suggestive, not proof of the cause.
-2. Verify the volume icon still shows with `.VolumeIcon.icns` unlisted.
+1. Decide whether to drop the generic `jottafs://mount` resource support now
+   that the app mounts the path resource.
+2. Format name "Unknown (jottacloud)" (low priority): needs a
+   `/Library/Filesystems/jottacloud.fs` bundle and an admin install.
 3. Decide whether to keep or remove the `JFSRead` diagnostic log line.
 4. Settle the signing team and a single installed app path; remove the stale
-   `JottacloudFS.app` registration.
+   `JottacloudFS.app` copies (old DerivedData build and `~/Applications`).
 5. Only after read-only mounting is reliable, design and review write behavior
    (upload, overwrite, metadata, atomicity, conflicts, and failure recovery)
    before enabling any mutations.

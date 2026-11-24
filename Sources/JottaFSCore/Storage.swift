@@ -22,6 +22,42 @@ public enum JottaFSStorage {
     public static let filesystemResourceURL = URL(string: "jottafs://mount")!
     /// Volume name reported to FSKit; the system mounts at `/Volumes/<name>`.
     public static let volumeName = "JottaCloud"
+    /// File system type (the extension's `FSShortName`).
+    public static let fileSystemType = "jottacloud"
+
+    /// Empty directory used as the `FSPathURLResource` the volume is mounted
+    /// from. A path resource makes the mount local (like Xcode's DeviceFS),
+    /// which a generic `jottafs://` resource does not, and Finder lists only
+    /// local or NetFS-backed volumes in its sidebar. It holds no data and is
+    /// deliberately not the credentials directory.
+    public static func mountAnchorDirectoryURL() -> URL? {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: applicationGroupIdentifier
+        )?
+        .appendingPathComponent("JottaCloudMount", isDirectory: true)
+        .standardizedFileURL
+    }
+
+    public static func prepareMountAnchorDirectory() throws -> URL {
+        guard let directory = mountAnchorDirectoryURL() else {
+            throw JottaFSStorageError.applicationGroupUnavailable
+        }
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        return directory
+    }
+
+    public static func isMountAnchorDirectory(_ url: URL) -> Bool {
+        guard let expected = mountAnchorDirectoryURL() else {
+            return false
+        }
+        return url.isFileURL
+            && url.standardizedFileURL.resolvingSymlinksInPath().path
+                == expected.resolvingSymlinksInPath().path
+    }
 
     public static func prepareCredentialsDirectory() throws -> URL {
         guard let directory = credentialsDirectoryURL() else {

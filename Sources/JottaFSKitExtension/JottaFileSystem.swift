@@ -14,9 +14,23 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     )
     private var activeResourceURL: URL?
 
+    /// The resources this file system mounts: the original generic
+    /// `jottafs://mount` URL, or the empty mount-anchor directory as a path
+    /// resource (which makes the mount local). Returns its URL, or nil.
+    private static func acceptedResourceURL(_ resource: FSResource) -> URL? {
+        if let resource = resource as? FSGenericURLResource,
+           resource.url == JottaFSStorage.filesystemResourceURL {
+            return resource.url
+        }
+        if let resource = resource as? FSPathURLResource,
+           JottaFSStorage.isMountAnchorDirectory(resource.url) {
+            return resource.url
+        }
+        return nil
+    }
+
     func probeResource(resource: FSResource) async throws -> FSProbeResult {
-        guard let resource = resource as? FSGenericURLResource,
-              resource.url == JottaFSStorage.filesystemResourceURL,
+        guard Self.acceptedResourceURL(resource) != nil,
               let credentialsDirectory = JottaFSStorage.credentialsDirectoryURL(),
               let credentialsURL = try? JottaFSStorage.credentialsFileURL(
                 in: credentialsDirectory
@@ -39,14 +53,12 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         resource: FSResource,
         options: FSTaskOptions
     ) async throws -> FSVolume {
-        guard let resource = resource as? FSGenericURLResource,
-              resource.url == JottaFSStorage.filesystemResourceURL,
+        guard let resourceURL = Self.acceptedResourceURL(resource),
               let credentialsDirectory = JottaFSStorage.credentialsDirectoryURL()
         else {
             logger.error("Load rejected: resource URL or shared storage is unavailable.")
             throw POSIXError(.ENOENT)
         }
-        let resourceURL = resource.url
         do {
             let credentials = try JottaFSStorage.loadCredentials(
                 from: credentialsDirectory
@@ -86,8 +98,8 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         resource: FSResource,
         options: FSTaskOptions
     ) async throws {
-        guard let resource = resource as? FSGenericURLResource,
-              resource.url == activeResourceURL
+        guard let resourceURL = Self.acceptedResourceURL(resource),
+              resourceURL == activeResourceURL
         else {
             throw POSIXError(.EINVAL)
         }

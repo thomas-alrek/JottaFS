@@ -43,6 +43,8 @@
         <key>FSSupportsBlockResources</key>
         <false/>
         <key>FSSupportsPathURLs</key>
+        <true/>
+        <key>FSRequiresSecurityScopedPathURLResources</key>
         <false/>
         <key>FSSupportsServerURLs</key>
         <false/>

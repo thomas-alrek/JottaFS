@@ -227,8 +227,12 @@ private struct JottaFSView: View {
                 statusMessage = "Jottacloud is already mounted."
                 return
             }
-            let resource = FSGenericURLResource(
-                url: JottaFSStorage.filesystemResourceURL
+            // A path resource makes the mount local, which Finder needs to
+            // list the volume in its sidebar; a generic URL mount is treated
+            // as a server volume without a server.
+            let resource = FSPathURLResource(
+                url: try JottaFSStorage.prepareMountAnchorDirectory(),
+                writable: false
             )
             mountURL = try await FSClient.shared.mountSingleVolume(
                 resource: resource,
@@ -422,11 +426,10 @@ private func findJottacloudMount() throws -> URL? {
         throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
     }
 
-    let resource = JottaFSStorage.filesystemResourceURL.absoluteString
     for index in 0..<Int(count) {
         var mount = mounts[index]
-        guard stringFromCStringTuple(&mount.f_mntfromname) == resource,
-              stringFromCStringTuple(&mount.f_fstypename) == "jottacloud"
+        guard stringFromCStringTuple(&mount.f_fstypename) == JottaFSStorage.fileSystemType,
+              isJottaFSMountSource(stringFromCStringTuple(&mount.f_mntfromname))
         else {
             continue
         }
@@ -436,6 +439,21 @@ private func findJottacloudMount() throws -> URL? {
         )
     }
     return nil
+}
+
+/// The volume is mounted either from the generic `jottafs://mount` URL or from
+/// the mount-anchor directory (shown as a `file://` URL or a plain path).
+private func isJottaFSMountSource(_ source: String) -> Bool {
+    if source == JottaFSStorage.filesystemResourceURL.absoluteString {
+        return true
+    }
+    let path = source.hasPrefix("file://")
+        ? URL(string: source)?.path
+        : source
+    guard let path else {
+        return false
+    }
+    return JottaFSStorage.isMountAnchorDirectory(URL(fileURLWithPath: path, isDirectory: true))
 }
 
 private func stringFromCStringTuple<Value>(_ value: inout Value) -> String {
