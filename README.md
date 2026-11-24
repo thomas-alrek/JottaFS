@@ -28,6 +28,20 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
 > support or approve it. JottaFS uses Jottacloud interfaces that do not have
 > public documentation. These interfaces can change at any time.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/images/screenshot-sign-in.png" width="400" alt="The JottaFS sign-in window with the Sign In with Jottacloud button">
+  &nbsp;
+  <img src="docs/images/screenshot-locations.png" width="340" alt="The JottaFS window with the list of Jottacloud locations to mount">
+</p>
+
+<p align="center">
+  <img src="docs/images/screenshot-finder.png" width="760" alt="Finder with the Jottacloud location Archive mounted as a disk, in the sidebar and next to Macintosh HD">
+  <br>
+  <em>The mounted location in Finder, as a disk next to Macintosh HD.</em>
+</p>
+
 ## Contents
 
 - [Features](#features)
