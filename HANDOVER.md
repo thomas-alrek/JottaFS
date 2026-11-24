@@ -9,7 +9,54 @@ and usable from the CLI. File reads use bounded HTTP range requests so callers
 can seek without downloading whole files. Write support is a later stretch
 goal; mutations stay disabled until separately designed and tested.
 
-## Current state
+## Latest status (end of 2026-11-24, before a reboot)
+
+Nothing below is committed since `59c0da5` (resume + trash design). Built,
+and `swift run jottafs-checks` passes; the app and extension build and the
+extension is registered. Sections further down describe earlier states (the
+virtual root and the `JottaFS-Test` write scope are gone).
+
+Verified live:
+
+- Virtual Trash (`/.Trashes/<uid>`): Move to Trash, Put Back and Delete
+  Immediately from Finder; Finder no longer hangs (trash loads in the
+  background). `rm`/`rmdir` delete permanently (shell-tested in
+  `JottaFS-Test`).
+- Read-only backup check: `DeviceService.List` gives each backup device's
+  id and service path `/backup/<id>`; `GetPath("/backup")` lists them.
+
+Built, not yet tested live:
+
+1. Write scope lifted (owner decision): the mounted location is fully
+   writable. Own tests still only in `Jotta/Archive/JottaFS-Test`.
+2. One location per mount instead of the virtual root: a `Jotta` location
+   (Archive, Sync, Shared…) or one backed-up folder of a computer backup
+   (whole-device mounts were tried and dropped). The choice is saved in the
+   credentials (`device`, `mountpoint`). Backup locations use the device's
+   service path `/backup/<id>` from `DeviceService.List`; untested
+   assumption: trashed backup items have paths `/backup/<id>/<folder>/…`.
+3. Redesigned app (`HostApp/AppModel.swift`, `JottaFSApp.swift`,
+   `LoopbackCallbackServer.swift`, `MountSupport.swift`): browser sign-in
+   (OAuth code + PKCE S256 with a plain fallback, `jottacli`, redirect
+   `http://localhost:<port>/callback`), personal login token as a secondary
+   option, account name/email from `account/v1/customer`, location picker
+   (disabled until the extension is enabled; re-checked every 2 s while
+   it is off), Mount / Unmount (list locked while mounted), sign out,
+   "Mount automatically when I log in"
+   (`SMAppService.mainApp`; at login it mounts and quits without creating a
+   window), browser sign-in in an `ASWebAuthenticationSession` that the app
+   closes once the localhost callback arrives (a page cannot close its own
+   tab, tested), fixed-size window per screen, always centered.
+4. App and extension adopt each other's rotated tokens before refreshing.
+
+Next tests, in order: open the app (saved sign-in) → Mount for
+Archive; switch to Sync; mount a backed-up folder and check its Trash (only
+with throwaway items); sign out and test browser sign-in (the
+key unknown is whether Jottacloud accepts the `localhost` redirect for
+`jottacli`); token sign-in; the login checkbox (best from `/Applications`).
+Volume renaming is not supported (see docs/fskit-internals.md).
+
+## Current state (earlier)
 
 Working and verified on macOS 27.3 (2026-11-24):
 
@@ -231,8 +278,7 @@ hung now completes).
 
 ## Remaining work, in order
 
-1. Finish the live write checks by hand: TextEdit save, Finder copy-in,
-   rename and delete, and the Jottacloud trash on the website.
+1. Run the "Next tests" above, then commit.
 2. Settle the signing team and a single installed app path (outside
    DerivedData).
 3. Optional: the `jottacloud.fs` format-name bundle (see Deferred).

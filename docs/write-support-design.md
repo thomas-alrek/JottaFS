@@ -1,4 +1,9 @@
-# Write support design (draft for review)
+# Write support design
+
+**Update 2026-11-24:** the owner lifted the write scope below after testing.
+The whole mounted location is writable; `JottaFSWriteScope` was removed.
+`rm` now deletes permanently ([trash design](trash-design.md)). The rest of
+this document is kept as the original reviewed design.
 
 Status: reviewed by the project owner on 2026-11-24, who accepted the
 recommended answer to every decision below (write scope `JottaFS-Test` only,

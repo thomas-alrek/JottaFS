@@ -15,7 +15,7 @@ Make Finder's Trash behave as expected on the JottaCloud volume:
 | Empty Trash / Delete Immediately (inside the Trash) | permanent delete of those items only |
 
 The design covers the whole account. While testing, operations on live
-files are still confined to `JottaFSWriteScope` (`Jotta/Archive/JottaFS-Test`);
+files were confined to `JottaFSWriteScope` (`Jotta/Archive/JottaFS-Test`) until the owner lifted it on 2026-11-24;
 the Trash itself shows and acts on the whole Jottacloud trash (see Decisions).
 Lifting the scope for live files is a separate decision.
 
@@ -57,8 +57,7 @@ mounted the volume. Neither is stored on Jottacloud. Finder uses
 accepts our virtual folder is experiment E1.
 
 `.Trashes/<uid>` lists the Jottacloud trash entries (filtered by the scope
-while testing). Trashed folders can be opened and are read-only; their
-contents come from `GetPath(original path, include_deleted)`.
+while testing). Trashed folders are shown empty (see Implementation notes).
 
 ### Names in the Trash
 
@@ -84,7 +83,6 @@ Names in the Trash must therefore be stable:
 | rename `.Trashes/<uid>/<name>` → original path | `Restore` |
 | rename from Trash to a different location | `Restore`, then the existing move |
 | remove a top-level Trash entry | `DeletePermanently(original path)` |
-| remove inside a trashed folder | `DeletePermanently(child path)` (E4) |
 | remove (`rm`, `unlink`, `rmdir`) outside the Trash | soft delete, then `DeletePermanently` of that trashed item |
 | create / write / rename inside the Trash (other than `.DS_Store`) | `EPERM` |
 
@@ -124,3 +122,44 @@ Before any `DeletePermanently`, the extension confirms with
 `GetPath(path, include_deleted)` that the item at that path is trashed
 (`deleted_at_millis` non-zero) and, for Trash entries, that it is the same
 deletion that was listed. A live item at the same path is never deleted.
+
+## Implementation notes
+
+- Code: `Sources/JottaFSKitExtension/Trash.swift` (names, local metadata,
+  hidden items), `JottaFSVolume+Trash.swift` (operations), the gRPC client in
+  `Sources/JottaFSCore/RemoteAPI.swift` (`listTrash`, `listChildren`,
+  `pathItem`, `restore`, `deletePermanently`).
+- Service paths are only mapped for the `Jotta` device
+  (`Jotta/Archive/x` → `/archive/x`); backup devices are not mapped yet.
+- Put Back and moves out of the Trash need write permission on the
+  destination folder, which the volume only grants inside the write scope,
+  so items from elsewhere can be emptied but not yet put back through
+  Finder.
+- Reading trashed files (Quick Look in the Trash) is not supported yet.
+- The trash is loaded in the background from mount time (500 entries per
+  request, about 3 s each) and every file system call is answered from
+  memory; a full reload runs at most every 30 minutes and the newest page is
+  checked every 30 seconds while the Trash is in use. That check also
+  notices entries emptied or restored elsewhere: if the whole trash fits on
+  the page it drops the rest at once, otherwise a missing entry from the
+  page's time range starts a full reload. A first version that
+  listed the trash inside the lookup made Finder hang during Move to Trash.
+- Trashed folders are shown empty (listing each one cost a request while
+  Finder waited). Deleting one from the Trash deletes all of its contents.
+- Folders under `.Trashes` are protected by macOS privacy controls: only
+  apps with Full Disk Access (and Finder) can list them.
+- A rename over an existing file still sends the replaced file to the
+  Jottacloud trash (not permanent).
+
+## Update: one mounted location (2026-11-24)
+
+The volume now mounts one chosen location. Its Trash shows only entries
+trashed from that location (service path prefix such as `/archive/`).
+A backed-up folder of a computer backup is mounted like any other location.
+Its service path comes from `DeviceService.List` (`/backup/<device id>`,
+checked live 2026-11-24), so its Trash shows entries under
+`/backup/<id>/<folder>/` (assumed, not yet seen in a listing). If the device
+id is unknown, the Trash stays empty and `rm` leaves items in the Jottacloud
+trash. (Mounting a whole backup device was tried and dropped: its root only
+holds backup sets, and Finder could not offer New Folder cleanly there.) With the write scope lifted,
+Put Back works for any entry of the mounted location.

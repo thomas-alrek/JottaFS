@@ -10,11 +10,14 @@ enum RemoteAPIChecks {
         try validatesPartialContentRanges()
         try clampsByteRangesToFileSize()
         try parsesAccountStorageAndReportsNonZeroVolumeSizes()
-        try confinesWritesToTheScopeFolder()
+        try comparesNamesAndNamesVolumes()
+        try buildsBrowserLoginChallenges()
+        try decodesBackupDevices()
         try validatesNewNames()
         try stagesWritesInLocalFiles()
         try encodesUploadRequestsAndParsesResponses()
         try classifiesTransientUploadFailures()
+        try decodesTrashListingsAndMapsServicePaths()
         try parsesCompleteListingsAndSkipsDeletedOrIncompleteItems()
         try parsesDevicesAndTheirMountpoints()
         try doesNotListTheListedFolderItself()
@@ -152,34 +155,56 @@ enum RemoteAPIChecks {
         )
     }
 
-    private static func confinesWritesToTheScopeFolder() throws {
-        let inside: [(String, String, String)] = [
-            ("Jotta", "Archive", "JottaFS-Test/a.txt"),
-            ("Jotta", "Archive", "JottaFS-Test/dir/b.txt"),
-            ("jotta", "archive", "jottafs-test/a.txt"), // Jottacloud is case-insensitive
-        ]
-        for (device, mountpoint, path) in inside {
-            precondition(JottaFSWriteScope.contains(device: device, mountpoint: mountpoint, path: path), path)
+    private static func decodesBackupDevices() throws {
+        func device(_ id: String, _ name: String, _ path: String) -> Data {
+            var message = Data()
+            JottacloudClient.appendProtobufString(field: 1, id, to: &message)
+            JottacloudClient.appendProtobufString(field: 3, name, to: &message)
+            message.append(contentsOf: [0x20, 0x02]) // type
+            JottacloudClient.appendProtobufString(field: 5, path, to: &message)
+            var wrapped = Data()
+            JottacloudClient.appendVarint(1 << 3 | 2, to: &wrapped)
+            JottacloudClient.appendVarint(UInt64(message.count), to: &wrapped)
+            wrapped.append(message)
+            return wrapped
         }
-        let outside: [(String, String, String)] = [
-            ("Jotta", "Archive", "JottaFS-Test"),            // the scope folder itself
-            ("Jotta", "Archive", "Documents/a.txt"),
-            ("Jotta", "Archive", "JottaFS-Test-old/a.txt"),  // shared prefix
-            ("Jotta", "Archive", "JottaFS‐Test/a.txt"),      // Unicode hyphen look-alike
-            ("Jotta", "Archive", "JottaFS-Test/../a.txt"),
-            ("Jotta", "Archive", "JottaFS-Test/./a.txt"),
-            ("Jotta", "Archive", "JottaFS-Test//a.txt"),
-            ("Jotta", "Archive", "/JottaFS-Test/a.txt"),
-            ("Jotta", "Archive", ""),
-            ("Jotta", "Sync", "JottaFS-Test/a.txt"),
-            ("Thomass Mac mini", "Archive", "JottaFS-Test/a.txt"),
-        ]
-        for (device, mountpoint, path) in outside {
-            precondition(!JottaFSWriteScope.contains(device: device, mountpoint: mountpoint, path: path), path)
+        var response = device("ac68", "My Mac mini", "/backup/ac68")
+        response.append(device("x", "Not a backup", "/archive"))
+        let devices = JottacloudClient.decodeDeviceList([UInt8](response))
+        precondition(devices == [JottacloudBackupDevice(id: "ac68", name: "My Mac mini", path: "/backup/ac68")])
+    }
+
+    private static func buildsBrowserLoginChallenges() throws {
+        // BASE64URL(SHA256(verifier)) without padding, as computed with
+        // Python's hashlib for this verifier.
+        precondition(
+            JottacloudClient.s256Challenge("dBjftJeZ4CVP-mJ92K9qPPfOSdYPu0J4C4C2tQ_Pab8") ==
+                "AJQ-QX6qmSEL5kfN0BFOivwM1hbGERsOCiwRm6yDxjo"
+        )
+        let random = try JottacloudClient.randomURLSafeString(byteCount: 48)
+        precondition(random.count == 64)
+        precondition(random.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" })
+        let another = try JottacloudClient.randomURLSafeString(byteCount: 48)
+        precondition(another != random)
+    }
+
+    private static func comparesNamesAndNamesVolumes() throws {
+        // Jottacloud is case-insensitive, but look-alikes never match.
+        precondition(JottaFSNames.sameName("Archive", "archive"))
+        precondition(JottaFSNames.sameName("Æøå", "æØÅ"))
+        precondition(!JottaFSNames.sameName("JottaFS-Test", "JottaFS‐Test")) // Unicode hyphen
+        precondition(!JottaFSNames.sameName("a", "a "))
+
+        precondition(JottaFSStorage.defaultVolumeName(mountpoint: "Archive") == "Archive")
+        precondition(JottaFSStorage.defaultVolumeName(mountpoint: "C:D") == "C-D")
+        precondition(JottaFSStorage.defaultVolumeName(mountpoint: "") == "Jottacloud")
+
+        for name in ["Jotta Archive", "Æøå", "  Work  ", String(repeating: "a", count: 255)] {
+            precondition(JottaFSStorage.validVolumeName(name) == name.trimmingCharacters(in: .whitespaces), name)
         }
-        precondition(JottaFSWriteScope.isScopeRoot(device: "Jotta", mountpoint: "Archive", path: "JottaFS-Test"))
-        precondition(!JottaFSWriteScope.isScopeRoot(device: "Jotta", mountpoint: "Archive", path: "JottaFS-Test/a"))
-        precondition(!JottaFSWriteScope.isScopeRoot(device: "Jotta", mountpoint: "Sync", path: "JottaFS-Test"))
+        for name in ["", "   ", ".", "..", "a/b", "a:b", "a\nb", String(repeating: "å", count: 128)] {
+            precondition(JottaFSStorage.validVolumeName(name) == nil, name)
+        }
     }
 
     private static func validatesNewNames() throws {
@@ -287,6 +312,50 @@ enum RemoteAPIChecks {
             "<file name=\"a\"><currentRevision><state>INCOMPLETE</state><size>5</size></currentRevision></file>".utf8
         ))
         precondition(incomplete == nil)
+    }
+
+    private static func decodesTrashListingsAndMapsServicePaths() throws {
+        precondition(JottacloudClient.servicePath(device: "Jotta", mountpoint: "Archive", path: "A/b c") == "/archive/A/b c")
+        precondition(JottacloudClient.servicePath(device: "Jotta", mountpoint: "Archive", path: "") == "/archive")
+        precondition(JottacloudClient.servicePath(device: "My Mac", mountpoint: "Docs", path: "x") == nil)
+        precondition(JottacloudClient.requestPath("/Archive/JottaFS-Test/Developer") == "/archive/JottaFS-Test/Developer")
+        precondition(JottacloudClient.requestPath("/trash") == "/trash")
+
+        // PathItem child: path, name, type folder, size, modified, deleted.
+        var child = Data()
+        JottacloudClient.appendProtobufString(field: 1, "/Archive/T/x", to: &child)
+        JottacloudClient.appendProtobufString(field: 2, "x", to: &child)
+        child.append(contentsOf: [0x20, 0x02])
+        child.append(0x38); JottacloudClient.appendVarint(300, to: &child)
+        child.append(0x50); JottacloudClient.appendVarint(1_795_530_000_000, to: &child)
+        child.append(0x58); JottacloudClient.appendVarint(1_795_530_442_712, to: &child)
+        var parent = Data()
+        JottacloudClient.appendProtobufString(field: 1, "/trash", to: &parent)
+        JottacloudClient.appendVarint(13 << 3 | 2, to: &parent)
+        JottacloudClient.appendVarint(UInt64(child.count), to: &parent)
+        parent.append(child)
+        var response = Data()
+        JottacloudClient.appendVarint(1 << 3 | 2, to: &response)
+        JottacloudClient.appendVarint(UInt64(parent.count), to: &response)
+        response.append(parent)
+        JottacloudClient.appendProtobufString(field: 2, "next", to: &response)
+
+        // gRPC-Web body: one data frame, then a trailer frame.
+        var body = [UInt8]([0x00]) + withUnsafeBytes(of: UInt32(response.count).bigEndian, Array.init) + [UInt8](response)
+        let trailer = Array("grpc-status:0\r\ngrpc-message:\r\n".utf8)
+        body += [0x80] + withUnsafeBytes(of: UInt32(trailer.count).bigEndian, Array.init) + trailer
+        let parsed = JottacloudClient.parseGRPCWebBody(body)
+        precondition(parsed.status == 0)
+        let decoded = JottacloudClient.decodeGetPathResponse(parsed.message)
+        precondition(decoded.item?.path == "/trash" && decoded.cursor == "next")
+        precondition(decoded.children.count == 1)
+        let item = decoded.children[0]
+        precondition(item.path == "/Archive/T/x" && item.name == "x" && item.isFolder && item.size == 300)
+        precondition(item.deletedAtMillis == 1_795_530_442_712 && item.isTrashed)
+        precondition(item.modified == Date(timeIntervalSince1970: 1_795_530_000))
+
+        // A trailers-only error has no frames.
+        precondition(JottacloudClient.parseGRPCWebBody([]).status == nil)
     }
 
     private static func classifiesTransientUploadFailures() throws {

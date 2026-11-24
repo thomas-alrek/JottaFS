@@ -71,10 +71,11 @@ entirely. The volume must also report a non-zero size. A custom icon needs
 - Jottacloud's listing API doesn't always provide timestamps. Report only
   known modification times; leave unavailable dates invalid rather than
   converting missing values to the Unix epoch.
-- The volume is mounted read-write, but every mutation outside
-  `JottaFSWriteScope` fails with `EPERM` before any network request, and
-  only in-scope items report write permission bits. Links are not supported
-  (`ENOTSUP`). See [the write-support design](write-support-design.md).
+- The volume is mounted read-write and its root is the chosen Jottacloud
+  location (`JottacloudCredentials.device`/`mountpoint`, saved by the app
+  with the credentials): a location on the built-in `Jotta` device or one
+  backed-up folder of a computer backup (`MountTarget` in `FSItems.swift`). Links are not supported (`ENOTSUP`). See
+  [the write-support design](write-support-design.md).
 - FSKit passes URL-backed resources to `loadResource`. The Jottacloud resource
   lives in the shared app-group container, which the extension can access
   through its application-group entitlement. If another resource is
@@ -90,8 +91,10 @@ FSKit launches the extension separately from the host app that prepares or
 mounts the volume. Do not pass a login token in command arguments or put one in
 the mount resource. The SwiftUI host app exchanges a personal login token
 for OAuth credentials and does not persist the login token. On mount, the
-extension discovers the account's devices and mountpoints using the shared
-OAuth client. Both targets have the `group.no.alrek.jottafs`
+extension lists the account's devices and mountpoints and mounts the one
+saved with the credentials. Both the app and the extension read the newest
+saved credentials before refreshing, so they do not reuse a refresh token
+the other one already rotated. Both targets have the `group.no.alrek.jottafs`
 application-group entitlement. The host app
 creates `Library/Application Support/JottaFS` within that shared
 container, sets its mode to 0700, and writes a binary `credentials.plist` with
@@ -124,3 +127,31 @@ and file reads still require validation.
 - [FSUnaryFileSystemOperations](https://developer.apple.com/documentation/fskit/fsunaryfilesystemoperations)
 - [FSVolume.Handler](https://developer.apple.com/documentation/fskit/fsvolume/handler)
 - [FSVolume.ReadWriteHandler](https://developer.apple.com/documentation/fskit/fsvolume/readwritehandler)
+
+## Volume name and renaming
+
+The volume is named after the mounted location, or after a name the user
+chose for it in the app (Advanced → Name in Finder), saved per location in
+`Settings.plist` (`VolumeNames`) in the shared app-group folder and read by
+the extension at mount time. Renaming a mounted volume (in Finder) is not
+supported (decided 2026-11-24). Findings, for a later
+attempt (macOS 27.3):
+
+- Finder renames through DiskArbitration (`DADiskRename`). It sets the
+  label (`setattrlist(ATTR_VOL_NAME)`, which reaches
+  `FSVolume.RenameHandler.setVolumeName`) and then, for volumes under
+  `/Volumes`, moves the mount point to `/Volumes/<new name>` (`renamex_np`).
+  Its record of a volume without a BSD device does not follow the move:
+  about a second later the volume leaves Finder's sidebar, and unmounting
+  through DiskArbitration (the app's unmount service, Finder's eject) fails
+  until the stale record is gone (a reboot).
+- Mounting outside `/Volumes` (`mount -F -t jottacloud <anchor> <dir>`,
+  which needs `FSActivateOptionSyntax` in the extension's Info.plist and
+  mounts as the user) avoids the move, but Finder then does not show the
+  volume in its sidebar.
+- Untested idea: back the volume with a small attached disk image so it has
+  a BSD device, like other disk volumes.
+
+Code that needs the mount path reads it from the mount table
+(`JottaFSStorage.mountPoint()`, `getmntinfo` with `MNT_NOWAIT`, which does
+not call into the volume) rather than assuming `/Volumes/JottaCloud`.

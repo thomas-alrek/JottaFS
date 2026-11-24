@@ -40,7 +40,13 @@ actor DirectoryCache {
     }
 
     private let client: JottacloudClient
-    private let volumes: [JottacloudRemoteVolume]
+    private let trash: TrashStore
+    /// Name of the virtual trash folder at the volume root.
+    static let trashesName = ".Trashes"
+    static let trashesEntry = JottacloudDirectoryEntry(
+        entry: RemoteEntry(name: trashesName, kind: .directory, size: 0, modified: nil),
+        role: .trashes
+    )
     /// A listing younger than this is served without contacting Jottacloud.
     private let freshLifetime: TimeInterval = 15
     /// An older listing up to this age is still served immediately while one
@@ -67,17 +73,20 @@ actor DirectoryCache {
     private let overlayLifetime: TimeInterval = 60
     private var overlays: [String: [String: Overlay]] = [:]
 
-    init(client: JottacloudClient, volumes: [JottacloudRemoteVolume]) {
+    init(client: JottacloudClient, trash: TrashStore) {
         self.client = client
-        var seenVolumeIDs = Set<String>()
-        self.volumes = volumes.filter { seenVolumeIDs.insert($0.id).inserted }
+        self.trash = trash
     }
 
     func list(
         path: String,
         role: JottacloudItemRole
     ) async throws -> DirectorySnapshot {
-        applyOverlay(to: try await fetch(path: path, role: role), path: path)
+        // The Trash is served from memory and loads in the background.
+        if case .userTrash = role {
+            return applyOverlay(to: await trash.snapshot(), path: path)
+        }
+        return applyOverlay(to: try await fetch(path: path, role: role), path: path)
     }
 
     /// Records a created, uploaded or moved-in item in `directoryPath`.
@@ -163,47 +172,18 @@ actor DirectoryCache {
         let request = Task {
             let entries: [JottacloudDirectoryEntry]
             switch role {
-            case .root:
-                var seenDevices = Set<String>()
-                entries = volumes.compactMap { volume in
-                    guard seenDevices.insert(volume.device).inserted else {
-                        return nil
-                    }
-                    return JottacloudDirectoryEntry(
-                        entry: RemoteEntry(
-                            name: volume.device,
-                            kind: .directory,
-                            size: 0,
-                            modified: nil
-                        ),
-                        role: .device(volume.device)
-                    )
-                }
-            case .device(let device):
-                var seenMountpoints = Set<String>()
-                entries = volumes.compactMap { volume in
-                    guard volume.device == device,
-                          seenMountpoints.insert(volume.mountpoint).inserted
-                    else {
-                        return nil
-                    }
-                    return JottacloudDirectoryEntry(
-                        entry: RemoteEntry(
-                            name: volume.mountpoint,
-                            kind: .directory,
-                            size: 0,
-                            modified: nil
-                        ),
-                        role: .mountpoint(volume)
-                    )
-                }
             case .mountpoint(let volume):
                 let remoteEntries = try await client.listDirectory(
                     volume: volume,
                     path: ""
                 )
-                entries = remoteEntries.map {
-                    JottacloudDirectoryEntry(
+                // The volume root also holds the virtual Trash.
+                entries = (path.isEmpty ? [Self.trashesEntry] : []) + remoteEntries.compactMap {
+                    // A remote item named like the Trash folder stays hidden.
+                    guard !JottaFSNames.sameName($0.name, Self.trashesName) else {
+                        return nil
+                    }
+                    return JottacloudDirectoryEntry(
                         entry: $0,
                         role: .remote(volume, path: $0.name)
                     )
@@ -222,7 +202,19 @@ actor DirectoryCache {
                         role: .remote(volume, path: path)
                     )
                 }
-            case .volumeIcon:
+            case .trashes:
+                entries = [JottacloudDirectoryEntry(
+                    entry: RemoteEntry(name: trash.userFolderName, kind: .directory, size: 0, modified: nil),
+                    role: .userTrash
+                )]
+            case .userTrash:
+                entries = await trash.snapshot().entries
+            case .trashed:
+                // Trashed folders are shown empty: listing each one would
+                // cost a request while Finder waits, and their files cannot
+                // be read yet. Deleting one deletes all of its contents.
+                entries = []
+            case .volumeIcon, .trashLocal:
                 throw POSIXError(.ENOTDIR)
             }
             return DirectorySnapshot(entries: entries, verifier: verifier)

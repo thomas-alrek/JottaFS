@@ -5,37 +5,32 @@ import OSLog
 
 private let writeLogger = Logger(subsystem: "no.alrek.jottafs.extension", category: "Write")
 
-/// Write support (docs/write-support-design.md). Every mutation is confined to
-/// `JottaFSWriteScope` and checked before any network request; everything
-/// else stays read-only.
+/// Write support (docs/write-support-design.md): everything inside the mounted
+/// location can be created, written, renamed and deleted.
 extension JottaFSVolume: FSVolume.OpenCloseHandler {
 
     // MARK: Scope
 
-    /// The remote location of an existing item that may be modified: strictly
-    /// inside the write scope (never the scope folder itself).
+    /// The remote location of an existing item that may be modified: any
+    /// item inside the mounted location (not the volume root itself, the
+    /// volume icon or the Trash).
     func writableLocation(of item: JottacloudItem) throws -> (volume: JottacloudRemoteVolume, path: String) {
-        guard let location = item.remoteLocation,
-              JottaFSWriteScope.contains(
-                  device: location.volume.device,
-                  mountpoint: location.volume.mountpoint,
-                  path: location.path
-              )
-        else {
+        guard let location = item.remoteLocation else {
             throw POSIXError(.EPERM)
         }
         return location
     }
 
-    /// Whether the item gets write permission bits: the scope folder, its
-    /// contents, and its parent mountpoint (so the scope folder can be made).
+    /// Whether the item gets write permission bits.
     func grantsWritePermission(_ item: JottacloudItem) -> Bool {
         switch item.role {
-        case .mountpoint(let volume):
-            return JottaFSWriteScope.isScopeMountpoint(device: volume.device, mountpoint: volume.mountpoint)
-        case .remote(let volume, let path):
-            return JottaFSWriteScope.isScopeRoot(device: volume.device, mountpoint: volume.mountpoint, path: path)
-                || JottaFSWriteScope.contains(device: volume.device, mountpoint: volume.mountpoint, path: path)
+        case .mountpoint, .remote:
+            return true
+        case .userTrash, .trashed, .trashLocal:
+            // The Trash can be emptied and its items put back (the kernel
+            // needs write permission on a folder to remove its entries);
+            // writes to trashed files are refused by the handlers.
+            return true
         default:
             return false
         }
@@ -69,11 +64,22 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         return "\(nsError.domain) \(nsError.code)"
     }
 
-    private func posixError(_ error: Error) -> Error {
+    func posixError(_ error: Error) -> Error {
         if error is POSIXError {
             return error
         }
         writeLogger.error("Write request failed (\(self.describe(error), privacy: .public)).")
+        if case JottacloudError.grpcStatus(let status) = error {
+            switch status {
+            case 5: return POSIXError(.ENOENT)
+            case 6: return POSIXError(.EEXIST)
+            case 7, 16: return POSIXError(.EACCES)
+            default: return POSIXError(.EIO)
+            }
+        }
+        if case JottacloudError.notInTrash = error {
+            return POSIXError(.EPERM)
+        }
         if case JottacloudError.httpStatus(let status) = error {
             switch status {
             case 404: return POSIXError(.ENOENT)
@@ -105,7 +111,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
 
     private func existingChild(named name: String, in parent: JottacloudItem) async throws -> JottacloudDirectoryEntry? {
         let snapshot = try await directoryCache.list(path: parent.path, role: parent.role)
-        return snapshot.entries.first { JottaFSWriteScope.sameName($0.entry.name, name) }
+        return snapshot.entries.first { JottaFSNames.sameName($0.entry.name, name) }
     }
 
     // MARK: Create
@@ -119,15 +125,12 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             throw POSIXError(.ENOTDIR)
         }
         let newName = try validateNewName(name)
-        guard let location = parent.childLocation(named: newName) else {
-            throw POSIXError(.EPERM)
+        if case .userTrash = parent.role {
+            return try await createTrashMetadata(named: newName, type: type, in: parent)
         }
-        let device = location.volume.device
-        let mountpoint = location.volume.mountpoint
-        let inside = JottaFSWriteScope.contains(device: device, mountpoint: mountpoint, path: location.path)
-        let isScopeFolder = type == .directory
-            && JottaFSWriteScope.isScopeRoot(device: device, mountpoint: mountpoint, path: location.path)
-        guard inside || isScopeFolder else {
+        guard let location = parent.childLocation(named: newName),
+              !(isVolumeRoot(parent) && JottaFSNames.sameName(newName, DirectoryCache.trashesName))
+        else {
             throw POSIXError(.EPERM)
         }
         guard type == .file || type == .directory else {
@@ -157,7 +160,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             staging.markModified(item.identifier, size: 0, modified: now)
         }
         await directoryCache.recordPresent(entry, inDirectory: parent.path)
-        writeLogger.info("Created \(kind == .directory ? "folder" : "file", privacy: .public) in write scope.")
+        writeLogger.info("Created a \(kind == .directory ? "folder" : "file", privacy: .public).")
 
         guard let result = FSCreateItemResult(
             newItem: item,
@@ -207,6 +210,17 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
     func writeData(_ contents: Data, to fsItem: FSItem, at offset: off_t) async throws -> FSWriteFileResult {
         guard let item = fsItem as? JottacloudItem, item.entry.kind == .file, offset >= 0 else {
             throw POSIXError(.EINVAL)
+        }
+        if case .trashLocal(let url) = item.role {
+            do {
+                _ = try JottaFSStagingFile.write(contents, to: url, at: UInt64(offset))
+            } catch {
+                throw posixError(error)
+            }
+            guard let result = FSWriteFileResult(bytesWritten: contents.count, itemAttributes: attributes(for: item), freeSpace: nil) else {
+                throw POSIXError(.EIO)
+            }
+            return result
         }
         _ = try writableLocation(of: item)
         let end = UInt64(offset) + UInt64(contents.count)
@@ -264,6 +278,35 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         guard grantsWritePermission(item) else {
             throw POSIXError(.EPERM)
         }
+        switch item.role {
+        case .trashLocal(let url):
+            if request.isValid(.size) {
+                do {
+                    try JottaFSStagingFile.truncate(url, to: request.size)
+                } catch {
+                    throw posixError(error)
+                }
+                request.consumedAttributes.insert(.size)
+            }
+        case .userTrash, .trashed:
+            // Trashed items cannot change; accept metadata-only requests
+            // (Finder sets times and flags while moving items) without effect.
+            guard !request.isValid(.size) else {
+                throw POSIXError(.EPERM)
+            }
+        default:
+            break
+        }
+        if case .remote = item.role {} else {
+            for attribute: FSItem.Attribute in [.mode, .uid, .gid, .flags, .accessTime, .modifyTime, .changeTime, .birthTime, .backupTime, .addedTime]
+                where request.isValid(attribute) {
+                request.consumedAttributes.insert(attribute)
+            }
+            guard let result = FSSetAttributesResult(attributes: attributes(for: item), freeSpace: nil) else {
+                throw POSIXError(.EIO)
+            }
+            return result
+        }
         if item.entry.kind == .file, request.isValid(.size) {
             _ = try writableLocation(of: item)
             let newSize = request.size
@@ -319,8 +362,9 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         // directory-ness lstat the path, which re-enters this very volume and
         // deadlocks the extension (seen during a sync of a folder copy).
         let volumePath = item.path
+        let mountPath = JottaFSStorage.mountPoint()?.path ?? "/Volumes/\(volumeName)"
         let mountedURL = URL(
-            fileURLWithPath: "/Volumes/\(JottaFSStorage.volumeName)/\(item.path)",
+            fileURLWithPath: "\(mountPath)/\(item.path)",
             isDirectory: false
         )
         let uploaded = UploadFlag()
@@ -340,17 +384,22 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             }
             let md5 = try JottaFSStagingFile.md5(of: snapshot)
             clock.mark("md5")
-            _ = try await client.upload(
-                volume: location.volume,
-                path: location.path,
-                from: snapshot,
-                size: size,
-                md5: md5,
-                created: staged.created,
-                modified: staged.modified,
-                progress: { sent in progress.update(bytesSent: sent) },
-                phase: { name in clock.mark(name) }
-            )
+            do {
+                _ = try await client.upload(
+                    volume: location.volume,
+                    path: location.path,
+                    from: snapshot,
+                    size: size,
+                    md5: md5,
+                    created: staged.created,
+                    modified: staged.modified,
+                    progress: { sent in progress.update(bytesSent: sent) },
+                    phase: { name in clock.mark(name) }
+                )
+            } catch {
+                writeLogger.error("Upload phases before the failure: \(clock.summary, privacy: .public)")
+                throw error
+            }
             staging.markUploaded(id, generation: staged.generation)
             uploaded.set()
             writeLogger.info("Upload phases: \(clock.summary, privacy: .public)")
@@ -358,7 +407,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         guard uploaded.isSet else {
             return
         }
-        writeLogger.info("Uploaded a file in write scope.")
+        writeLogger.info("Uploaded a file.")
         if let parent = itemStore.item(identifier: item.parentIdentifier) {
             await directoryCache.recordPresent(
                 JottacloudDirectoryEntry(entry: item.entry, role: item.role),
@@ -395,6 +444,9 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         guard let item = item as? JottacloudItem, item.entry.kind == .file else {
             throw POSIXError(.EISDIR)
         }
+        if case .trashLocal = item.role {
+            return
+        }
         _ = try writableLocation(of: item)
     }
 
@@ -426,6 +478,12 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         guard let item = fsItem as? JottacloudItem, let parent = directory as? JottacloudItem else {
             throw POSIXError(.EINVAL)
         }
+        switch item.role {
+        case .trashed, .trashLocal:
+            return try await removeFromTrash(item, from: parent)
+        default:
+            break
+        }
         let location = try writableLocation(of: item)
         let isDirectory = item.entry.kind == .directory
         if isDirectory {
@@ -442,10 +500,15 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             staging.discard(item.identifier)
             await staging.waitForUpload(item.identifier)
         }
+        // Like unlink(2) on a local disk, removal is permanent: the item is
+        // trashed and then that trashed item is deleted permanently.
+        var trashed = true
+        let started = Date()
         do {
             try await client.trash(volume: location.volume, path: location.path, isDirectory: isDirectory)
         } catch JottacloudError.httpStatus(404) {
-            // Created locally and never uploaded; nothing to trash remotely.
+            // Created locally and never uploaded; nothing to delete remotely.
+            trashed = false
         } catch {
             throw posixError(error)
         }
@@ -453,7 +516,13 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         await directoryCache.recordAbsent(name: item.entry.name, inDirectory: parent.path)
         let itemAttributes = attributes(for: item)
         itemStore.remove(item)
-        writeLogger.info("Moved an item in write scope to the Jottacloud trash.")
+        if trashed {
+            if let servicePath = target.servicePath(volume: location.volume, path: location.path) {
+                await deleteJustTrashed(servicePath: servicePath, since: started)
+            } else {
+                writeLogger.error("Removed an item to the Jottacloud trash (no permanent delete here).")
+            }
+        }
         guard let result = FSRemoveItemResult(
             itemAttributes: itemAttributes,
             directoryAttributes: attributes(for: parent),
@@ -480,12 +549,28 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             throw POSIXError(.EINVAL)
         }
         let newName = try validateNewName(destinationName)
+        if case .userTrash = destination.role {
+            switch item.role {
+            case .remote:
+                return try await moveToTrash(item, from: source, name: newName, in: destination, over: overItem)
+            default:
+                throw POSIXError(.EPERM)
+            }
+        }
+        switch item.role {
+        case .trashed, .trashLocal:
+            return try await renameFromTrash(item, from: source, to: newName, in: destination, over: overItem)
+        default:
+            break
+        }
         let from = try writableLocation(of: item)
         guard let to = destination.childLocation(named: newName),
-              to.volume == from.volume,
-              JottaFSWriteScope.contains(device: to.volume.device, mountpoint: to.volume.mountpoint, path: to.path)
+              !(isVolumeRoot(destination) && JottaFSNames.sameName(newName, DirectoryCache.trashesName))
         else {
             throw POSIXError(.EPERM)
+        }
+        guard to.volume == from.volume else {
+            throw POSIXError(.EXDEV)
         }
         let isDirectory = item.entry.kind == .directory
 
@@ -538,7 +623,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         if isDirectory {
             await directoryCache.invalidate(path: item.path)
         }
-        writeLogger.info("Renamed an item in write scope.")
+        writeLogger.info("Renamed an item.")
 
         guard let result = FSRenameItemResult(
             newName: FSFileName(string: newName),

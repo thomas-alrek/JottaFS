@@ -35,12 +35,12 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             logger.info("Probe rejected: resource URL or shared storage is unavailable.")
             return .notRecognized
         }
-        guard FileManager.default.isReadableFile(atPath: credentialsURL.path) else {
+        guard let credentials = try? JottaFSStorage.loadCredentials(from: credentialsDirectory) else {
             logger.info("Probe rejected: shared credentials are not readable.")
             return .notRecognized
         }
         return .usable(
-            name: JottaFSStorage.volumeName,
+            name: JottaFSStorage.volumeName(device: credentials.device, mountpoint: credentials.mountpoint),
             containerID: FSContainerIdentifier(uuid: Self.containerIdentifier)
         )
     }
@@ -59,22 +59,23 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             let credentials = try JottaFSStorage.loadCredentials(
                 from: credentialsDirectory
             )
-            let client = JottacloudClient(credentials: credentials) { updated in
-                try JottaFSStorage.saveCredentials(
-                    updated,
-                    to: credentialsDirectory
-                )
-            }
+            let client = JottacloudClient(
+                credentials: credentials,
+                persistCredentials: { updated in
+                    try JottaFSStorage.saveCredentials(updated, to: credentialsDirectory)
+                },
+                loadSavedCredentials: {
+                    try? JottaFSStorage.loadCredentials(from: credentialsDirectory)
+                }
+            )
             let account = try await client.listAccount()
-            guard !account.volumes.isEmpty else {
-                throw JottacloudError.noRemoteVolumes
-            }
+            let target = try await mountTarget(credentials: credentials, volumes: account.volumes, client: client)
             if account.storage.usage == nil {
                 logger.info("Account usage unavailable; reporting a minimal volume size.")
             }
             let volume = try JottaFSVolume(
                 client: client,
-                remoteVolumes: account.volumes,
+                target: target,
                 storage: account.storage,
                 accountIdentifier: credentials.username
             )
@@ -88,6 +89,31 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             )
             throw error
         }
+    }
+
+    /// The location chosen in the app (saved with the credentials), matched
+    /// case-insensitively like Jottacloud. For a backup location, its
+    /// device's service path comes from `DeviceService.List`.
+    private func mountTarget(
+        credentials: JottacloudCredentials,
+        volumes: [JottacloudRemoteVolume],
+        client: JottacloudClient
+    ) async throws -> MountTarget {
+        guard let volume = volumes.first(where: {
+            JottaFSNames.sameName($0.device, credentials.device)
+                && JottaFSNames.sameName($0.mountpoint, credentials.mountpoint)
+        }) else {
+            logger.error("The chosen Jottacloud location no longer exists.")
+            throw JottacloudError.noRemoteVolumes
+        }
+        var deviceServicePath: String?
+        if volume.device != "Jotta" {
+            deviceServicePath = try? await client.listBackupDevices().first { JottaFSNames.sameName($0.name, volume.device) }?.path
+            if deviceServicePath == nil {
+                logger.error("No service path for the backup device; the Trash is unavailable.")
+            }
+        }
+        return MountTarget(volume: volume, deviceServicePath: deviceServicePath)
     }
 
     func unloadResource(

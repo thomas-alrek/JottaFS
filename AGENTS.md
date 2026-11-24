@@ -1,9 +1,10 @@
 # Project guidance
 
-This is a native macOS Swift file system extension for browsing Jottacloud with
-Apple FSKit. It mounts one account view, with each discovered device and
-mountpoint exposed under `/<device>/<mountpoint>/`. It is read-only except
-for one write-scope folder (see below).
+This is a native macOS Swift file system extension for working with
+Jottacloud files in Finder through Apple FSKit. The user signs in in the app
+(browser OAuth or a personal login token), picks one Jottacloud location
+(a device's mountpoint, such as `Jotta/Archive`), and the app mounts that
+location as a read-write volume.
 
 ## Engineering principles
 
@@ -15,17 +16,16 @@ for one write-scope folder (see below).
   fixtures. The app stores credentials as a private property list under the
   shared app-group Application Support directory; document that boundary and
   serialize refresh-token rotation.
-- File mutations follow the reviewed design in
-  [docs/write-support-design.md](docs/write-support-design.md) and are
-  confined to `JottaFSWriteScope` (`Jotta/Archive/JottaFS-Test`). The account
-  holds the owner's personal data, and the rule is about that data during
-  development: never modify, move, delete (soft or permanent) or otherwise
-  touch files the project did not create, and never widen the scope without
-  an explicit, separate decision. Permanent deletion is a normal feature
-  (for example emptying the Trash) as long as it only affects items created
-  through the scope; never use whole-account operations such as
-  `files/v1/purge_trash`, which would also remove the owner's own trashed
-  files.
+- File mutations follow the reviewed designs in
+  [docs/write-support-design.md](docs/write-support-design.md) and
+  [docs/trash-design.md](docs/trash-design.md). The owner lifted the
+  `JottaFS-Test` write scope on 2026-11-24: the mounted location is fully
+  writable for the user. The account still holds the owner's personal data,
+  so the development rule stands: in your own testing never modify, move,
+  delete (soft or permanent), restore or otherwise touch files the project
+  did not create; create test files under `Jotta/Archive/JottaFS-Test` with
+  unique names; never trigger Empty Trash yourself; and never use
+  whole-account operations such as `files/v1/purge_trash`.
 - Make network I/O asynchronous and bounded. Use ranged downloads, short
   bounded directory caches, and avoid buffering whole files.
 - FSKit callbacks can run concurrently. Protect shared item, directory, and

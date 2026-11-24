@@ -1,66 +1,17 @@
 import CryptoKit
 import Foundation
 
-/// The only place the volume may modify. Every mutation is checked against
-/// this scope before any network request; see docs/write-support-design.md.
-public enum JottaFSWriteScope {
-    public static let device = "Jotta"
-    public static let mountpoint = "Archive"
-    /// Folder directly under `Jotta/Archive`. It did not exist before write
-    /// support, so everything in it was created through JottaFS.
-    public static let folder = "JottaFS-Test"
-
-    /// Whether `path` (relative to the mountpoint) is the scope folder itself.
-    public static func isScopeRoot(device: String, mountpoint: String, path: String) -> Bool {
-        guard isScopeMountpoint(device: device, mountpoint: mountpoint),
-              let components = components(of: path)
-        else {
-            return false
-        }
-        return components.count == 1 && sameName(components[0], folder)
-    }
-
-    /// Whether `path` (relative to the mountpoint) lies strictly inside the
-    /// scope folder. The scope folder itself is not "inside".
-    public static func contains(device: String, mountpoint: String, path: String) -> Bool {
-        guard isScopeMountpoint(device: device, mountpoint: mountpoint),
-              let components = components(of: path),
-              components.count >= 2
-        else {
-            return false
-        }
-        return sameName(components[0], folder)
-    }
-
-    /// Whether the given device/mountpoint is the one holding the scope.
-    public static func isScopeMountpoint(device: String, mountpoint: String) -> Bool {
-        sameName(device, Self.device) && sameName(mountpoint, Self.mountpoint)
-    }
-
-    /// Splits a mountpoint-relative path, rejecting empty, `.` and `..`
-    /// components so a path can never escape by traversal.
-    static func components(of path: String) -> [String]? {
-        let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
-        guard !parts.isEmpty,
-              parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." })
-        else {
-            return nil
-        }
-        return parts
-    }
-
-    /// Jottacloud names are case-insensitive. Compare exactly otherwise, so
-    /// look-alike characters never match.
-    public static func sameName(_ lhs: String, _ rhs: String) -> Bool {
-        lhs.compare(rhs, options: [.caseInsensitive, .literal]) == .orderedSame
-    }
-}
-
 public enum JottaFSNameError: Error, Equatable {
     case invalid
 }
 
 public enum JottaFSNames {
+    /// Jottacloud names are case-insensitive. Compare exactly otherwise, so
+    /// look-alike characters never match.
+    public static func sameName(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.compare(rhs, options: [.caseInsensitive, .literal]) == .orderedSame
+    }
+
     /// Characters Jottacloud cannot store (rclone encodes these instead).
     private static let forbidden = CharacterSet(charactersIn: "\"*:<>?|%/\\")
 

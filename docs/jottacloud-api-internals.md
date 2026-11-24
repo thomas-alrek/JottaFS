@@ -33,6 +33,78 @@ Never log tokens or place them in process arguments. The personal login token
 is single-use; if a mount fails after successful authentication, generate a
 new one for the next attempt.
 
+## Browser login (not implemented; researched 2026-11-24)
+
+The official macOS app (`jottad` 26.11.12 in `/Applications/Jottacloud.app`)
+logs in through the browser with a standard OAuth authorization-code flow.
+This was read from strings, symbols and disassembly of the shipped binary
+(the decompilers could not load it); nothing was executed and no login was
+attempted.
+
+1. Discovery from
+   `https://id.jottacloud.com/auth/realms/jottacloud/.well-known/openid-configuration`.
+2. A callback server on `127.0.0.1:0` (system-chosen port) serving
+   `/callback`. The `redirect_uri` sent is
+   `http://localhost:<port>/callback` (`127.0.0.1` replaced by `localhost`).
+3. The browser opens the discovered authorization endpoint with
+   `response_type=code`, `client_id`, `redirect_uri`, `scope`, a random
+   32-character `state`, and PKCE with `code_challenge_method=plain` (the
+   challenge is the 64-character verifier itself). `kc_idp_hint=alternative`
+   is added only for the app's "alternative login" button.
+4. The callback's `code` is exchanged at the token endpoint with
+   `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id` and
+   `code_verifier`. No client secret is sent (the secret-based
+   `desktop-test` client exists only in test code paths, read from an
+   environment variable).
+5. Refresh and logout use `client_id` and the refresh token, as JottaFS's
+   current refresh does. The binary contains "maximum allowed refresh token
+   reuse exceeded", consistent with rotating refresh tokens.
+
+The client ID is `desktop-mac` in the desktop build and `jottacli` in builds
+without the desktop flag, so `jottacli` (the ID JottaFS already uses)
+appears to be configured for this flow. JottaFS should not impersonate
+`desktop-mac`. The app's separate `AuthService/RegisterSession` gRPC call
+belongs to its transfer layer and is not needed for the OAuth flow.
+
+Plan for JottaFS: run the flow from the host app (not the extension) with
+`jottacli`, scope `openid offline_access`, PKCE `S256` (falling back to
+`plain` only if refused), and verify `state` on the callback (the official
+app does not appear to). A sandboxed listener needs
+`com.apple.security.network.server`.
+
+Unconfirmed: the exact `scope` the app requests (probably from discovery),
+whether Keycloak accepts any loopback port for `jottacli`, and whether S256
+is supported. One real login attempt settles all three.
+
+## Devices and mountpoints (researched 2026-11-24, not used)
+
+Static analysis only (rclone source, the web app's protobuf descriptors,
+strings in `jottad`); nothing was sent to Jottacloud.
+
+- The account root holds only devices, and a device holds only mountpoints;
+  there are no plain folders at either level.
+- JFS (rclone): create a device with `POST /jfs/<user>/<device>?type=WORKSTATION`
+  and a mountpoint with `POST /jfs/<user>/<device>/<mountpoint>` (no body).
+  rclone refuses to create mountpoints on the built-in `Jotta` device.
+- gRPC `no.jotta.openapi.device.v2.DeviceService`: `Create{installation_id,
+  display_name, type}`, `Delete{id, supports_background_jobs}`,
+  `Modify{id, installation_id, display_name, type}`, `Get`, `List`, `Match`,
+  `Claim`. `DeviceType` includes `WORKSTATION 1`, `MACBOOK 3`, `JOTTA 6`,
+  `CLI 12`. The server has a `TOO_MANY_DEVICES` error.
+- Service paths of backups are `/backup/<deviceId>/<mountpoint>/...`. The
+  desktop app creates mountpoints implicitly through uploads, removes a
+  backup with `FileService.Delete` on the mountpoint and renames it with
+  `FileService.Move`.
+- Risks: the desktop app reports "remote-only mountpoints" on its own
+  device during server-requested device checks, so mountpoints added to the
+  owner's existing backup devices could be seen as orphaned backups; a new
+  device appears in the desktop app's setup list, where linking it would
+  change its `installation_id`; `DeviceService.Delete` removes a whole
+  device and must only ever use the exact `id` of a device JottaFS created.
+- Unknown until a live test (which needs a scope decision): accepted device
+  types, whether `FileService.CreateFolder` on `/backup/<id>/<name>` creates
+  a mountpoint, and whether deleting a device trashes or removes it.
+
 ## JFS paths and directory listings
 
 The observed JFS root is:

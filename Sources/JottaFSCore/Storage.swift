@@ -19,8 +19,113 @@ public enum JottaFSStorageError: Error, LocalizedError {
 
 public enum JottaFSStorage {
     public static let applicationGroupIdentifier = "group.no.alrek.jottafs"
-    /// Volume name reported to FSKit; the system mounts at `/Volumes/<name>`.
-    public static let volumeName = "JottaCloud"
+    /// Volume name for a mounted location: the name the user chose for it in
+    /// the app, or else the location's own name ("Archive", or a backed-up
+    /// folder such as "Media"). The system mounts at `/Volumes/<name>` and
+    /// picks another path if that one is taken. A name only changes at the
+    /// next mount: renaming a mounted volume is not supported
+    /// (docs/fskit-internals.md).
+    public static func volumeName(device: String, mountpoint: String) -> String {
+        if let custom = customVolumeName(device: device, mountpoint: mountpoint) {
+            return custom
+        }
+        return defaultVolumeName(mountpoint: mountpoint)
+    }
+
+    /// The location's own name, made usable as a mount point name.
+    public static func defaultVolumeName(mountpoint: String) -> String {
+        // `/` and `:` cannot appear in a mount point name.
+        let cleaned = mountpoint
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        return cleaned.isEmpty ? "Jottacloud" : cleaned
+    }
+
+    // MARK: Custom volume names (Settings.plist, shared with the extension)
+
+    static let settingsFileName = "Settings.plist"
+    static let volumeNamesKey = "VolumeNames"
+
+    static func locationKey(device: String, mountpoint: String) -> String {
+        "\(device.lowercased())/\(mountpoint.lowercased())"
+    }
+
+    /// The name the user chose for a location, if any.
+    public static func customVolumeName(device: String, mountpoint: String) -> String? {
+        let names = loadSettings()[volumeNamesKey] as? [String: String]
+        return names?[locationKey(device: device, mountpoint: mountpoint)].flatMap(validVolumeName)
+    }
+
+    /// Saves (or, with nil, removes) the name the user chose for a location.
+    public static func setCustomVolumeName(_ name: String?, device: String, mountpoint: String) throws {
+        guard let directory = credentialsDirectoryURL() else {
+            throw JottaFSStorageError.applicationGroupUnavailable
+        }
+        var settings = loadSettings()
+        var names = settings[volumeNamesKey] as? [String: String] ?? [:]
+        let key = locationKey(device: device, mountpoint: mountpoint)
+        if let name {
+            guard let valid = validVolumeName(name) else {
+                throw POSIXError(.EINVAL)
+            }
+            names[key] = valid
+        } else {
+            names.removeValue(forKey: key)
+        }
+        settings[volumeNamesKey] = names
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let data = try PropertyListSerialization.data(fromPropertyList: settings, format: .xml, options: 0)
+        try data.write(to: directory.appendingPathComponent(settingsFileName, isDirectory: false), options: .atomic)
+    }
+
+    /// A name usable for a volume (`/Volumes/<name>`), trimmed, or nil: not
+    /// empty, not `.`/`..`, no `/`, `:` or control characters, and at most
+    /// 255 bytes of UTF-8.
+    public static func validVolumeName(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != ".", trimmed != "..",
+              !trimmed.contains("/"), !trimmed.contains(":"),
+              trimmed.utf8.count <= 255,
+              !trimmed.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+        else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func loadSettings() -> [String: Any] {
+        guard let directory = credentialsDirectoryURL(),
+              let data = try? Data(contentsOf: directory.appendingPathComponent(settingsFileName, isDirectory: false)),
+              let settings = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else {
+            return [:]
+        }
+        return settings
+    }
+
+    /// Where a JottaFS volume is mounted, from the mount table (cached
+    /// values only, so it is safe to call from the extension itself).
+    public static func mountPoint() -> URL? {
+        var mounts: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&mounts, MNT_NOWAIT)
+        guard count > 0, let mounts else {
+            return nil
+        }
+        for index in 0..<Int(count) {
+            var mount = mounts[index]
+            let type = withUnsafeBytes(of: &mount.f_fstypename) {
+                String(cString: $0.bindMemory(to: CChar.self).baseAddress!)
+            }
+            guard type == fileSystemType else {
+                continue
+            }
+            let path = withUnsafeBytes(of: &mount.f_mntonname) {
+                String(cString: $0.bindMemory(to: CChar.self).baseAddress!)
+            }
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        return nil
+    }
     /// File system type (the extension's `FSShortName`).
     public static let fileSystemType = "jottacloud"
 
@@ -105,6 +210,14 @@ public enum JottaFSStorage {
             throw JottaFSStorageError.invalidCredentialsDirectory
         }
         return directory.appendingPathComponent("credentials.plist")
+    }
+
+    /// Removes the saved credentials (signing out).
+    public static func deleteCredentials(from directory: URL) throws {
+        let url = try credentialsFileURL(in: directory)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
     }
 
     public static func loadCredentials(from directory: URL) throws -> JottacloudCredentials {

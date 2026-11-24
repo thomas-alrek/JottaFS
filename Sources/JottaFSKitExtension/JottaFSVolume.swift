@@ -10,9 +10,13 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     /// (served by the `FSVolume.XattrHandler` extension below).
     static let volumeIconName = ".VolumeIcon.icns"
     let client: JottacloudClient
-    let itemStore = ItemStore()
+    /// What the volume shows (a location or a whole backup device).
+    let target: MountTarget
+    let itemStore: ItemStore
+    let volumeName: String
     let directoryCache: DirectoryCache
     let staging: StagingArea
+    let trash: TrashStore
     private let statistics: FSStatFSResult
     private let capabilities: FSVolume.SupportedCapabilities
     private let volumeIconData: Data
@@ -27,8 +31,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         statistics
     }
 
-    /// Read-write: mutations are confined to `JottaFSWriteScope` by the
-    /// extension (and by permission bits), everything else stays read-only.
+    /// Read-write: everything inside the mounted location can be changed.
     var requestedMountOptions: FSVolume.MountOptions {
         []
     }
@@ -55,14 +58,18 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
 
     init(
         client: JottacloudClient,
-        remoteVolumes: [JottacloudRemoteVolume],
+        target: MountTarget,
         storage: JottacloudStorage,
         accountIdentifier: String
     ) throws {
         self.volumeIconData = try Self.loadVolumeIcon()
         self.client = client
+        self.target = target
+        self.itemStore = ItemStore(rootRole: target.rootRole)
+        self.volumeName = target.volumeName
         self.staging = try StagingArea()
-        self.directoryCache = DirectoryCache(client: client, volumes: remoteVolumes)
+        self.trash = try TrashStore(client: client, locationPrefix: target.trashPrefix)
+        self.directoryCache = DirectoryCache(client: client, trash: trash)
         self.statistics = FSStatFSResult(fileSystemTypeName: "jottacloud")
         self.capabilities = FSVolume.SupportedCapabilities()
         // Finder omits volumes that report no size (statfs f_blocks == 0).
@@ -77,7 +84,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         )
         super.init(
             volumeID: identifier,
-            volumeName: FSFileName(string: JottaFSStorage.volumeName)
+            volumeName: FSFileName(string: volumeName)
         )
         let blockSize: UInt64 = 4_096
         let sizes = storage.volumeSizes(blockSize: blockSize)
@@ -97,6 +104,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         guard let result = FSActivateResult(rootItem: itemStore.rootItem()) else {
             throw POSIXError(.EIO)
         }
+        let trash = trash
+        Task { await trash.start() }
         return result
     }
 
@@ -139,10 +148,10 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         // Case-insensitive like Jottacloud; prefer an exact match. The root
         // also resolves the virtual volume icon, so it uses the full list.
         let found: JottacloudDirectoryEntry?
-        if case .root = parent.role {
+        if isVolumeRoot(parent) {
             let entries = try entries(in: snapshot, for: parent)
             found = entries.first(where: { $0.entry.name == name })
-                ?? entries.first(where: { JottaFSWriteScope.sameName($0.entry.name, name) })
+                ?? entries.first(where: { JottaFSNames.sameName($0.entry.name, name) })
         } else {
             found = snapshot.entry(named: name)
         }
@@ -350,6 +359,11 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
                 length: length,
                 fileSize: item.entry.size
             )
+        case .trashLocal(let url):
+            data = try JottaFSStagingFile.read(from: url, at: UInt64(offset), length: length)
+        case .trashed:
+            // Reading trashed files is not supported yet.
+            throw POSIXError(.EACCES)
         case .volumeIcon:
             guard let startOffset = Int(exactly: offset) else {
                 throw POSIXError(.EINVAL)
@@ -396,18 +410,31 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         case (.file, false): attributes.mode = 0o444
         }
         switch item.role {
-        case .volumeIcon:
+        case .trashes:
+            // Like a real volume's `.Trashes`: d-wx-wx-wt.
+            attributes.mode = 0o1333
             attributes.flags = UInt32(UF_HIDDEN)
-        case .root:
-            // Root exposes only com.apple.FinderInfo (custom-icon flag).
-            attributes.supportsLimitedXAttrs = true
+        case .userTrash:
+            attributes.mode = 0o700
         default:
             break
+        }
+        if case .volumeIcon = item.role {
+            attributes.flags = UInt32(UF_HIDDEN)
+        }
+        if isVolumeRoot(item) {
+            // Root exposes only com.apple.FinderInfo (custom-icon flag).
+            attributes.supportsLimitedXAttrs = true
         }
         attributes.linkCount = item.entry.kind == .directory ? 2 : 1
         attributes.uid = UInt32(getuid())
         attributes.gid = UInt32(getgid())
-        let size = stagedSize(of: item) ?? item.entry.size
+        let size: UInt64
+        if case .trashLocal(let url) = item.role {
+            size = UInt64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        } else {
+            size = stagedSize(of: item) ?? item.entry.size
+        }
         attributes.size = size
         attributes.allocSize = size
         // Every time attribute must be valid: getattrlist(2) fails with EINVAL
@@ -423,6 +450,10 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         attributes.accessTime = time
         attributes.birthTime = time
         attributes.addedTime = time
+        // Finder's "Date Added" in the Trash is when the item was trashed.
+        if case .trashed(let trashed, true) = item.role, trashed.deletedAtMillis > 0 {
+            attributes.addedTime = timespec(tv_sec: Int(trashed.deletedAtMillis / 1000), tv_nsec: 0)
+        }
         attributes.backupTime = timespec(tv_sec: 0, tv_nsec: 0)
         return attributes
     }
@@ -431,7 +462,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         in snapshot: DirectorySnapshot,
         for directory: JottacloudItem
     ) throws -> [JottacloudDirectoryEntry] {
-        guard case .root = directory.role else {
+        guard isVolumeRoot(directory) else {
             return snapshot.entries
         }
         guard !snapshot.entries.contains(where: {
@@ -448,6 +479,10 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         return snapshot.entries + [
             JottacloudDirectoryEntry(entry: iconEntry, role: .volumeIcon)
         ]
+    }
+
+    func isVolumeRoot(_ item: JottacloudItem) -> Bool {
+        item.identifier == FSItem.Identifier.rootDirectory.rawValue
     }
 
     private static func loadVolumeIcon() throws -> Data {
@@ -508,10 +543,10 @@ extension JottaFSVolume: FSVolume.XattrHandler {
     }()
 
     private func isRoot(_ item: FSItem) -> Bool {
-        guard let item = item as? JottacloudItem, case .root = item.role else {
+        guard let item = item as? JottacloudItem else {
             return false
         }
-        return true
+        return isVolumeRoot(item)
     }
 
     func supportedXattrNames(for item: FSItem) -> [FSFileName] {

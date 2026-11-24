@@ -1,111 +1,264 @@
-# JottaFS
+<p align="center">
+  <img src="docs/images/app-icon.png" width="128" height="128" alt="JottaFS app icon">
+</p>
 
-A native Swift filesystem project for browsing Jottacloud on macOS. It exposes
-all account devices and mountpoints under one mounted root. The volume is
-read-only except for one write-scope folder, `Jotta/Archive/JottaFS-Test`
-(see [the write-support design](docs/write-support-design.md)).
+<h1 align="center">JottaFS</h1>
 
-## Status
+<p align="center">
+  Use your Jottacloud files in Finder on your Mac, as a disk.
+</p>
 
-The Swift API client, SwiftUI setup and mount app, and FSKit volume source are
-present. The Swift package builds and its API smoke checks pass. A signed
-Xcode build is currently blocked because the Apriil developer account is not
-configured in Xcode and no matching provisioning profiles are installed. A
-previous single-location mount worked; the new all-locations tree still needs
-runtime validation.
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-27%2B-000000?logo=apple&logoColor=white" alt="macOS 27 or later">
+  <img src="https://img.shields.io/badge/Swift-6.1-F05138?logo=swift&logoColor=white" alt="Swift 6.1">
+  <img src="https://img.shields.io/badge/FSKit-file%20system%20extension-8A5CF6" alt="FSKit file system extension">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
+  <img src="https://img.shields.io/badge/status-experimental-orange" alt="Status: experimental">
+</p>
 
-FSKit avoids the macFUSE kernel extension and Recovery security changes, but
-macOS requires the signed, installed, and enabled filesystem extension.
+JottaFS is a macOS app and file system extension. It connects to your
+Jottacloud account and shows one Jottacloud location in Finder as a disk.
+You can open, copy, change, move and delete files on this disk. JottaFS sends
+the changes to Jottacloud.
 
-## Requirements and scope
+JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
 
-- macOS 27 or later (the current handler APIs used here were introduced in
-  macOS 27).
-- Swift 6.1+ and the macOS 27 SDK for local builds; full Xcode is required for
-  packaging, signing, registering, and testing the FSKit extension.
-- Browsing, metadata, and ranged downloads everywhere.
-- Create, write, rename, and delete (to the Jottacloud trash) only inside
-  `Jotta/Archive/JottaFS-Test`; files are staged locally and uploaded on
-  close.
-- Upload progress on file icons in Finder, through the small sandboxed
-  `JottaFSProgressAgent` launch agent that the app registers on launch
-  (allow it under **System Settings → General → Login Items** if asked).
-- OAuth login-token exchange and serialized rotating refresh-token persistence.
-- One mount contains every discovered device and mountpoint, organized as
-  `/<device>/<mountpoint>/...`.
-- No writes, uploads, delete, rename, symbolic links, or white-label services.
+> [!IMPORTANT]
+> JottaFS is not an official Jottacloud product. Jottacloud AS does not make,
+> support or approve it. JottaFS uses Jottacloud interfaces that do not have
+> public documentation. These interfaces can change at any time.
 
-Jottacloud does not publish a complete API reference. The implementation uses
-observations documented by [rclone](https://rclone.org/jottacloud/) and its
-[Jottacloud backend](https://github.com/rclone/rclone/tree/master/backend).
-See [the preserved API research](docs/jottacloud-api-internals.md) and
-[FSKit implementation notes](docs/fskit-internals.md).
+## Contents
 
-## Build and local checks
+- [Features](#features)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Use JottaFS](#use-jottafs)
+- [The Trash](#the-trash)
+- [Limits](#limits)
+- [Privacy and security](#privacy-and-security)
+- [How JottaFS works](#how-jottafs-works)
+- [Development](#development)
+- [Documentation](#documentation)
+- [License](#license)
+
+## Features
+
+- **Sign in with your browser.** You sign in on jottacloud.com. JottaFS does
+  not see your password.
+- **Sign in with a personal login token.** Use this method if you do not want
+  to sign in with your browser.
+- **Mount one location.** Select Archive, Sync, Shared or a folder from a
+  computer backup. The location shows in Finder as a disk with the same name.
+- **Read and write files.** Open, copy, change, rename, move and delete files
+  and folders.
+- **Upload progress in Finder.** The file icon shows a progress bar during the
+  upload. A Finder copy is complete only when the upload is complete.
+- **Resume uploads.** If the network connection stops during an upload,
+  JottaFS tries again and continues from the last saved part.
+- **Trash.** Move to Trash, Put Back and Empty Trash work with the Jottacloud
+  trash. Refer to [The Trash](#the-trash).
+- **Mount at login.** JottaFS can mount your location automatically when you
+  log in. No window opens.
+- **Custom disk name.** In **Advanced**, you can give a location a different
+  name in Finder.
+- **Fast folders.** JottaFS keeps folder lists for a short time. Large folders
+  open quickly.
+
+## Requirements
+
+- A Mac with macOS 27 or later.
+- A Jottacloud account.
+- To build JottaFS: Xcode with the macOS 27 SDK, and an Apple Developer team.
+  The FSKit extension must have a signature.
+
+## Install
+
+There is no released version yet. Build JottaFS from the source code.
+
+1. Clone the repository:
+
+   ```sh
+   git clone https://github.com/thomas-alrek/JottaFS.git
+   ```
+
+2. Open `JottaFS.xcodeproj` in Xcode.
+3. For each target, select your team in **Signing & Capabilities**.
+4. Select the **JottaFS** scheme. Then select **Product → Run**.
+5. Move the app to the `Applications` folder if you want to mount at login.
+   macOS starts login items from a fixed location.
+
+### Turn on the file system extension
+
+macOS must allow the JottaFS extension one time.
+
+1. Open **System Settings**.
+2. Go to **General → Login Items & Extensions → File System Extensions**.
+3. Turn on **JottaFS**.
+
+The JottaFS app tells you when you must do this. The app finds the change
+automatically.
+
+### Allow upload progress (optional)
+
+JottaFS uses a small background helper to show upload progress on file icons
+in Finder. If macOS asks, allow **JottaFS** in **System Settings → General →
+Login Items & Extensions**.
+
+This step is optional. Without the helper, all functions work. The only
+difference is that the progress bar on a file icon does not move during the
+upload. It shows the upload as complete at the end.
+
+## Use JottaFS
+
+### Sign in
+
+1. Open JottaFS.
+2. Click **Sign In with Jottacloud**. Your browser opens jottacloud.com.
+3. Sign in to Jottacloud. The browser tab closes, and JottaFS shows your
+   account.
+
+To sign in with a personal login token:
+
+1. Click **Sign in with a personal login token instead**.
+2. Click **Open** to open the Jottacloud security settings.
+3. Under **Personal login token**, click **Generate**. Copy the token.
+4. Paste the token into JottaFS. Click **Sign In**.
+
+You can use a token one time only. JottaFS keeps you signed in after that.
+You do not need to keep the token.
+
+### Mount a location
+
+1. Select a location in the list. Locations from a computer backup show under
+   the name of the computer.
+2. Click **Mount**, or double-click the location.
+
+The location shows in Finder as a disk. JottaFS opens it in a Finder window.
+While a location is mounted, you cannot select a different location.
+
+### Give the disk a different name
+
+1. Select the location in the list.
+2. Click **Advanced**.
+3. Type a name in **Name in Finder**. Then click **Save**.
+
+The disk gets the new name the next time you mount it. To use the name of the
+location again, delete the name and click **Save**. You cannot change the name
+while the location is mounted.
+
+### Unmount
+
+Do one of these steps:
+
+- In JottaFS, click **Unmount**. Then click **Unmount** again to confirm.
+- In Finder, click **Eject** next to the disk.
+
+Close all files on the disk before you unmount it. Your files stay in
+Jottacloud.
+
+### Mount at login
+
+Select **Mount automatically when I log in**. When you log in, JottaFS mounts
+the last location that you mounted. Then JottaFS closes. No window opens. If
+the mount fails, JottaFS opens its window and shows the problem.
+
+### Sign out
+
+Click **Sign Out**, then click **Sign Out** again to confirm. JottaFS unmounts
+the disk first. Then it deletes the saved sign-in from your Mac. Your files
+stay in Jottacloud.
+
+## The Trash
+
+Finder's Trash shows the items in the Jottacloud trash that come from the
+mounted location.
+
+| In Finder | In Jottacloud |
+|---|---|
+| **Move to Trash** | Moves the item to the Jottacloud trash. |
+| **Put Back** | Restores the item to its original location. |
+| **Delete Immediately** | Deletes the item permanently. |
+| **Empty Trash** | Deletes all items in the Trash of this disk permanently. |
+| `rm` in Terminal | Deletes the item permanently, as on a local disk. |
+
+> [!WARNING]
+> **Empty Trash** also deletes items that you moved to the trash on
+> jottacloud.com or on a different device, if they come from the mounted
+> location. You cannot restore permanently deleted items.
+
+Before JottaFS deletes an item permanently, it makes sure that the item is in
+the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
+
+## Limits
+
+- You can mount one location at a time.
+- You cannot rename the disk in Finder. Use **Advanced** in JottaFS instead.
+- You cannot open files that are in the Trash.
+- Symbolic links and hard links are not supported.
+- JottaFS keeps a full copy of a file on your Mac before the upload starts.
+  Jottacloud must know the checksum of the complete file before the upload.
+  The maximum file size for a write is 2 GiB.
+- The **Get Info** window shows the format as "Unknown (jottacloud)".
+- JottaFS keeps folder lists for a short time. Changes that you make on a
+  different device can take some seconds to show in Finder.
+
+## Privacy and security
+
+- JottaFS sends data only to Jottacloud: `id.jottacloud.com`,
+  `api.jottacloud.com`, `jfs.jottacloud.com`, `grpc.jotta.cloud` and the
+  upload hosts that Jottacloud gives for each upload.
+- Browser sign-in uses OAuth 2.0 with PKCE. The browser returns to JottaFS
+  through a temporary address on your Mac (`localhost`).
+- JottaFS keeps the sign-in tokens in a private file in the app group folder
+  on your Mac. Only the JottaFS app and its extension can read this file.
+- JottaFS does not write tokens to logs.
+- The app and the extension run in the macOS App Sandbox.
+
+## How JottaFS works
+
+| Part | Function |
+|---|---|
+| `JottaFS` (app) | Sign-in, location list, mount and unmount, mount at login. |
+| `JottaFSKitExtension` | The FSKit file system. It shows the location and does all file operations. |
+| `JottaFSCore` | The Jottacloud client: sign-in, folder lists, downloads, uploads and the trash. |
+| `JottaFSUnmountService` | An XPC service that unmounts the disk through Disk Arbitration. |
+| `JottaFSProgressAgent` | A background helper that shows upload progress on file icons in Finder. |
+
+## Development
+
+Build the extension code and run the checks:
 
 ```sh
 swift build --target JottaFSKitExtension
 swift run jottafs-checks
 ```
 
-The app manages login and mounting. Open `JottaFS.xcodeproj`, select the
-`JottaFS` scheme, then build and run the app. Credentials are stored
-automatically as a binary `credentials.plist` in the app group's
-`Library/Application Support/JottaFS` directory. The directory and file
-are private to the app and its FSKit extension. If saved credentials exist, the
-app loads them automatically at startup. Otherwise, enter a Jottacloud personal
-login token and choose **Connect**. The token is exchanged for OAuth credentials
-and is not saved. Credentials in the previous app group are not migrated; sign
-in again in JottaFS. The previous credentials remain untouched.
+These commands do not make or sign the app. Use Xcode to build, sign and test
+the app and the extension.
 
-Run only one copy of JottaFS at a time, from a consistent path. FSKit
-registers the extension against its containing app; running copies from both
-`~/Applications` and Xcode's DerivedData can make `launchd` reject the
-extension with ExtensionKit error 2. If that happens, quit both copies,
-relaunch only the intended copy, and enable its extension in System Settings.
+After you change the extension:
 
-Click **Open Extension Settings** and make sure JottaFS is enabled. Select
-**Mount Jottacloud**. FSKit
-mounts the account under `/Volumes`, with each device and mountpoint represented
-as a folder, and the app displays the resulting path. The root resolves a
-read-only `.VolumeIcon.icns` by name (it is not listed, even by `ls -a`), and
-the root's `com.apple.FinderInfo` sets the custom-icon flag so Finder uses it. The app detects an
-existing mount on launch and when reactivated; it offers **Unmount Jottacloud**
-instead of **Mount Jottacloud** while mounted. Use **Show in Finder** to reveal
-the mounted volume in Finder; this uses Finder automation, so allow JottaFS to
-control Finder when macOS prompts or in **System Settings → Privacy & Security
-→ Automation**. Unmounting is non-forced and goes through the embedded
-`JottaFSUnmountService` (DiskArbitration); close open files or Finder windows
-on the volume if macOS reports it is busy.
+1. Unmount the disk.
+2. Build the app in Xcode.
+3. Mount the disk again.
 
-The volume is mounted as a local volume, so Finder lists it in the sidebar
-under **Locations** (with **Finder → Settings → Sidebar → Locations** enabled
-for disks).
+If macOS does not show the new extension, turn **JottaFS** off and on in
+**File System Extensions**. If that does not help, restart your Mac.
 
-The host app requires the `com.apple.developer.fskit.mount` entitlement. Both
-targets require the `group.no.alrek.jottafs` app group for credentials access
-and the network-client entitlement. The extension also requires
-`com.apple.developer.fskit.fsmodule`. Matching development profiles must grant
-the app group to both targets before the app can be signed and enabled. Enable
-the extension in System Settings if prompted.
-The host app, extension, and core framework bundle IDs are
-`no.alrek.jottafs`, `no.alrek.jottafs.extension`, and
-`no.alrek.jottafs.core`, respectively.
+> [!CAUTION]
+> Your Jottacloud account contains your own files. Test changes only on files
+> that you make for the test.
 
-The app and extension share credentials through the app group. The FSKit mount
-resource is an empty, non-secret `JottaCloudMount` directory in the app-group
-container, passed as an `FSPathURLResource`; it is separate from the
-credentials directory and holds no data.
+## Documentation
 
-Do not use `mount -t jottacloud`: that command expects a legacy
-`/Library/Filesystems/jottacloud.fs` helper, which this project does not
-provide. The supported flow uses `FSClient.mountSingleVolume`. The all-location
-tree and account reads need runtime verification. Share any error shown by the
-app rather than changing Startup Security settings.
+- [Jottacloud API research](docs/jottacloud-api-internals.md)
+- [FSKit notes](docs/fskit-internals.md)
+- [Write support design](docs/write-support-design.md)
+- [Trash design](docs/trash-design.md)
 
-## Project guidance
+## License
 
-- [Agent instructions](AGENTS.md)
-- [Jottacloud API internals](docs/jottacloud-api-internals.md)
-- [FSKit internals](docs/fskit-internals.md)
-- [Project development skill](.agents/skills/jottafs/SKILL.md)
+JottaFS is available under the [MIT License](LICENSE).
+
+Jottacloud is a trademark of Jottacloud AS.

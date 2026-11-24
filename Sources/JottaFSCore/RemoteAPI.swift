@@ -1,4 +1,6 @@
+import CryptoKit
 import Foundation
+import Security
 
 public enum JottacloudError: Error, LocalizedError {
     case invalidLoginToken
@@ -13,6 +15,10 @@ public enum JottacloudError: Error, LocalizedError {
     case untrustedUploadURL(host: String)
     case uploadNotVerified
     case unexpectedAllocateResponse(keys: [String])
+    case grpcStatus(Int)
+    case notInTrash
+    case browserLoginFailed(String)
+    case browserLoginStateMismatch
 
     public var errorDescription: String? {
         switch self {
@@ -40,6 +46,14 @@ public enum JottacloudError: Error, LocalizedError {
             "Jottacloud did not confirm the uploaded file's size and checksum."
         case .unexpectedAllocateResponse(let keys):
             "Unexpected upload allocation response (keys: \(keys.joined(separator: ", ")))."
+        case .grpcStatus(let status):
+            "Jottacloud returned gRPC status \(status)."
+        case .notInTrash:
+            "The item is not in the Jottacloud trash, so it was not deleted permanently."
+        case .browserLoginFailed(let reason):
+            "Jottacloud did not complete the sign-in (\(reason))."
+        case .browserLoginStateMismatch:
+            "The sign-in response did not match this sign-in attempt."
         }
     }
 }
@@ -122,12 +136,17 @@ public struct JottacloudRemoteVolume: Sendable, Equatable, Identifiable {
 
 public struct JottacloudCredentials: Codable, Sendable, Equatable {
     public var username: String
-    public let device: String
-    public let mountpoint: String
+    /// The Jottacloud location (device/mountpoint) mounted as the volume.
+    public var device: String
+    public var mountpoint: String
     public var accessToken: String
     public var refreshToken: String
     public var expiresAt: Date
     public var tokenEndpoint: URL
+    /// The account holder's name and email, for display only (optional:
+    /// credentials saved before these were added do not have them).
+    public var accountName: String?
+    public var accountEmail: String?
 
     public init(
         username: String,
@@ -159,16 +178,23 @@ public actor JottacloudClient {
     private let allowsTokenRefresh: Bool
     private var credentials: JottacloudCredentials
     private let persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)?
+    /// Reads the newest saved credentials. The app and the file system
+    /// extension each hold a client for the same account; refresh tokens
+    /// rotate, so before refreshing, a client adopts tokens the other one
+    /// saved instead of using an already rotated refresh token.
+    private let loadSavedCredentials: (@Sendable () -> JottacloudCredentials?)?
     private var refreshTask: Task<JottacloudCredentials, Error>?
 
     public init(
         credentials: JottacloudCredentials,
         allowsTokenRefresh: Bool = true,
-        persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)? = nil
+        persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)? = nil,
+        loadSavedCredentials: (@Sendable () -> JottacloudCredentials?)? = nil
     ) {
         self.credentials = credentials
         self.allowsTokenRefresh = allowsTokenRefresh
         self.persistCredentials = persistCredentials
+        self.loadSavedCredentials = loadSavedCredentials
         self.http = URLSession(configuration: .ephemeral)
         let configuration = URLSessionConfiguration.ephemeral
         self.authHTTP = URLSession(
@@ -212,10 +238,25 @@ public actor JottacloudClient {
             ]
         )
         let tokens = try JSONDecoder().decode(TokenResponse.self, from: tokenData)
+        return try await makeSignedInClient(
+            tokens: tokens,
+            tokenEndpoint: tokenEndpoint,
+            device: device,
+            mountpoint: mountpoint,
+            persistCredentials: persistCredentials
+        )
+    }
+
+    private static func makeSignedInClient(
+        tokens: TokenResponse,
+        tokenEndpoint: URL,
+        device: String,
+        mountpoint: String,
+        persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)?
+    ) async throws -> JottacloudClient {
         guard let refreshToken = tokens.refreshToken else {
             throw JottacloudError.missingRefreshToken
         }
-
         let client = JottacloudClient(
             credentials: JottacloudCredentials(
                 username: "",
@@ -229,9 +270,27 @@ public actor JottacloudClient {
             persistCredentials: persistCredentials
         )
         var credentials = await client.currentCredentials()
-        credentials.username = try await client.fetchUsername()
+        let customer = try await client.fetchCustomer()
+        credentials.username = customer.username
+        credentials.accountName = customer.name
+        credentials.accountEmail = customer.email
         await client.replaceCredentials(credentials)
         return client
+    }
+
+    /// The account holder's name and email (for display).
+    public func fetchAccountProfile() async throws -> (name: String?, email: String?) {
+        let customer = try await fetchCustomer()
+        credentials.accountName = customer.name
+        credentials.accountEmail = customer.email
+        return (customer.name, customer.email)
+    }
+
+    /// Changes the location mounted as the volume (saved with the
+    /// credentials by the caller).
+    public func setLocation(device: String, mountpoint: String) {
+        credentials.device = device
+        credentials.mountpoint = mountpoint
     }
 
     public func currentCredentials() -> JottacloudCredentials {
@@ -256,15 +315,20 @@ public actor JottacloudClient {
 
         var volumes: [JottacloudRemoteVolume] = []
         for device in devices {
-            let deviceURL = try Self.makeJFSPathURL([credentials.username, device])
-            let deviceResponse = try await authorizedGet(url: deviceURL)
-            try Self.checkSuccess(deviceResponse.statusCode)
-            let mountpoints = try parseDeviceMountpointNames(deviceResponse.data)
+            let mountpoints = try await listMountpoints(device: device)
             volumes.append(contentsOf: mountpoints.map {
                 JottacloudRemoteVolume(device: device, mountpoint: $0)
             })
         }
         return (volumes, storage)
+    }
+
+    /// The mountpoints of one device (for a backup device, its backup sets).
+    public func listMountpoints(device: String) async throws -> [String] {
+        let deviceURL = try Self.makeJFSPathURL([credentials.username, device])
+        let deviceResponse = try await authorizedGet(url: deviceURL)
+        try Self.checkSuccess(deviceResponse.statusCode)
+        return try parseDeviceMountpointNames(deviceResponse.data)
     }
 
     public func listDirectory(
@@ -409,7 +473,7 @@ public actor JottacloudClient {
         }
     }
 
-    private func fetchUsername() async throws -> String {
+    private func fetchCustomer() async throws -> CustomerInfo {
         let url = Self.apiRoot.appending(path: "account/v1/customer")
         let response = try await authorizedGet(url: url)
         try Self.checkSuccess(response.statusCode)
@@ -417,7 +481,7 @@ public actor JottacloudClient {
         guard !customer.username.isEmpty else {
             throw JottacloudError.missingUsername
         }
-        return customer.username
+        return customer
     }
 
     private func authorizedGet(
@@ -466,6 +530,17 @@ public actor JottacloudClient {
         if let refreshTask {
             credentials = try await refreshTask.value
             return credentials.accessToken
+        }
+        if let saved = loadSavedCredentials?(),
+           saved.username == credentials.username,
+           saved.refreshToken != credentials.refreshToken {
+            // Another process already rotated the tokens.
+            credentials.accessToken = saved.accessToken
+            credentials.refreshToken = saved.refreshToken
+            credentials.expiresAt = saved.expiresAt
+            if saved.expiresAt.timeIntervalSinceNow > 30 {
+                return credentials.accessToken
+            }
         }
 
         let currentCredentials = credentials
@@ -681,9 +756,11 @@ struct LoginToken: Decodable {
 
 private struct WellKnown: Decodable {
     let tokenEndpoint: String
+    let authorizationEndpoint: String?
 
     enum CodingKeys: String, CodingKey {
         case tokenEndpoint = "token_endpoint"
+        case authorizationEndpoint = "authorization_endpoint"
     }
 }
 
@@ -701,6 +778,27 @@ private struct TokenResponse: Decodable {
 
 private struct CustomerInfo: Decodable {
     let username: String
+    let name: String?
+    let email: String?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        username = try container.decode(String.self, forKey: .username)
+        // Display only: ignore missing or unexpected values.
+        name = (try? container.decodeIfPresent(String.self, forKey: .name))?.nilIfBlank
+        email = (try? container.decodeIfPresent(String.self, forKey: .email))?.nilIfBlank
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case username, name, email
+    }
+}
+
+private extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }
 
 private func formEncode(_ value: String) -> String {
@@ -1070,8 +1168,8 @@ private func parseTimestamp(_ value: String) -> Date? {
 
 // MARK: - Mutations
 //
-// Callers must enforce `JottaFSWriteScope` before calling these; the client
-// itself only performs the request. Deletes always go to the Jottacloud trash.
+// The client only performs the requests; the file system decides what may
+// change. `trash` sends items to the Jottacloud trash.
 extension JottacloudClient {
     public func createFolder(volume: JottacloudRemoteVolume, path: String) async throws {
         let url = try Self.jfsMutationURL(
@@ -1157,7 +1255,7 @@ extension JottacloudClient {
         let maximumAttempts = 5
         for attempt in 1...maximumAttempts {
             do {
-                let allocated = try await allocateUpload(url: allocateURL, body: body)
+                let allocated = try await allocateUpload(url: allocateURL, body: body, phase: phase)
                 phase?("allocated (state \(allocated.state ?? "none"), resume \(allocated.resumePosition ?? 0))")
                 if allocated.state == "COMPLETED" {
                     break
@@ -1166,7 +1264,8 @@ extension JottacloudClient {
                     allocated,
                     from: fileURL,
                     size: size,
-                    progress: progress
+                    progress: progress,
+                    phase: phase
                 )
                 phase?("transferred")
                 break
@@ -1192,9 +1291,16 @@ extension JottacloudClient {
 
     // MARK: Helpers
 
-    private func allocateUpload(url: URL, body: Data) async throws -> AllocateResponse {
+    private func allocateUpload(
+        url: URL,
+        body: Data,
+        phase: (@Sendable (String) -> Void)?
+    ) async throws -> AllocateResponse {
         let response = try await authorizedSend { token in
             Self.mutationRequest(url: url, accessToken: token, contentType: "application/json", body: body)
+        }
+        if !(200..<300).contains(response.statusCode) {
+            phase?("allocate rejected: HTTP \(response.statusCode)\(Self.errorSummary(response.data))")
         }
         try Self.checkSuccess(response.statusCode)
         do {
@@ -1211,7 +1317,8 @@ extension JottacloudClient {
         _ allocated: AllocateResponse,
         from fileURL: URL,
         size: UInt64,
-        progress: (@Sendable (_ bytesSent: Int64) -> Void)?
+        progress: (@Sendable (_ bytesSent: Int64) -> Void)?,
+        phase: (@Sendable (String) -> Void)?
     ) async throws {
         guard let uploadURLString = allocated.uploadURL else {
             throw JottacloudError.unexpectedAllocateResponse(keys: ["missing upload_url"])
@@ -1243,7 +1350,26 @@ extension JottacloudClient {
             }
             return request
         }
+        if !(200..<300).contains(response.statusCode) {
+            phase?("upload rejected: HTTP \(response.statusCode)\(Self.errorSummary(response.data))")
+        }
         try Self.checkSuccess(response.statusCode)
+    }
+
+    /// Jottacloud's error id and cause (an exception name) from an error
+    /// response, for logs. Never the message, which can contain paths.
+    static func errorSummary(_ data: Data) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return ""
+        }
+        var parts: [String] = []
+        if let cause = object["cause"] as? String {
+            parts.append("cause \(cause.split(separator: ":").first.map(String.init) ?? cause)")
+        }
+        if let id = object["error_id"] as? String {
+            parts.append("error_id \(id)")
+        }
+        return parts.isEmpty ? " (keys: \(object.keys.sorted().joined(separator: ",")))" : " (\(parts.joined(separator: ", ")))"
     }
 
     /// Failures worth retrying with a resumed upload: network interruptions
@@ -1403,72 +1529,250 @@ private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @u
     }
 }
 
-// MARK: - TEMPORARY read-only trash API probe (remove after the trash
-// investigation). Only listing endpoints are allowed.
-extension JottacloudClient {
-    public enum ProbeTarget: Sendable {
-        /// POST JSON to `https://api.jottacloud.com/<endpoint>`; endpoint must be a listing.
-        case apiJSON(endpoint: String, body: [String: String])
-        /// GET a JFS path below the account (`/jfs/<user>/<segments…>`).
-        case jfs(segments: [String])
+// MARK: - Trash (gRPC-Web FileService; docs/trash-design.md)
+
+/// An item as returned by `FileService.GetPath`. `path` is the service path,
+/// for example `/Archive/folder/file` for `Jotta/Archive/folder/file`.
+public struct JottacloudPathItem: Sendable, Equatable {
+    public let path: String
+    public let name: String
+    public let isFolder: Bool
+    public let size: UInt64
+    public let modified: Date?
+    /// Milliseconds since 1970 when the item was trashed; 0 if it is live.
+    public let deletedAtMillis: UInt64
+
+    public init(path: String, name: String, isFolder: Bool, size: UInt64, modified: Date?, deletedAtMillis: UInt64) {
+        self.path = path
+        self.name = name
+        self.isFolder = isFolder
+        self.size = size
+        self.modified = modified
+        self.deletedAtMillis = deletedAtMillis
     }
 
-    public func probe(_ target: ProbeTarget) async throws -> (status: Int, data: Data) {
-        switch target {
-        case .apiJSON(let endpoint, let body):
-            guard ["files/v2/list_folder"].contains(endpoint) else {
-                throw POSIXError(.EPERM)
-            }
-            let url = Self.apiRoot.appending(path: endpoint)
-            var json: [String: Any] = [:]
-            for (key, value) in body {
-                switch value {
-                case "true": json[key] = true
-                case "false": json[key] = false
-                default: json[key] = value
-                }
-            }
-            let data = try JSONSerialization.data(withJSONObject: json)
-            let response = try await authorizedSend { token in
-                Self.mutationRequest(url: url, accessToken: token, contentType: "application/json", body: data)
-            }
-            return (response.statusCode, response.data)
-        case .jfs(let segments):
-            let url = try Self.makeJFSPathURL([credentials.username] + segments)
-            let response = try await authorizedGet(url: url)
-            return (response.statusCode, response.data)
-        }
+    public var isTrashed: Bool {
+        deletedAtMillis != 0
     }
 }
 
-// MARK: - TEMPORARY read-only gRPC-Web probe (trash investigation).
 extension JottacloudClient {
     static let grpcWebRoot = URL(string: "https://grpc.jotta.cloud/")!
+    static let fileService = "no.jotta.openapi.file.v2.FileService"
+    static let trashPath = "/trash"
+    /// gRPC status codes used here.
+    public static let grpcNotFound = 5
+    static let grpcUnauthenticated = 16
 
-    /// Calls `FileService/ListFolder` over gRPC-Web. Read-only by allowlist.
-    /// Returns the HTTP status, the grpc-status trailer and the strings
-    /// found in the response message (field-agnostic decoding).
-    public func probeListFolder(path: String, includeDeleted: Bool) async throws -> (status: Int, grpcStatus: String, strings: [String]) {
-        var message = Data()
-        Self.appendProtobufString(field: 1, path, to: &message)
-        if includeDeleted {
-            message.append(contentsOf: [0x10, 0x01]) // field 2, varint true
+    /// The service path of `path` in a `Jotta` mountpoint, for example
+    /// `/archive/folder` for `Jotta/Archive/folder`. Other devices (backups)
+    /// are not mapped yet and return nil.
+    public static func servicePath(device: String, mountpoint: String, path: String) -> String? {
+        guard device == "Jotta", !mountpoint.isEmpty, !mountpoint.contains("/") else {
+            return nil
         }
+        let root = "/" + mountpoint.lowercased()
+        return path.isEmpty ? root : root + "/" + path
+    }
+
+    /// The service accepts lower-case first components (`/archive/...`, as
+    /// the web app sends); listings return them capitalised (`/Archive/...`).
+    public static func requestPath(_ path: String) -> String {
+        let parts = path.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: true)
+        guard let first = parts.first else {
+            return path
+        }
+        let rest = parts.count > 1 ? "/" + parts[1] : ""
+        return "/" + first.lowercased() + rest
+    }
+
+    /// One page of the Jottacloud trash, newest first; the returned cursor
+    /// is nil after the last page.
+    public func trashPage(cursor: String?, limit: UInt64) async throws -> (items: [JottacloudPathItem], cursor: String?) {
+        let page = try await getPath(
+            Self.trashPath,
+            includeChildren: true,
+            includeDeleted: true,
+            limit: limit,
+            sort: 4,
+            cursor: cursor
+        )
+        let next = page.cursor.isEmpty || page.children.isEmpty ? nil : page.cursor
+        return (page.children, next)
+    }
+
+    /// Children of a folder (for example a trashed folder), paged.
+    public func listChildren(
+        of path: String,
+        includeDeleted: Bool,
+        maximumEntries: Int,
+        sort: UInt64 = 1
+    ) async throws -> (items: [JottacloudPathItem], complete: Bool) {
+        var items: [JottacloudPathItem] = []
+        var cursor: String?
+        repeat {
+            let page = try await getPath(
+                path,
+                includeChildren: true,
+                includeDeleted: includeDeleted,
+                limit: UInt64(min(500, max(1, maximumEntries - items.count))),
+                sort: sort,
+                cursor: cursor
+            )
+            items += page.children
+            cursor = page.cursor.isEmpty || page.children.isEmpty ? nil : page.cursor
+        } while cursor != nil && items.count < maximumEntries
+        return (items, cursor == nil)
+    }
+
+    /// One item, or nil if it does not exist. With `includeDeleted`, a
+    /// trashed item at `path` is returned too.
+    public func pathItem(_ path: String, includeDeleted: Bool) async throws -> JottacloudPathItem? {
+        do {
+            return try await getPath(path, includeChildren: false, includeDeleted: includeDeleted, limit: 1, sort: 0, cursor: nil).item
+        } catch JottacloudError.grpcStatus(Self.grpcNotFound) {
+            return nil
+        }
+    }
+
+    /// Restores a trashed item to its original location.
+    public func restore(path: String) async throws {
+        var message = Data()
+        Self.appendProtobufString(field: 1, Self.requestPath(path), to: &message)
+        _ = try await grpcCall("Restore", message)
+    }
+
+    /// Permanently deletes one trashed item. The item at `path` is looked up
+    /// first and must be in the trash (and, if given, be the deletion at
+    /// `expectedDeletedAtMillis`); a live item is never deleted.
+    public func deletePermanently(path: String, expectedDeletedAtMillis: UInt64?) async throws {
+        guard let item = try await pathItem(path, includeDeleted: true), item.isTrashed else {
+            throw JottacloudError.notInTrash
+        }
+        if let expectedDeletedAtMillis, item.deletedAtMillis != expectedDeletedAtMillis {
+            throw JottacloudError.notInTrash
+        }
+        var message = Data()
+        Self.appendProtobufString(field: 1, Self.requestPath(path), to: &message)
+        _ = try await grpcCall("DeletePermanently", message)
+    }
+
+    private func getPath(
+        _ path: String,
+        includeChildren: Bool,
+        includeDeleted: Bool,
+        limit: UInt64,
+        sort: UInt64,
+        cursor: String?
+    ) async throws -> (item: JottacloudPathItem?, children: [JottacloudPathItem], cursor: String) {
+        // GetPathRequest: path 1, sort 2, limit 3, include_children 4,
+        // include_deleted 5, cursor 6.
+        var message = Data()
+        Self.appendProtobufString(field: 1, Self.requestPath(path), to: &message)
+        if sort != 0 {
+            message.append(0x10)
+            Self.appendVarint(sort, to: &message)
+        }
+        message.append(0x18)
+        Self.appendVarint(limit, to: &message)
+        if includeChildren { message.append(contentsOf: [0x20, 0x01]) }
+        if includeDeleted { message.append(contentsOf: [0x28, 0x01]) }
+        if let cursor { Self.appendProtobufString(field: 6, cursor, to: &message) }
+        let response = try await grpcCall("GetPath", message)
+        return Self.decodeGetPathResponse(response)
+    }
+
+    /// GetPathResponse: path_item 1 (children 13), cursor 2.
+    static func decodeGetPathResponse(_ bytes: [UInt8]) -> (item: JottacloudPathItem?, children: [JottacloudPathItem], cursor: String) {
+        var item: JottacloudPathItem?
+        var children: [JottacloudPathItem] = []
+        var cursor = ""
+        for field in protobufFields(bytes) {
+            if field.number == 1, let itemBytes = field.bytes {
+                item = decodePathItem(itemBytes)
+                for child in protobufFields(itemBytes) where child.number == 13 {
+                    if let childBytes = child.bytes {
+                        children.append(decodePathItem(childBytes))
+                    }
+                }
+            } else if field.number == 2, let bytes = field.bytes {
+                cursor = String(decoding: bytes, as: UTF8.self)
+            }
+        }
+        return (item, children, cursor)
+    }
+
+    /// PathItem: path 1, name 2, type 4 (1 file, 2 folder), size 7,
+    /// modified_at_millis 10, deleted_at_millis 11.
+    static func decodePathItem(_ bytes: [UInt8]) -> JottacloudPathItem {
+        var path = "", name = ""
+        var type: UInt64 = 0, size: UInt64 = 0, modified: UInt64 = 0, deleted: UInt64 = 0
+        for field in protobufFields(bytes) {
+            switch field.number {
+            case 1: path = field.bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
+            case 2: name = field.bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
+            case 4: type = field.varint ?? 0
+            case 7: size = field.varint ?? 0
+            case 10: modified = field.varint ?? 0
+            case 11: deleted = field.varint ?? 0
+            default: break
+            }
+        }
+        return JottacloudPathItem(
+            path: path,
+            name: name,
+            isFolder: type == 2,
+            size: size,
+            modified: modified == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(modified) / 1000),
+            deletedAtMillis: deleted
+        )
+    }
+
+    /// One unary gRPC-Web call; returns the response message. A rejected
+    /// token (HTTP 401 or UNAUTHENTICATED) is refreshed once.
+    private func grpcCall(_ method: String, _ message: Data, service: String = fileService) async throws -> [UInt8] {
         var frame = Data([0x00])
         var length = UInt32(message.count).bigEndian
         frame.append(Data(bytes: &length, count: 4))
         frame.append(message)
-        let url = Self.grpcWebRoot.appending(path: "no.jotta.openapi.file.v2.FileService/ListFolder")
-        let response = try await authorizedSend { token in
-            var request = Self.mutationRequest(url: url, accessToken: token, contentType: "application/grpc-web+proto", body: frame)
-            request.setValue("1", forHTTPHeaderField: "X-Grpc-Web")
-            request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Accept")
-            return request
+        let url = Self.grpcWebRoot.appending(path: "\(service)/\(method)")
+        let initialToken = try await validAccessToken()
+        var result = try await grpcSend(url: url, frame: frame, token: initialToken)
+        if result.httpStatus == 401 || result.grpcStatus == Self.grpcUnauthenticated {
+            let latestToken = try await refreshAfterRejection(initialToken)
+            result = try await grpcSend(url: url, frame: frame, token: latestToken)
         }
-        var strings: [String] = []
-        var grpcStatus = "?"
+        guard result.httpStatus == 200 else {
+            throw JottacloudError.httpStatus(result.httpStatus)
+        }
+        guard let status = result.grpcStatus else {
+            throw JottacloudError.grpcStatus(-1)
+        }
+        guard status == 0 else {
+            throw JottacloudError.grpcStatus(status)
+        }
+        return result.message
+    }
+
+    private func grpcSend(url: URL, frame: Data, token: String) async throws -> (httpStatus: Int, grpcStatus: Int?, message: [UInt8]) {
+        var request = Self.mutationRequest(url: url, accessToken: token, contentType: "application/grpc-web+proto", body: frame)
+        request.setValue("1", forHTTPHeaderField: "X-Grpc-Web")
+        request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Accept")
+        let (data, response) = try await http.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw JottacloudError.httpStatus(-1)
+        }
+        let parsed = Self.parseGRPCWebBody([UInt8](data))
+        // A trailers-only response carries the status in the HTTP headers.
+        let headerStatus = httpResponse.value(forHTTPHeaderField: "grpc-status").flatMap(Int.init)
+        return (httpResponse.statusCode, parsed.status ?? headerStatus, parsed.message)
+    }
+
+    /// Splits a gRPC-Web body into the (first) message and the trailer status.
+    static func parseGRPCWebBody(_ body: [UInt8]) -> (message: [UInt8], status: Int?) {
+        var message: [UInt8] = []
+        var status: Int?
         var offset = 0
-        let body = [UInt8](response.data)
         while offset + 5 <= body.count {
             let flag = body[offset]
             let size = Int(UInt32(body[offset + 1]) << 24 | UInt32(body[offset + 2]) << 16 | UInt32(body[offset + 3]) << 8 | UInt32(body[offset + 4]))
@@ -1476,230 +1780,26 @@ extension JottacloudClient {
             guard start + size <= body.count else { break }
             let payload = Array(body[start..<start + size])
             if flag & 0x80 != 0 {
-                let trailer = String(decoding: payload, as: UTF8.self)
-                grpcStatus = trailer.replacingOccurrences(of: "\r\n", with: "; ")
-            } else {
-                Self.collectProtobufStrings(payload, into: &strings, depth: 0)
+                let text = String(decoding: payload, as: UTF8.self)
+                for line in text.split(whereSeparator: \.isNewline) {
+                    let parts = line.split(separator: ":", maxSplits: 1)
+                    if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "grpc-status" {
+                        status = Int(parts[1].trimmingCharacters(in: .whitespaces))
+                    }
+                }
+            } else if message.isEmpty {
+                message = payload
             }
             offset = start + size
         }
-        return (response.statusCode, grpcStatus, strings)
+        return (message, status)
     }
 
     static func appendProtobufString(field: Int, _ value: String, to data: inout Data) {
         let bytes = Array(value.utf8)
-        data.append(UInt8(field << 3 | 2))
-        var length = bytes.count
-        repeat {
-            var byte = UInt8(length & 0x7f)
-            length >>= 7
-            if length > 0 { byte |= 0x80 }
-            data.append(byte)
-        } while length > 0
+        appendVarint(UInt64(field << 3 | 2), to: &data)
+        appendVarint(UInt64(bytes.count), to: &data)
         data.append(contentsOf: bytes)
-    }
-
-    /// Walks protobuf wire format and collects printable UTF-8 strings.
-    static func collectProtobufStrings(_ bytes: [UInt8], into strings: inout [String], depth: Int) {
-        func varint(_ index: inout Int) -> UInt64? {
-            var result: UInt64 = 0
-            var shift: UInt64 = 0
-            while index < bytes.count, shift < 64 {
-                let byte = bytes[index]
-                index += 1
-                result |= UInt64(byte & 0x7f) << shift
-                if byte & 0x80 == 0 { return result }
-                shift += 7
-            }
-            return nil
-        }
-        var index = 0
-        while index < bytes.count {
-            guard let key = varint(&index) else { return }
-            switch key & 7 {
-            case 0:
-                guard varint(&index) != nil else { return }
-            case 1:
-                index += 8
-            case 5:
-                index += 4
-            case 2:
-                guard let length = varint(&index), index + Int(length) <= bytes.count else { return }
-                let slice = Array(bytes[index..<index + Int(length)])
-                index += Int(length)
-                var nested: [String] = []
-                if depth < 8, !slice.isEmpty, looksLikeMessage(slice) {
-                    collectProtobufStrings(slice, into: &nested, depth: depth + 1)
-                }
-                if !nested.isEmpty {
-                    strings.append(contentsOf: nested)
-                } else if let text = String(bytes: slice, encoding: .utf8),
-                          !text.isEmpty, text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
-                    strings.append(text)
-                }
-            default:
-                return
-            }
-        }
-    }
-
-    private static func looksLikeMessage(_ bytes: [UInt8]) -> Bool {
-        guard let first = bytes.first else { return false }
-        let wire = first & 7
-        let field = first >> 3
-        return field > 0 && field < 32 && [0, 1, 2, 5].contains(wire)
-            && String(bytes: bytes, encoding: .utf8).map { text in
-                !text.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
-            } ?? true
-    }
-}
-
-extension JottacloudClient {
-    /// TEMPORARY trash probe: calls a FileService method over gRPC-Web with
-    /// `path` (field 1) and an optional bool field 2, and returns the HTTP
-    /// status, grpc-status/message from headers or trailers, and strings.
-    /// Mutating methods are only allowed below /archive/JottaFS-Test/.
-    public func probeFileService(
-        method: String,
-        path: String,
-        boolField2: Bool?
-    ) async throws -> (status: Int, grpc: String, strings: [String]) {
-        let mutating = ["Restore", "DeletePermanently"]
-        guard method == "ListFolder" || mutating.contains(method) else {
-            throw POSIXError(.EPERM)
-        }
-        if mutating.contains(method) {
-            guard path.lowercased().hasPrefix("/archive/jottafs-test/"), !path.contains("/../") else {
-                throw POSIXError(.EPERM)
-            }
-        }
-        var message = Data()
-        Self.appendProtobufString(field: 1, path, to: &message)
-        if let boolField2 {
-            message.append(contentsOf: [0x10, boolField2 ? 0x01 : 0x00])
-        }
-        var frame = Data([0x00])
-        var length = UInt32(message.count).bigEndian
-        frame.append(Data(bytes: &length, count: 4))
-        frame.append(message)
-        let url = Self.grpcWebRoot.appending(path: "no.jotta.openapi.file.v2.FileService/\(method)")
-        let token = try await validAccessToken()
-        var request = Self.mutationRequest(url: url, accessToken: token, contentType: "application/grpc-web+proto", body: frame)
-        request.setValue("1", forHTTPHeaderField: "X-Grpc-Web")
-        request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Accept")
-        let (data, response) = try await http.data(for: request)
-        let httpResponse = response as? HTTPURLResponse
-        var grpc = [
-            httpResponse?.value(forHTTPHeaderField: "grpc-status").map { "hdr grpc-status=\($0)" },
-            httpResponse?.value(forHTTPHeaderField: "grpc-message").map { "hdr grpc-message=\($0.removingPercentEncoding ?? $0)" },
-        ].compactMap { $0 }
-        var strings: [String] = []
-        let body = [UInt8](data)
-        var offset = 0
-        while offset + 5 <= body.count {
-            let flag = body[offset]
-            let size = Int(UInt32(body[offset + 1]) << 24 | UInt32(body[offset + 2]) << 16 | UInt32(body[offset + 3]) << 8 | UInt32(body[offset + 4]))
-            let start = offset + 5
-            guard start + size <= body.count else { break }
-            let payload = Array(body[start..<start + size])
-            if flag & 0x80 != 0 {
-                grpc.append("trailer " + String(decoding: payload, as: UTF8.self).replacingOccurrences(of: "\r\n", with: "; "))
-            } else {
-                Self.collectProtobufStrings(payload, into: &strings, depth: 0)
-            }
-            offset = start + size
-        }
-        return (httpResponse?.statusCode ?? -1, grpc.joined(separator: " "), strings)
-    }
-}
-
-extension JottacloudClient {
-    /// TEMPORARY trash probe (read-only): FileService.GetPath with children,
-    /// as the web app lists `/trash`. Returns each child's path, name, type,
-    /// size and deletedAtMillis, plus the paging cursor.
-    public struct ProbePathChild: Sendable {
-        public var path = ""
-        public var name = ""
-        public var type: UInt64 = 0
-        public var size: UInt64 = 0
-        public var deletedAtMillis: UInt64 = 0
-    }
-
-    public func probeGetPath(
-        path: String,
-        limit: UInt64,
-        includeDeleted: Bool,
-        cursor: String?
-    ) async throws -> (status: Int, grpc: String, item: ProbePathChild?, children: [ProbePathChild], cursor: String) {
-        var message = Data()
-        Self.appendProtobufString(field: 1, path, to: &message)
-        message.append(0x18) // field 3 limit, varint
-        Self.appendVarint(limit, to: &message)
-        message.append(contentsOf: [0x20, 0x01]) // field 4 includeChildren
-        if includeDeleted { message.append(contentsOf: [0x28, 0x01]) } // field 5
-        if let cursor { Self.appendProtobufString(field: 6, cursor, to: &message) }
-        var frame = Data([0x00])
-        var length = UInt32(message.count).bigEndian
-        frame.append(Data(bytes: &length, count: 4))
-        frame.append(message)
-        let url = Self.grpcWebRoot.appending(path: "no.jotta.openapi.file.v2.FileService/GetPath")
-        let token = try await validAccessToken()
-        var request = Self.mutationRequest(url: url, accessToken: token, contentType: "application/grpc-web+proto", body: frame)
-        request.setValue("1", forHTTPHeaderField: "X-Grpc-Web")
-        request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Accept")
-        let (data, response) = try await http.data(for: request)
-        let httpResponse = response as? HTTPURLResponse
-        var grpc = [
-            httpResponse?.value(forHTTPHeaderField: "grpc-status").map { "hdr grpc-status=\($0)" },
-            httpResponse?.value(forHTTPHeaderField: "grpc-message").map { "hdr grpc-message=\($0.removingPercentEncoding ?? $0)" },
-        ].compactMap { $0 }
-        var item: ProbePathChild?
-        var children: [ProbePathChild] = []
-        var nextCursor = ""
-        let body = [UInt8](data)
-        var offset = 0
-        while offset + 5 <= body.count {
-            let flag = body[offset]
-            let size = Int(UInt32(body[offset + 1]) << 24 | UInt32(body[offset + 2]) << 16 | UInt32(body[offset + 3]) << 8 | UInt32(body[offset + 4]))
-            let start = offset + 5
-            guard start + size <= body.count else { break }
-            let payload = Array(body[start..<start + size])
-            if flag & 0x80 != 0 {
-                grpc.append("trailer " + String(decoding: payload, as: UTF8.self).replacingOccurrences(of: "\r\n", with: "; "))
-            } else {
-                for field in Self.protobufFields(payload) {
-                    if field.number == 1, let bytes = field.bytes {
-                        var parent = ProbePathChild()
-                        for f in Self.protobufFields(bytes) {
-                            if f.number == 13, let childBytes = f.bytes {
-                                children.append(Self.decodePathItem(childBytes))
-                            }
-                        }
-                        parent = Self.decodePathItem(bytes)
-                        item = parent
-                    } else if field.number == 2, let bytes = field.bytes {
-                        nextCursor = String(decoding: bytes, as: UTF8.self)
-                    }
-                }
-            }
-            offset = start + size
-        }
-        return (httpResponse?.statusCode ?? -1, grpc.joined(separator: " "), item, children, nextCursor)
-    }
-
-    static func decodePathItem(_ bytes: [UInt8]) -> ProbePathChild {
-        var item = ProbePathChild()
-        for f in protobufFields(bytes) {
-            switch f.number {
-            case 1: item.path = f.bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
-            case 2: item.name = f.bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
-            case 4: item.type = f.varint ?? 0
-            case 7: item.size = f.varint ?? 0
-            case 11: item.deletedAtMillis = f.varint ?? 0
-            default: break
-            }
-        }
-        return item
     }
 
     static func appendVarint(_ value: UInt64, to data: inout Data) {
@@ -1733,15 +1833,186 @@ extension JottacloudClient {
             case 0:
                 guard let v = varint() else { return result }
                 result.append((number, v, nil))
-            case 1: index += 8
-            case 5: index += 4
+            case 1:
+                index += 8
+            case 5:
+                index += 4
             case 2:
-                guard let length = varint(), index + Int(length) <= bytes.count else { return result }
+                guard let length = varint(), length <= UInt64(bytes.count - index) else { return result }
                 result.append((number, nil, Array(bytes[index..<index + Int(length)])))
                 index += Int(length)
-            default: return result
+            default:
+                return result
             }
         }
         return result
+    }
+}
+
+// MARK: - Browser sign-in (OAuth authorization code with PKCE)
+
+/// One browser sign-in attempt (docs/jottacloud-api-internals.md, "Browser
+/// login"). The browser returns to `redirectURI` on this Mac; the code is
+/// exchanged with the verifier that never leaves the app.
+public struct JottacloudBrowserLogin: Sendable {
+    public enum ChallengeMethod: String, Sendable {
+        case s256 = "S256"
+        case plain
+    }
+
+    /// Open this in the user's browser.
+    public let authorizationURL: URL
+    public let redirectURI: String
+    public let state: String
+    public let challengeMethod: ChallengeMethod
+    let codeVerifier: String
+    let tokenEndpoint: URL
+}
+
+extension JottacloudClient {
+    static let identityDiscoveryURL = URL(
+        string: "https://id.jottacloud.com/auth/realms/jottacloud/.well-known/openid-configuration"
+    )!
+
+    /// Starts a browser sign-in returning to `redirectURI` (for example
+    /// `http://localhost:<port>/callback`).
+    public static func beginBrowserLogin(
+        redirectURI: String,
+        challengeMethod: JottacloudBrowserLogin.ChallengeMethod = .s256
+    ) async throws -> JottacloudBrowserLogin {
+        let session = URLSession(configuration: .ephemeral, delegate: NoRedirectDelegate(), delegateQueue: nil)
+        let data = try await requestData(from: session, url: identityDiscoveryURL, method: "GET")
+        let discovery = try JSONDecoder().decode(WellKnown.self, from: data)
+        let tokenEndpoint = try officialIdentityURL(discovery.tokenEndpoint)
+        let authorizationEndpoint = try officialIdentityURL(
+            discovery.authorizationEndpoint
+                ?? "https://id.jottacloud.com/auth/realms/jottacloud/protocol/openid-connect/auth"
+        )
+        let verifier = try randomURLSafeString(byteCount: 48)
+        let state = try randomURLSafeString(byteCount: 24)
+        let challenge = challengeMethod == .s256 ? Self.s256Challenge(verifier) : verifier
+        guard var components = URLComponents(url: authorizationEndpoint, resolvingAgainstBaseURL: false) else {
+            throw JottacloudError.unsafeIdentityURL
+        }
+        components.queryItems = [
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "scope", value: "openid offline_access"),
+            URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: challengeMethod.rawValue),
+        ]
+        guard let url = components.url else {
+            throw JottacloudError.unsafeIdentityURL
+        }
+        return JottacloudBrowserLogin(
+            authorizationURL: url,
+            redirectURI: redirectURI,
+            state: state,
+            challengeMethod: challengeMethod,
+            codeVerifier: verifier,
+            tokenEndpoint: tokenEndpoint
+        )
+    }
+
+    /// Finishes a browser sign-in with the query of the callback request.
+    public static func completeBrowserLogin(
+        _ login: JottacloudBrowserLogin,
+        callbackQuery: [String: String],
+        device: String = "Jotta",
+        mountpoint: String = "Archive",
+        persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)? = nil
+    ) async throws -> JottacloudClient {
+        guard callbackQuery["state"] == login.state else {
+            throw JottacloudError.browserLoginStateMismatch
+        }
+        if let error = callbackQuery["error"] {
+            throw JottacloudError.browserLoginFailed(callbackQuery["error_description"] ?? error)
+        }
+        guard let code = callbackQuery["code"], !code.isEmpty else {
+            throw JottacloudError.browserLoginFailed("no authorization code")
+        }
+        let session = URLSession(configuration: .ephemeral, delegate: NoRedirectDelegate(), delegateQueue: nil)
+        let data = try await requestData(
+            from: session,
+            url: login.tokenEndpoint,
+            method: "POST",
+            form: [
+                "client_id": clientID,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": login.redirectURI,
+                "code_verifier": login.codeVerifier,
+            ]
+        )
+        let tokens = try JSONDecoder().decode(TokenResponse.self, from: data)
+        return try await makeSignedInClient(
+            tokens: tokens,
+            tokenEndpoint: login.tokenEndpoint,
+            device: device,
+            mountpoint: mountpoint,
+            persistCredentials: persistCredentials
+        )
+    }
+
+    static func s256Challenge(_ verifier: String) -> String {
+        base64URL(Data(SHA256.hash(data: Data(verifier.utf8))))
+    }
+
+    static func randomURLSafeString(byteCount: Int) throws -> String {
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        guard SecRandomCopyBytes(kSecRandomDefault, byteCount, &bytes) == errSecSuccess else {
+            throw JottacloudError.browserLoginFailed("no secure random numbers")
+        }
+        return base64URL(Data(bytes))
+    }
+
+    static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+}
+
+// MARK: - Backup devices
+
+/// A computer backup device as listed by `DeviceService.List`. `path` is its
+/// service path, `/backup/<id>`; the JFS name equals `name`.
+public struct JottacloudBackupDevice: Sendable, Equatable {
+    public let id: String
+    public let name: String
+    public let path: String
+}
+
+extension JottacloudClient {
+    /// Backup devices with their service paths (read-only).
+    /// Device message: id 1, display_name 3, type 4, path 5.
+    public func listBackupDevices() async throws -> [JottacloudBackupDevice] {
+        let response = try await grpcCall("List", Data(), service: "no.jotta.openapi.device.v2.DeviceService")
+        return Self.decodeDeviceList(response)
+    }
+
+    static func decodeDeviceList(_ bytes: [UInt8]) -> [JottacloudBackupDevice] {
+        protobufFields(bytes).compactMap { field -> JottacloudBackupDevice? in
+            guard field.number == 1, let message = field.bytes else {
+                return nil
+            }
+            var id = "", name = "", path = ""
+            for f in protobufFields(message) {
+                let text = f.bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
+                switch f.number {
+                case 1: id = text
+                case 3: name = text
+                case 5: path = text
+                default: break
+                }
+            }
+            guard !id.isEmpty, !name.isEmpty, path.lowercased().hasPrefix("/backup/") else {
+                return nil
+            }
+            return JottacloudBackupDevice(id: id, name: name, path: path)
+        }
     }
 }
