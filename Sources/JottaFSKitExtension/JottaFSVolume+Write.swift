@@ -370,7 +370,8 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         // directory-ness lstat the path, which re-enters this very volume and
         // deadlocks the extension (seen during a sync of a folder copy).
         let volumePath = item.path
-        let mountPath = JottaFSStorage.mountPoint()?.path ?? "/Volumes/\(volumeName)"
+        let anchorName = target.anchorName
+        let mountPath = JottaFSStorage.mountPoint(anchorName: anchorName)?.path ?? "/Volumes/\(volumeName)"
         let mountedURL = URL(
             fileURLWithPath: "\(mountPath)/\(item.path)",
             isDirectory: false
@@ -385,7 +386,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             defer { try? FileManager.default.removeItem(at: snapshot) }
             let size = try JottaFSStagingFile.size(of: snapshot)
             clock.mark("snapshot of \(size) bytes")
-            let progress = UploadProgress(volumePath: volumePath, fileURL: mountedURL, totalBytes: size)
+            let progress = UploadProgress(anchorName: anchorName, volumePath: volumePath, fileURL: mountedURL, totalBytes: size)
             defer {
                 progress.finish()
                 writeLogger.info("Upload progress: \(progress.summary, privacy: .public)")
@@ -668,12 +669,12 @@ final class UploadProgress: @unchecked Sendable {
     private var lastBytes: Int64 = 0
     private var finished = false
 
-    init(volumePath: String, fileURL: URL, totalBytes: UInt64) {
+    init(anchorName: String, volumePath: String, fileURL: URL, totalBytes: UInt64) {
         self.fileURL = fileURL
         total = max(Int64(clamping: totalBytes), 1)
         let proxy = ProgressAgentClient.shared.proxy { [weak self] in self?.fallBackToLocal() }
         lock.withLock { remote = proxy }
-        proxy?.beginUpload(identifier: identifier, path: volumePath, totalBytes: total)
+        proxy?.beginUpload(identifier: identifier, anchorName: anchorName, path: volumePath, totalBytes: total)
         if proxy == nil {
             fallBackToLocal()
         }

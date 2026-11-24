@@ -2,21 +2,27 @@ import DiskArbitration
 import Foundation
 import Security
 
-// Keep in sync with `JottaFSStorage.mountAnchorDirectoryURL()` and the
+// Keep in sync with `JottaFSStorage.mountAnchorsDirectoryURL()` and the
 // extension's `FSShortName`. The service deliberately does not link
 // JottaFSCore.
-private let mountAnchorSuffix = "/group.no.alrek.jottafs/JottaCloudMount"
+private let mountAnchorsSuffix = "/group.no.alrek.jottafs/JottaCloudMount"
 private let fileSystemType = "jottacloud"
 
-/// The volume is mounted from the app group's mount-anchor directory
+/// A JottaFS anchor name: 32 lower-case hexadecimal characters, or `""` for
+/// the legacy anchor.
+private func isValidAnchorName(_ name: String) -> Bool {
+    name.isEmpty || (name.count == 32 && name.allSatisfy { $0.isHexDigit && !$0.isUppercase })
+}
+
+/// The volume is mounted from the anchor `anchorName` in the app group
 /// (reported as a `file://` URL or a plain path).
-private func isJottaFSMountSource(_ source: String) -> Bool {
+private func isMountSource(_ source: String, ofAnchor anchorName: String) -> Bool {
     let path = source.hasPrefix("file://") ? (URL(string: source)?.path ?? "") : source
     var trimmed = path
     while trimmed.hasSuffix("/") {
         trimmed.removeLast()
     }
-    return trimmed.hasSuffix(mountAnchorSuffix)
+    return trimmed.hasSuffix(anchorName.isEmpty ? mountAnchorsSuffix : "\(mountAnchorsSuffix)/\(anchorName)")
 }
 private let hostAppIdentifier = "no.alrek.jottafs"
 
@@ -30,10 +36,14 @@ final class UnmountService: NSObject, JottaFSUnmountServiceProtocol {
         }
     }
 
-    func unmountJottaFSVolume(reply: @escaping (String?) -> Void) {
+    func unmountJottaFSVolume(anchorName: String, reply: @escaping (String?) -> Void) {
+        guard isValidAnchorName(anchorName) else {
+            reply("Jottacloud could not be unmounted.")
+            return
+        }
         let mountPoint: URL?
         do {
-            mountPoint = try jottaFSMountPoint()
+            mountPoint = try jottaFSMountPoint(anchorName: anchorName)
         } catch {
             reply("Could not read the list of mounted volumes.")
             return
@@ -48,8 +58,9 @@ final class UnmountService: NSObject, JottaFSUnmountServiceProtocol {
 
 private struct MountTableUnavailable: Error {}
 
-/// Finds the JottaFS mount point; never acts on a caller-supplied path.
-private func jottaFSMountPoint() throws -> URL? {
+/// Finds the mount point of an anchor's JottaFS volume; never acts on a
+/// caller-supplied path.
+private func jottaFSMountPoint(anchorName: String) throws -> URL? {
     var mounts: UnsafeMutablePointer<statfs>?
     let count = getmntinfo(&mounts, MNT_NOWAIT)
     guard count > 0, let mounts else {
@@ -57,7 +68,7 @@ private func jottaFSMountPoint() throws -> URL? {
     }
     for index in 0..<Int(count) {
         var mount = mounts[index]
-        guard isJottaFSMountSource(cString(&mount.f_mntfromname)),
+        guard isMountSource(cString(&mount.f_mntfromname), ofAnchor: anchorName),
               cString(&mount.f_fstypename) == fileSystemType
         else {
             continue

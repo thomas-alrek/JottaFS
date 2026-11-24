@@ -69,8 +69,9 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   not see your password.
 - **Sign in with a personal login token.** Use this method if you do not want
   to sign in with your browser.
-- **Mount one location.** Select Archive, Sync, Shared or a folder from a
-  computer backup. The location shows in Finder as a disk with the same name.
+- **Mount locations as disks.** Select Archive, Sync, Shared, Photos or a
+  folder from a computer backup. Each location shows in Finder as a disk
+  with the same name. You can mount more than one location at the same time.
 - **Read and write files.** Open, copy, change, rename, move and delete files
   and folders.
 - **Upload progress in Finder.** The file icon shows a progress bar during the
@@ -79,8 +80,8 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   JottaFS tries again and continues from the last saved part.
 - **Trash.** Move to Trash, Put Back and Empty Trash work with the Jottacloud
   trash. Refer to [The Trash](#the-trash).
-- **Mount at login.** JottaFS can mount your location automatically when you
-  log in. No window opens.
+- **Mount at login.** JottaFS can mount the locations that you select
+  automatically when you log in. No window opens.
 - **Custom disk name.** In **Advanced**, you can give a location a different
   name in Finder.
 - **Updates.** JottaFS tells you when a new version is available. Click
@@ -157,8 +158,9 @@ You do not need to keep the token.
    the name of the computer.
 2. Click **Mount**, or double-click the location.
 
-The location shows in Finder as a disk. JottaFS opens it in a Finder window.
-While a location is mounted, you cannot select a different location.
+The location shows in Finder as a disk, and a green checkmark shows next to
+it in the list. JottaFS opens it in a Finder window. To mount more
+locations, select a different location and click **Mount** again.
 
 ### Give the disk a different name
 
@@ -174,7 +176,8 @@ while the location is mounted.
 
 Do one of these steps:
 
-- In JottaFS, click **Unmount**. Then click **Unmount** again to confirm.
+- In JottaFS, select the location and click **Unmount**. Then click
+  **Unmount** again to confirm.
 - In Finder, click **Eject** next to the disk.
 
 Close all files on the disk before you unmount it. Your files stay in
@@ -182,9 +185,10 @@ Jottacloud.
 
 ### Mount at login
 
-Select **Mount automatically when I log in**. When you log in, JottaFS mounts
-the last location that you mounted. Then JottaFS closes. No window opens. If
-the mount fails, JottaFS opens its window and shows the problem.
+Select a location, then select **Mount automatically when I log in**. Do this
+for each location that you want to mount at login. When you log in, JottaFS
+mounts these locations. Then JottaFS closes. No window opens. If a mount
+fails, JottaFS opens its window and shows the problem.
 
 ### Update JottaFS
 
@@ -200,7 +204,7 @@ error.
 ### Sign out
 
 Click **Sign Out**, then click **Sign Out** again to confirm. JottaFS unmounts
-the disk first. Then it deletes the saved sign-in from your Mac. Your files
+all mounted locations first. Then it deletes the saved sign-in from your Mac. Your files
 stay in Jottacloud.
 
 ## The Trash
@@ -226,7 +230,6 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
 
 ## Limits
 
-- You can mount one location at a time.
 - You cannot rename the disk in Finder. Use **Advanced** in JottaFS instead.
 - You cannot open files that are in the Trash.
 - Symbolic links and hard links are not supported.

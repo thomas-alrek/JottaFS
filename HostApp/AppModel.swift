@@ -20,12 +20,25 @@ final class AppModel: ObservableObject {
     }
 
     enum Activity: Equatable {
-        case mounting
-        case unmounting
+        case mounting(locationID: String)
+        /// nil: every mounted location (signing out).
+        case unmounting(locationID: String?)
+
+        /// True if this is work on the location `id`.
+        func concerns(_ id: String?) -> Bool {
+            switch self {
+            case .mounting(let locationID): locationID == id
+            case .unmounting(let locationID): locationID == nil || locationID == id
+            }
+        }
     }
 
     static let extensionBundleID = "no.alrek.jottafs.extension"
-    private static let mountAtLoginKey = "MountAtLogin"
+    /// Before 1.1: one setting for the one location.
+    private static let legacyMountAtLoginKey = "MountAtLogin"
+    /// The locations to mount at login, chosen per location. A list of
+    /// `["Device": …, "Mountpoint": …]`.
+    private static let loginLocationsKey = "MountAtLoginLocations"
 
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var username = ""
@@ -34,8 +47,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var locations: [JottacloudRemoteVolume] = []
     @Published private(set) var isLoadingLocations = false
     @Published var selectedLocationID: String?
-    @Published private(set) var mountURL: URL?
-    @Published private(set) var mountedLocationID: String?
+    /// The mounted locations, by location id.
+    @Published private(set) var mounts: [String: JottaFSStorage.MountedVolume] = [:]
     /// What the app is doing right now (shown in the main button).
     @Published private(set) var activity: Activity?
     /// The error to show in an alert.
@@ -43,7 +56,8 @@ final class AppModel: ObservableObject {
     /// nil while unknown.
     @Published private(set) var extensionEnabled: Bool?
     @Published private(set) var progressAgentNeedsApproval = false
-    @Published private(set) var mountAtLogin = false
+    /// The locations to mount at login, in the order they were turned on.
+    @Published private(set) var loginLocations: [JottacloudRemoteVolume] = []
     @Published private(set) var loginItemNeedsApproval = false
 
     /// Set by the app delegate when macOS opened the app at login.
@@ -67,8 +81,17 @@ final class AppModel: ObservableObject {
         locations.first { $0.id == selectedLocationID }
     }
 
-    var mountedLocation: JottacloudRemoteVolume? {
-        locations.first { $0.id == mountedLocationID }
+    func isMounted(_ location: JottacloudRemoteVolume) -> Bool {
+        mounts[location.id] != nil
+    }
+
+    var selectedIsMounted: Bool {
+        selectedLocationID.map { mounts[$0] != nil } ?? false
+    }
+
+    /// The work in progress on the selected location, if any.
+    var selectedActivity: Activity? {
+        activity.flatMap { $0.concerns(selectedLocationID) ? $0 : nil }
     }
 
     var isBusy: Bool {
@@ -81,7 +104,6 @@ final class AppModel: ObservableObject {
         guard phase == .starting else {
             return
         }
-        mountAtLogin = UserDefaults.standard.bool(forKey: Self.mountAtLoginKey)
         observeVolumeChanges()
         do {
             credentialsDirectory = try JottaFSStorage.prepareCredentialsDirectory()
@@ -91,7 +113,9 @@ final class AppModel: ObservableObject {
             return
         }
         await refreshSystemState()
-        guard let saved = loadSavedCredentials() else {
+        let saved = loadSavedCredentials()
+        loadLoginLocations(migrating: saved)
+        guard let saved else {
             phase = .signedOut
             if launchedAtLogin {
                 NSApp.terminate(nil)
@@ -340,28 +364,22 @@ final class AppModel: ObservableObject {
         accountName = credentials.accountName
         accountEmail = credentials.accountEmail
         selectedLocationID = JottacloudRemoteVolume(device: credentials.device, mountpoint: credentials.mountpoint).id
-        if mountURL != nil {
-            mountedLocationID = selectedLocationID
-        }
         phase = .signedIn
     }
 
     // MARK: Sign out
 
-    /// Unmounts the volume first (it uses these credentials); sign-out stops
-    /// if it cannot be unmounted.
+    /// Unmounts every mounted location first (they use these credentials);
+    /// sign-out stops if one cannot be unmounted.
     func signOut() async {
         alert = nil
         refreshMountState()
-        if mountURL != nil {
-            await disconnect()
-            guard mountURL == nil else {
-                alert = AppAlert(
-                    title: "JottaFS couldn’t sign out because Jottacloud is still mounted.",
-                    message: alert?.message ?? UnmountError.volumeStillMounted.localizedDescription
-                )
-                return
-            }
+        if let failure = await unmountAll() {
+            alert = AppAlert(
+                title: "JottaFS couldn’t sign out because Jottacloud is still mounted.",
+                message: failure.localizedDescription
+            )
+            return
         }
         if let credentialsDirectory {
             do {
@@ -371,8 +389,8 @@ final class AppModel: ObservableObject {
                 return
             }
         }
-        if mountAtLogin {
-            setMountAtLogin(false)
+        if !loginLocations.isEmpty {
+            saveLoginLocations([])
         }
         client = nil
         username = ""
@@ -380,7 +398,6 @@ final class AppModel: ObservableObject {
         accountEmail = nil
         locations = []
         selectedLocationID = nil
-        mountedLocationID = nil
         phase = .signedOut
     }
 
@@ -401,7 +418,10 @@ final class AppModel: ObservableObject {
             }
             locations = account.volumes
             loadCustomNames()
-            if selectedLocation == nil {
+            // Start on a mounted location if there is one.
+            if let mounted = account.volumes.first(where: isMounted), !selectedIsMounted {
+                selectedLocationID = mounted.id
+            } else if selectedLocation == nil {
                 selectedLocationID = (account.volumes.first { $0.isBuiltIn && $0.mountpoint == "Archive" }
                     ?? account.volumes.first)?.id
             }
@@ -444,82 +464,107 @@ final class AppModel: ObservableObject {
     // MARK: Finder
 
     /// Mounts the selected location and opens it in Finder (the Mount
-    /// button and a double-click in the list).
+    /// button and a double-click in the list). A mounted location only
+    /// opens in Finder.
     func mountSelected() async {
-        guard let location = selectedLocation else {
+        guard let location = selectedLocation, !isBusy else {
             return
         }
         alert = nil
-        if let mountURL, mountedLocationID == location.id {
-            showInFinder(mountURL)
+        if let mounted = mounts[location.id] {
+            showInFinder(mounted.mountPoint)
             return
         }
-        if await mount(location) {
-            if let mountURL {
-                showInFinder(mountURL)
-            }
+        if await mount(location), let mounted = mounts[location.id] {
+            showInFinder(mounted.mountPoint)
         }
     }
 
-    /// Mounts `location`, disconnecting another mounted location first.
+    /// Mounts `location` from its own mount anchor; other mounted locations
+    /// stay mounted.
     private func mount(_ location: JottacloudRemoteVolume) async -> Bool {
         guard extensionEnabled != false else {
             alert = Self.extensionOffAlert
             return false
         }
-        if mountURL != nil {
-            await disconnect()
-            guard mountURL == nil else {
-                return false
-            }
+        if mounts[location.id] != nil {
+            return true
         }
-        activity = .mounting
+        activity = .mounting(locationID: location.id)
         defer { activity = nil }
         do {
-            try await saveLocation(location)
-            let resource = FSPathURLResource(url: try JottaFSStorage.prepareMountAnchorDirectory(), writable: true)
-            mountURL = try await FSClient.shared.mountSingleVolume(
+            let anchor = try JottaFSStorage.prepareMountAnchor(device: location.device, mountpoint: location.mountpoint)
+            let resource = FSPathURLResource(url: anchor, writable: true)
+            let mountPoint = try await FSClient.shared.mountSingleVolume(
                 resource: resource,
                 bundleID: Self.extensionBundleID,
                 options: []
             )
-            mountedLocationID = location.id
-            return true
+            refreshMountState()
+            if mounts[location.id] == nil {
+                // Not in the (cached) mount table yet.
+                mounts[location.id] = JottaFSStorage.MountedVolume(
+                    anchorName: JottaFSStorage.anchorName(device: location.device, mountpoint: location.mountpoint),
+                    anchorURL: anchor,
+                    mountPoint: mountPoint
+                )
+            }
         } catch {
             await refreshSystemState()
-            if mountURL != nil {
-                mountedLocationID = location.id
-                return true
+            if mounts[location.id] == nil {
+                alert = extensionEnabled == false
+                    ? Self.extensionOffAlert
+                    : errorAlert(error, title: "JottaFS couldn’t mount the location.")
+                return false
             }
-            alert = extensionEnabled == false
-                ? Self.extensionOffAlert
-                : errorAlert(error, title: "JottaFS couldn’t mount the location.")
-            return false
         }
+        return true
     }
 
-    /// Unmounts the volume (Finder's Eject does the same).
-    func disconnect() async {
-        guard mountURL != nil else {
+    /// Unmounts the selected location (Finder's Eject does the same).
+    func unmountSelected() async {
+        guard let location = selectedLocation, let mounted = mounts[location.id], !isBusy else {
             return
         }
-        activity = .unmounting
+        alert = nil
+        activity = .unmounting(locationID: location.id)
         defer { activity = nil }
         var failure: Error?
         do {
-            try await requestUnmountFromService()
+            try await requestUnmountFromService(anchorName: mounted.anchorName)
         } catch {
             failure = error
         }
         refreshMountState()
-        if mountURL != nil {
+        if mounts[location.id] != nil {
             alert = AppAlert(
                 title: "JottaFS couldn’t unmount the location.",
                 message: (failure ?? UnmountError.volumeStillMounted).localizedDescription
             )
-        } else {
-            mountedLocationID = nil
         }
+    }
+
+    /// Unmounts every JottaFS volume (also any whose location is no longer
+    /// listed). Returns the first failure, or nil when none is mounted.
+    private func unmountAll() async -> Error? {
+        guard let volumes = JottaFSStorage.mountedVolumes(), !volumes.isEmpty else {
+            return nil
+        }
+        activity = .unmounting(locationID: nil)
+        defer { activity = nil }
+        var failure: Error?
+        for volume in volumes {
+            do {
+                try await requestUnmountFromService(anchorName: volume.anchorName)
+            } catch {
+                failure = failure ?? error
+            }
+        }
+        refreshMountState()
+        guard JottaFSStorage.mountedVolumes()?.isEmpty != false else {
+            return failure ?? UnmountError.volumeStillMounted
+        }
+        return nil
     }
 
     /// Opens a Finder window on the mounted volume. This only asks Finder to
@@ -550,32 +595,73 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Reads the mounted locations from the mount table: each anchor names
+    /// its location; a legacy mount (before 1.1) is the location saved in
+    /// the credentials.
     private func refreshMountState() {
-        let mounted = try? findJottacloudMount()
-        mountURL = mounted
-        if mounted == nil {
-            mountedLocationID = nil
-        } else if mountedLocationID == nil, let saved = loadSavedCredentials() {
-            // Mounted earlier (or at login): the saved location is mounted.
-            mountedLocationID = JottacloudRemoteVolume(device: saved.device, mountpoint: saved.mountpoint).id
+        guard let volumes = JottaFSStorage.mountedVolumes() else {
+            return
+        }
+        var result: [String: JottaFSStorage.MountedVolume] = [:]
+        for volume in volumes {
+            let location: (device: String, mountpoint: String)?
+            if volume.anchorName.isEmpty {
+                location = loadSavedCredentials().map { ($0.device, $0.mountpoint) }
+            } else {
+                location = JottaFSStorage.location(ofAnchor: volume.anchorURL)
+            }
+            if let location {
+                result[JottacloudRemoteVolume(device: location.device, mountpoint: location.mountpoint).id] = volume
+            }
+        }
+        if result != mounts {
+            mounts = result
         }
     }
 
     // MARK: Open at login
 
-    func setMountAtLogin(_ enabled: Bool) {
+    func mountsAtLogin(_ location: JottacloudRemoteVolume) -> Bool {
+        loginLocations.contains { $0.id == location.id }
+    }
+
+    /// Turns mounting at login on or off for `location`. JottaFS is a login
+    /// item while at least one location has it on.
+    func setMountAtLogin(_ enabled: Bool, for location: JottacloudRemoteVolume) {
         alert = nil
+        var list = loginLocations.filter { $0.id != location.id }
+        if enabled {
+            list.append(location)
+        }
+        saveLoginLocations(list)
+        if alert != nil, enabled {
+            // Could not register: leave it off.
+            saveLoginLocations(loginLocations.filter { $0.id != location.id }, registering: false)
+        }
+    }
+
+    /// Saves the list and registers (or unregisters) the login item to
+    /// match.
+    private func saveLoginLocations(_ list: [JottacloudRemoteVolume], registering: Bool = true) {
+        let wasOn = !loginLocations.isEmpty
+        loginLocations = list
+        UserDefaults.standard.set(
+            list.map { ["Device": $0.device, "Mountpoint": $0.mountpoint] },
+            forKey: Self.loginLocationsKey
+        )
+        guard registering, wasOn != !list.isEmpty else {
+            refreshLoginItemStatus()
+            return
+        }
         do {
-            if enabled {
-                try SMAppService.mainApp.register()
-            } else {
+            if list.isEmpty {
                 try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
             }
-            mountAtLogin = enabled
-            UserDefaults.standard.set(enabled, forKey: Self.mountAtLoginKey)
         } catch {
             alert = AppAlert(
-                title: enabled ? "JottaFS couldn’t turn on mounting at login." : "JottaFS couldn’t turn off mounting at login.",
+                title: list.isEmpty ? "JottaFS couldn’t turn off mounting at login." : "JottaFS couldn’t turn on mounting at login.",
                 message: "Check Login Items in System Settings."
             )
         }
@@ -584,35 +670,61 @@ final class AppModel: ObservableObject {
 
     private func refreshLoginItemStatus() {
         let status = SMAppService.mainApp.status
-        loginItemNeedsApproval = mountAtLogin && status == .requiresApproval
-        if mountAtLogin, status == .notRegistered || status == .notFound {
+        loginItemNeedsApproval = !loginLocations.isEmpty && status == .requiresApproval
+        if !loginLocations.isEmpty, status == .notRegistered || status == .notFound {
             // Removed in System Settings: follow the system.
-            mountAtLogin = false
-            UserDefaults.standard.set(false, forKey: Self.mountAtLoginKey)
+            loginLocations = []
+            UserDefaults.standard.set([[String: String]](), forKey: Self.loginLocationsKey)
         }
     }
 
-    /// Opened by macOS at login: mount the saved location without showing
-    /// the window, then quit. The window stays open only to report a problem.
+    /// Opened by macOS at login: mount the locations chosen for it without
+    /// showing the window, then quit. The window stays open only to report
+    /// a problem.
     private func mountAtLoginLaunch() async {
         // There is no window and no Dock icon (see the app delegate).
-        guard mountAtLogin else {
+        let wanted = loginLocations
+        guard !wanted.isEmpty else {
             NSApp.terminate(nil)
             return
         }
-        if mountURL == nil, let saved = loadSavedCredentials() {
-            let location = JottacloudRemoteVolume(device: saved.device, mountpoint: saved.mountpoint)
-            locations = [location]
-            loadCustomNames()
-            guard await mount(location) else {
-                // Show the problem as a normal app, with Dock icon and menu.
-                launchedAtLogin = false
-                showWindow?()
-                await loadLocations()
-                return
+        locations = wanted
+        loadCustomNames()
+        var failed = false
+        for location in wanted where !isMounted(location) {
+            if await !mount(location) {
+                failed = true
             }
         }
+        guard !failed else {
+            // Show the problem as a normal app, with Dock icon and menu.
+            launchedAtLogin = false
+            showWindow?()
+            await loadLocations()
+            return
+        }
         NSApp.terminate(nil)
+    }
+
+    /// Reads the locations to mount at login. Before 1.1 there was one
+    /// switch, for the location saved in the credentials.
+    private func loadLoginLocations(migrating saved: JottacloudCredentials?) {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: Self.loginLocationsKey) == nil {
+            let legacy = defaults.bool(forKey: Self.legacyMountAtLoginKey)
+            defaults.set(
+                legacy ? saved.map { [["Device": $0.device, "Mountpoint": $0.mountpoint]] } ?? [] : [],
+                forKey: Self.loginLocationsKey
+            )
+            defaults.removeObject(forKey: Self.legacyMountAtLoginKey)
+        }
+        let stored = defaults.array(forKey: Self.loginLocationsKey) as? [[String: String]] ?? []
+        loginLocations = stored.compactMap { entry in
+            guard let device = entry["Device"], let mountpoint = entry["Mountpoint"] else {
+                return nil
+            }
+            return JottacloudRemoteVolume(device: device, mountpoint: mountpoint)
+        }
     }
 
     func openLoginItemsSettings() {
@@ -699,17 +811,6 @@ final class AppModel: ObservableObject {
                 directory.flatMap { try? JottaFSStorage.loadCredentials(from: $0) }
             }
         )
-    }
-
-    /// Saves the chosen location with the credentials; the extension mounts
-    /// it. Only changed while nothing is mounted.
-    private func saveLocation(_ location: JottacloudRemoteVolume) async throws {
-        let directory = try storageDirectory()
-        try JottaFSStorage.updateCredentials(in: directory) { saved in
-            saved.device = location.device
-            saved.mountpoint = location.mountpoint
-        }
-        await client?.setLocation(device: location.device, mountpoint: location.mountpoint)
     }
 
     /// Saves rotated tokens only (never other fields, which the extension

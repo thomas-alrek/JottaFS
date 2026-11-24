@@ -22,6 +22,7 @@ enum RemoteAPIChecks {
         try parsesDevicesAndTheirMountpoints()
         try doesNotListTheListedFolderItself()
         try storesCredentialsAsBinaryPropertyList()
+        try namesOneMountAnchorPerLocation()
         print("All Jottacloud API checks passed.")
     }
 
@@ -502,6 +503,21 @@ enum RemoteAPIChecks {
 
         precondition(format == .binary)
         precondition(decoded == credentials)
+    }
+}
+
+extension RemoteAPIChecks {
+    /// Each location gets its own anchor name, the same for any case of its
+    /// name (Jottacloud names are case-insensitive).
+    fileprivate static func namesOneMountAnchorPerLocation() throws {
+        let archive = JottaFSStorage.anchorName(device: "Jotta", mountpoint: "Archive")
+        precondition(archive.count == 32 && JottaFSStorage.isValidAnchorName(archive))
+        precondition(archive == JottaFSStorage.anchorName(device: "jotta", mountpoint: "ARCHIVE"))
+        precondition(archive != JottaFSStorage.anchorName(device: "Jotta", mountpoint: "Sync"))
+        precondition(archive != JottaFSStorage.anchorName(device: "Laptop", mountpoint: "Archive"))
+        precondition(JottaFSStorage.isValidAnchorName(""))
+        precondition(!JottaFSStorage.isValidAnchorName("../credentials"))
+        precondition(!JottaFSStorage.isValidAnchorName(archive.uppercased()))
     }
 }
 

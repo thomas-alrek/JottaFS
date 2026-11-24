@@ -14,13 +14,19 @@ import Security
 
 private let extensionIdentifier = "no.alrek.jottafs.extension"
 private let fileSystemType = "jottacloud" // the extension's FSShortName
-// Keep in sync with `JottaFSStorage.mountAnchorDirectoryURL()` (the agent
+// Keep in sync with `JottaFSStorage.mountAnchorsDirectoryURL()` (the agent
 // deliberately does not link JottaFSCore).
-private let mountAnchorSuffix = "/group.no.alrek.jottafs/JottaCloudMount"
+private let mountAnchorsSuffix = "/group.no.alrek.jottafs/JottaCloudMount"
 
-/// Mount point of the JottaFS volume, found in the mount table (the volume
-/// is named after its location, so the path is not fixed).
-private func jottaCloudMountPoint() -> URL? {
+/// Mount point of the JottaFS volume mounted from the anchor `anchorName`
+/// (`""`: the legacy anchor, the anchors directory itself), found in the
+/// mount table. Volumes are named after their location, so the path is not
+/// fixed.
+private func jottaCloudMountPoint(anchorName: String) -> URL? {
+    guard anchorName.isEmpty || (anchorName.count == 32 && anchorName.allSatisfy({ $0.isHexDigit && !$0.isUppercase })) else {
+        return nil
+    }
+    let expectedSuffix = anchorName.isEmpty ? mountAnchorsSuffix : "\(mountAnchorsSuffix)/\(anchorName)"
     var mounts: UnsafeMutablePointer<statfs>?
     let count = getmntinfo(&mounts, MNT_NOWAIT)
     guard count > 0, let mounts else {
@@ -34,12 +40,11 @@ private func jottaCloudMountPoint() -> URL? {
         let source = withUnsafeBytes(of: &mount.f_mntfromname) {
             String(cString: $0.bindMemory(to: CChar.self).baseAddress!)
         }
-        let sourcePath = source.hasPrefix("file://") ? (URL(string: source)?.path ?? "") : source
-        guard type == fileSystemType,
-              sourcePath.trimmingCharacters(in: CharacterSet(charactersIn: "/")).hasSuffix(
-                  mountAnchorSuffix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-              )
-        else {
+        var sourcePath = source.hasPrefix("file://") ? (URL(string: source)?.path ?? "") : source
+        while sourcePath.hasSuffix("/") {
+            sourcePath.removeLast()
+        }
+        guard type == fileSystemType, sourcePath.hasSuffix(expectedSuffix) else {
             continue
         }
         let path = withUnsafeBytes(of: &mount.f_mntonname) {
@@ -57,13 +62,13 @@ private final class ProgressRegistry {
     static let shared = ProgressRegistry()
     private var uploads: [String: Progress] = [:]
 
-    func begin(identifier: String, path: String, totalBytes: Int64) {
+    func begin(identifier: String, anchorName: String, path: String, totalBytes: Int64) {
         end(identifier: identifier)
         guard let components = JottaFSProgressService.safeComponents(of: path) else {
             return
         }
         // No volume in the mount table: nothing to show progress on.
-        guard let mountPoint = jottaCloudMountPoint() else {
+        guard let mountPoint = jottaCloudMountPoint(anchorName: anchorName) else {
             return
         }
         // String-built with an explicit isDirectory: inferring it would lstat
@@ -109,10 +114,10 @@ private final class ProgressService: NSObject, JottaFSProgressServiceProtocol, @
     private let lock = NSLock()
     private var identifiers: Set<String> = []
 
-    func beginUpload(identifier: String, path: String, totalBytes: Int64) {
+    func beginUpload(identifier: String, anchorName: String, path: String, totalBytes: Int64) {
         lock.withLock { _ = identifiers.insert(identifier) }
         DispatchQueue.main.async {
-            ProgressRegistry.shared.begin(identifier: identifier, path: path, totalBytes: totalBytes)
+            ProgressRegistry.shared.begin(identifier: identifier, anchorName: anchorName, path: path, totalBytes: totalBytes)
         }
     }
 

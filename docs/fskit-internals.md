@@ -34,9 +34,17 @@ macOS `mount -t` expects a legacy `/Library/Filesystems/<name>.fs` bundle with
 a `mount_<name>` helper; this project does not ship one. The host app instead
 uses `FSClient.mountSingleVolume(resource:bundleID:options:)`, which mounts
 under `/Volumes` and requires the host app's
-`com.apple.developer.fskit.mount` entitlement. The host app passes an empty
-`<app group>/JottaCloudMount` directory as an `FSPathURLResource`, and the
-extension declares `FSSupportsPathURLs` and accepts only that directory. A path
+`com.apple.developer.fskit.mount` entitlement. The host app passes a
+location's *mount anchor*, `<app group>/JottaCloudMount/<anchor name>`, as an
+`FSPathURLResource`, and the extension declares `FSSupportsPathURLs` and
+accepts only such directories. Each location has its own anchor (the name is
+32 hex characters of SHA-256 of the lower-cased `device/mountpoint`), which
+holds only `Location.plist` with the location's device and mountpoint. So
+several locations can be mounted at the same time, each with its own FSKit
+container identifier and its own staging and Trash folders in the extension
+container. Versions before 1.1 mounted from `JottaCloudMount` itself, with the
+location in the credentials; such a *legacy* mount is still recognized and
+can be unmounted (anchor name `""`). A path
 resource makes the mount local (`MNT_LOCAL`); a generic URL resource is mounted
 as a non-local volume that Finder treats as a server volume and leaves out of
 the sidebar. If the resource kind or URL scheme does not match what the
@@ -98,8 +106,8 @@ the other one already rotated. Both targets have the `group.no.alrek.jottafs`
 application-group entitlement. The host app
 creates `Library/Application Support/JottaFS` within that shared
 container, sets its mode to 0700, and writes a binary `credentials.plist` with
-mode 0600. The FSKit mount resource is the separate, empty `JottaCloudMount`
-directory; the extension reads the plist and atomically persists rotating refresh tokens in
+mode 0600. The FSKit mount resources are the separate mount anchors under
+`JottaCloudMount`; the extension reads the plist and atomically persists rotating refresh tokens in
 the shared container. Credentials from the previous app group are not migrated;
 the user signs in again and old credentials remain untouched. This is a local
 prototype boundary, not a Keychain-backed credential store. Do not share or
@@ -153,5 +161,5 @@ attempt (macOS 27.3):
   a BSD device, like other disk volumes.
 
 Code that needs the mount path reads it from the mount table
-(`JottaFSStorage.mountPoint()`, `getmntinfo` with `MNT_NOWAIT`, which does
+(`JottaFSStorage.mountedVolumes()` and `mountPoint(anchorName:)`, `getmntinfo` with `MNT_NOWAIT`, which does
 not call into the volume) rather than assuming `/Volumes/JottaCloud`.

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 public enum JottaFSStorageError: Error, LocalizedError {
@@ -103,38 +104,24 @@ public enum JottaFSStorage {
         return settings
     }
 
-    /// Where a JottaFS volume is mounted, from the mount table (cached
-    /// values only, so it is safe to call from the extension itself).
-    public static func mountPoint() -> URL? {
-        var mounts: UnsafeMutablePointer<statfs>?
-        let count = getmntinfo(&mounts, MNT_NOWAIT)
-        guard count > 0, let mounts else {
-            return nil
-        }
-        for index in 0..<Int(count) {
-            var mount = mounts[index]
-            let type = withUnsafeBytes(of: &mount.f_fstypename) {
-                String(cString: $0.bindMemory(to: CChar.self).baseAddress!)
-            }
-            guard type == fileSystemType else {
-                continue
-            }
-            let path = withUnsafeBytes(of: &mount.f_mntonname) {
-                String(cString: $0.bindMemory(to: CChar.self).baseAddress!)
-            }
-            return URL(fileURLWithPath: path, isDirectory: true)
-        }
-        return nil
-    }
     /// File system type (the extension's `FSShortName`).
     public static let fileSystemType = "jottacloud"
 
-    /// Empty directory used as the `FSPathURLResource` the volume is mounted
-    /// from. A path resource makes the mount local (like Xcode's DeviceFS),
-    /// which a generic URL resource does not, and Finder lists only local or
-    /// NetFS-backed volumes in its sidebar. It holds no data and is
+    // MARK: Mount anchors
+
+    /// Each location is mounted from its own empty directory, its *mount
+    /// anchor*, `<app group>/JottaCloudMount/<anchor name>`, used as the
+    /// `FSPathURLResource`. A path resource makes the mount local (like
+    /// Xcode's DeviceFS), which a generic URL resource does not, and Finder
+    /// lists only local or NetFS-backed volumes in its sidebar. One anchor
+    /// per location lets several locations be mounted at the same time. The
+    /// anchor holds only `Location.plist`, which names its location; it is
     /// deliberately not the credentials directory.
-    public static func mountAnchorDirectoryURL() -> URL? {
+    ///
+    /// Versions before 1.1 mounted from `JottaCloudMount` itself (the
+    /// *legacy anchor*), with the location saved in the credentials. Such a
+    /// mount can still be found and unmounted after an update.
+    public static func mountAnchorsDirectoryURL() -> URL? {
         FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: applicationGroupIdentifier
         )?
@@ -142,25 +129,127 @@ public enum JottaFSStorage {
         .standardizedFileURL
     }
 
-    public static func prepareMountAnchorDirectory() throws -> URL {
-        guard let directory = mountAnchorDirectoryURL() else {
-            throw JottaFSStorageError.applicationGroupUnavailable
-        }
-        try FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        return directory
+    static let anchorLocationFileName = "Location.plist"
+
+    /// The anchor name of a location: 32 hexadecimal characters derived from
+    /// its device and mountpoint (case-insensitive, like Jottacloud).
+    public static func anchorName(device: String, mountpoint: String) -> String {
+        let digest = SHA256.hash(data: Data(locationKey(device: device, mountpoint: mountpoint).utf8))
+        return digest.prefix(16).map { String(format: "%02x", $0) }.joined()
     }
 
-    public static func isMountAnchorDirectory(_ url: URL) -> Bool {
-        guard let expected = mountAnchorDirectoryURL() else {
-            return false
+    /// True for a valid anchor name (and the empty name of the legacy anchor).
+    public static func isValidAnchorName(_ name: String) -> Bool {
+        name.isEmpty || (name.count == 32 && name.allSatisfy { $0.isHexDigit && !$0.isUppercase })
+    }
+
+    /// The anchor of a location, created if needed, with its
+    /// `Location.plist`.
+    public static func prepareMountAnchor(device: String, mountpoint: String) throws -> URL {
+        guard let anchors = mountAnchorsDirectoryURL() else {
+            throw JottaFSStorageError.applicationGroupUnavailable
         }
-        return url.isFileURL
-            && url.standardizedFileURL.resolvingSymlinksInPath().path
-                == expected.resolvingSymlinksInPath().path
+        let anchor = anchors.appendingPathComponent(anchorName(device: device, mountpoint: mountpoint), isDirectory: true)
+        try FileManager.default.createDirectory(at: anchor, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: ["Device": device, "Mountpoint": mountpoint],
+            format: .xml,
+            options: 0
+        )
+        try data.write(to: anchor.appendingPathComponent(anchorLocationFileName, isDirectory: false), options: .atomic)
+        return anchor
+    }
+
+    /// The anchor name of `url` if it is a mount anchor: `""` for the legacy
+    /// anchor, else the directory's name. Nil for any other URL.
+    public static func anchorName(ofAnchor url: URL) -> String? {
+        guard url.isFileURL, let anchors = mountAnchorsDirectoryURL() else {
+            return nil
+        }
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let root = anchors.resolvingSymlinksInPath().path
+        if path == root {
+            return ""
+        }
+        let parent = (path as NSString).deletingLastPathComponent
+        let name = (path as NSString).lastPathComponent
+        guard parent == root, !name.isEmpty, isValidAnchorName(name) else {
+            return nil
+        }
+        return name
+    }
+
+    /// The location an anchor was made for, from its `Location.plist`. Nil
+    /// for the legacy anchor (its location is the one in the credentials)
+    /// and for an anchor without a readable, matching file.
+    public static func location(ofAnchor url: URL) -> (device: String, mountpoint: String)? {
+        guard let name = anchorName(ofAnchor: url), !name.isEmpty,
+              let data = try? Data(contentsOf: url.appendingPathComponent(anchorLocationFileName, isDirectory: false)),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: String],
+              let device = plist["Device"], let mountpoint = plist["Mountpoint"],
+              anchorName(device: device, mountpoint: mountpoint) == name
+        else {
+            return nil
+        }
+        return (device, mountpoint)
+    }
+
+    /// A mounted JottaFS volume.
+    public struct MountedVolume: Sendable, Equatable {
+        /// The anchor it is mounted from (`""` for the legacy anchor).
+        public let anchorName: String
+        public let anchorURL: URL
+        public let mountPoint: URL
+
+        public init(anchorName: String, anchorURL: URL, mountPoint: URL) {
+            self.anchorName = anchorName
+            self.anchorURL = anchorURL
+            self.mountPoint = mountPoint
+        }
+    }
+
+    /// The JottaFS volumes in the mount table (cached values only, so it is
+    /// safe to call from the extension itself). Nil if the mount table
+    /// can't be read.
+    public static func mountedVolumes() -> [MountedVolume]? {
+        var mounts: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&mounts, MNT_NOWAIT)
+        guard count > 0, let mounts else {
+            return nil
+        }
+        var volumes: [MountedVolume] = []
+        for index in 0..<Int(count) {
+            var mount = mounts[index]
+            guard cString(&mount.f_fstypename) == fileSystemType else {
+                continue
+            }
+            let source = cString(&mount.f_mntfromname)
+            let sourceURL = source.hasPrefix("file://")
+                ? URL(string: source)
+                : URL(fileURLWithPath: source, isDirectory: true)
+            guard let sourceURL, let name = anchorName(ofAnchor: sourceURL) else {
+                continue
+            }
+            volumes.append(MountedVolume(
+                anchorName: name,
+                anchorURL: sourceURL,
+                mountPoint: URL(fileURLWithPath: cString(&mount.f_mntonname), isDirectory: true)
+            ))
+        }
+        return volumes
+    }
+
+    /// Where the volume of an anchor is mounted, if it is.
+    public static func mountPoint(anchorName name: String) -> URL? {
+        mountedVolumes()?.first { $0.anchorName == name }?.mountPoint
+    }
+
+    private static func cString<Value>(_ value: inout Value) -> String {
+        withUnsafePointer(to: &value) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: MemoryLayout<Value>.size) {
+                String(cString: $0)
+            }
+        }
     }
 
     public static func prepareCredentialsDirectory() throws -> URL {

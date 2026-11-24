@@ -48,7 +48,8 @@ actor TrashStore {
     private var lastFullLoad: Date?
     private var lastQuickLoad: Date?
 
-    init(client: JottacloudClient, locationPrefix: String?) throws {
+    /// `key` names this volume's own folder (see `MountTarget.storageKey`).
+    init(client: JottacloudClient, locationPrefix: String?, key: String) throws {
         self.client = client
         self.locationPrefix = locationPrefix
         let support = try FileManager.default.url(
@@ -57,6 +58,7 @@ actor TrashStore {
             appropriateFor: nil,
             create: true
         ).appending(path: "Trash", directoryHint: .isDirectory)
+        .appending(path: key, directoryHint: .isDirectory)
         localDirectory = support.appending(path: "Local", directoryHint: .isDirectory)
         namesURL = support.appending(path: "Names.plist", directoryHint: .notDirectory)
         try FileManager.default.createDirectory(at: localDirectory, withIntermediateDirectories: true)

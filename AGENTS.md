@@ -2,8 +2,8 @@
 
 This is a native macOS Swift file system extension for working with
 Jottacloud files in Finder through Apple FSKit. The user signs in in the app
-(browser OAuth or a personal login token), picks one Jottacloud location
-(a device's mountpoint, such as `Jotta/Archive`), and the app mounts that
+(browser OAuth or a personal login token), picks Jottacloud locations
+(a device's mountpoint, such as `Jotta/Archive`), and the app mounts each
 location as a read-write volume.
 
 ## Engineering principles

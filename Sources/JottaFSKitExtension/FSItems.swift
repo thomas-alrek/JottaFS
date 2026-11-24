@@ -10,6 +10,15 @@ struct MountTarget: Sendable {
     /// For a backup location: its device's service path (`/backup/<id>`), or
     /// nil when unknown; then trash and permanent deletes are unavailable.
     let deviceServicePath: String?
+    /// The mount anchor the volume is mounted from (`""` for the legacy
+    /// anchor): finds the volume's mount point.
+    let anchorName: String
+
+    /// Names the volume's own folders for local state (staging, the Trash),
+    /// so mounted locations never share them.
+    var storageKey: String {
+        JottaFSStorage.anchorName(device: volume.device, mountpoint: volume.mountpoint)
+    }
 
     var rootRole: JottacloudItemRole {
         .mountpoint(volume)

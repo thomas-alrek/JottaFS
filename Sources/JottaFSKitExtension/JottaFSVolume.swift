@@ -69,8 +69,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         self.target = target
         self.itemStore = ItemStore(rootRole: target.rootRole)
         self.volumeName = target.volumeName
-        self.staging = try StagingArea()
-        self.trash = try TrashStore(client: client, locationPrefix: target.trashPrefix)
+        self.staging = try StagingArea(key: target.storageKey)
+        self.trash = try TrashStore(client: client, locationPrefix: target.trashPrefix, key: target.storageKey)
         self.directoryCache = DirectoryCache(client: client, trash: trash)
         self.statistics = FSStatFSResult(fileSystemTypeName: "jottacloud")
         self.capabilities = FSVolume.SupportedCapabilities()

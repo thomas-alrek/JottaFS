@@ -27,18 +27,28 @@ final class StagingArea: @unchecked Sendable {
     private var loading: [UInt64: Task<StagedFile, Error>] = [:]
     private var uploading: [UInt64: Task<Void, Error>] = [:]
 
-    init() throws {
+    /// `key` names this volume's own folder: each mounted location has one,
+    /// and may run in its own extension process.
+    init(key: String) throws {
         let caches = try FileManager.default.url(
             for: .cachesDirectory,
             in: .userDomainMask,
             appropriateFor: nil,
             create: true
         )
-        directory = caches.appendingPathComponent("Staging", isDirectory: true)
-        // Leftovers belong to a previous extension process whose items no
-        // longer exist; their data cannot be matched to a path again.
+        let root = caches.appendingPathComponent("Staging", isDirectory: true)
+        directory = root.appendingPathComponent(key, isDirectory: true)
+        // Leftovers belong to a previous extension process for this location
+        // whose items no longer exist; their data cannot be matched to a path
+        // again. Other locations' folders are never touched.
         try? FileManager.default.removeItem(at: directory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Files directly in the root are from versions before 1.1, which had
+        // one volume.
+        for url in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isRegularFileKey])) ?? []
+        where (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 
     func file(_ id: UInt64) -> StagedFile? {

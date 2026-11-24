@@ -12,9 +12,10 @@ import Foundation
 /// the agent target, so both sides share one definition.
 @objc(JottaFSProgressServiceProtocol)
 public protocol JottaFSProgressServiceProtocol {
-    /// Starts showing upload progress for `path`, relative to the volume root
-    /// (relative to the volume root, for example `Photos/a.jpg`).
-    func beginUpload(identifier: String, path: String, totalBytes: Int64)
+    /// Starts showing upload progress for `path`, relative to the root of
+    /// the volume mounted from the anchor `anchorName` (for example
+    /// `Photos/a.jpg`; `""` names the legacy anchor).
+    func beginUpload(identifier: String, anchorName: String, path: String, totalBytes: Int64)
     func updateUpload(identifier: String, bytesSent: Int64)
     func endUpload(identifier: String)
 }

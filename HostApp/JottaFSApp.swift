@@ -404,13 +404,20 @@ private struct SignedInView: View {
             Group {
                 LocationPicker()
 
+                // Settings of the selected location.
                 HStack {
                     Toggle(isOn: Binding(
-                        get: { model.mountAtLogin },
-                        set: { model.setMountAtLogin($0) }
+                        get: { model.selectedLocation.map(model.mountsAtLogin) ?? false },
+                        set: { enabled in
+                            if let location = model.selectedLocation {
+                                model.setMountAtLogin(enabled, for: location)
+                            }
+                        }
                     )) {
                         Text("Mount automatically when I log in")
                     }
+                    .help(model.selectedLocation.map { "Mount “\(model.displayName(of: $0))” automatically when you log in." } ?? "")
+                    .disabled(model.selectedLocation == nil)
                     Spacer()
                     Button("Advanced…") {
                         advancedLocation = model.selectedLocation
@@ -442,7 +449,7 @@ private struct SignedInView: View {
             }
 
             FinderStatus()
-                .disabled(model.extensionEnabled == false && model.mountURL == nil)
+                .disabled(model.extensionEnabled == false && model.mounts.isEmpty)
 
         }
         .sheet(item: $advancedLocation) { location in
@@ -457,7 +464,7 @@ private struct SignedInView: View {
                 Task { await model.signOut() }
             }
         } message: {
-            Text("Jottacloud will be unmounted and removed from Finder. Your files stay in Jottacloud.")
+            Text("Your Jottacloud locations will be unmounted and removed from Finder. Your files stay in Jottacloud.")
         }
     }
 }
@@ -470,7 +477,7 @@ private struct LocationPicker: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Choose what to mount")
                 .font(.headline)
-            Text("Pick one of your Jottacloud locations. It appears in Finder like a disk, and you can switch at any time.")
+            Text("Select a Jottacloud location and mount it. It appears in Finder like a disk. You can mount more than one.")
                 .foregroundStyle(.secondary)
             Group {
                 if model.locations.isEmpty {
@@ -496,26 +503,23 @@ private struct LocationPicker: View {
                                     ForEach(group.locations) { location in
                                         LocationRow(
                                             location: location,
-                                            isOpen: location.id == model.mountedLocationID,
+                                            isOpen: model.isMounted(location),
                                             customName: model.customName(of: location)
                                         )
                                         .tag(location.id)
                                         .id(location.id)
-                                        // Locked: other rows can't be selected
-                                        // (the list still scrolls).
-                                        .selectionDisabled(isLocked && location.id != lockedSelection)
-                                        .opacity(isLocked && location.id != lockedSelection ? 0.45 : 1)
                                     }
                                 }
                             }
                         }
                         .listStyle(.inset)
                         // Double-click (or Return) on a location mounts it,
-                        // like the Mount button, while the list is unlocked.
+                        // like the Mount button (a mounted one opens in
+                        // Finder).
                         .contextMenu(forSelectionType: String.self) { _ in
                             EmptyView()
                         } primaryAction: { ids in
-                            guard !isLocked, model.extensionEnabled != false, let id = ids.first else {
+                            guard !model.isBusy, model.extensionEnabled != false, let id = ids.first else {
                                 return
                             }
                             model.selectedLocationID = id
@@ -526,11 +530,10 @@ private struct LocationPicker: View {
                         // change: right after launch the window is still
                         // growing to the account screen's size.
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
-                            scrollToMounted(proxy)
+                            scrollToSelection(proxy)
                         }
-                        .onAppear { scrollToMounted(proxy) }
-                        .onChange(of: model.mountedLocationID) { _, _ in scrollToMounted(proxy) }
-                        .onChange(of: model.locations.count) { _, _ in scrollToMounted(proxy) }
+                        .onAppear { scrollToSelection(proxy) }
+                        .onChange(of: model.locations.count) { _, _ in scrollToSelection(proxy) }
                     }
                 }
             }
@@ -539,40 +542,25 @@ private struct LocationPicker: View {
         }
     }
 
-    /// While a location is mounted (or the app is busy) the list stays
-    /// scrollable but read-only: the mounted location stays selected and
-    /// clicks on other rows are ignored. Unmount to choose another.
-    private var isLocked: Bool {
-        model.isBusy || model.mountURL != nil
-    }
-
-    private var lockedSelection: String? {
-        model.mountedLocationID ?? model.selectedLocationID
-    }
-
     private var selection: Binding<String?> {
         Binding(
-            get: { isLocked ? lockedSelection : model.selectedLocationID },
-            set: { newValue in
-                guard !isLocked else {
-                    return
-                }
-                model.selectedLocationID = newValue
-            }
+            get: { model.selectedLocationID },
+            set: { model.selectedLocationID = $0 }
         )
     }
 
-    /// Scrolls the mounted location into the middle of the list once the
-    /// layout has settled (repeated calls in quick succession collapse into
-    /// one scroll).
-    private func scrollToMounted(_ proxy: ScrollViewProxy) {
-        guard model.mountedLocationID != nil else {
+    /// Scrolls the selected location (at launch, a mounted one) into the
+    /// middle of the list once the layout has settled (repeated calls in
+    /// quick succession collapse into one scroll). Not on clicks: the row
+    /// clicked is already visible.
+    private func scrollToSelection(_ proxy: ScrollViewProxy) {
+        guard model.selectedLocationID != nil else {
             return
         }
         scrollRequest += 1
         let request = scrollRequest
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            guard request == scrollRequest, let id = model.mountedLocationID else {
+            guard request == scrollRequest, let id = model.selectedLocationID else {
                 return
             }
             withAnimation {
@@ -638,6 +626,7 @@ private struct LocationRow: View {
         case "archive": return "archivebox"
         case "sync": return "arrow.triangle.2.circlepath"
         case "shared": return "person.2"
+        case "photos": return "photo.on.rectangle.angled"
         default: return "folder"
         }
     }
@@ -653,53 +642,49 @@ private struct LocationRow: View {
         case "archive": return "Files stored only in Jottacloud"
         case "sync": return "Files synced with your devices"
         case "shared": return "Folders shared with others"
+        case "photos": return "Your photos and videos"
         default: return nil
         }
     }
 }
 
+/// Mount or Unmount for the selected location, by whether it is mounted.
 private struct FinderStatus: View {
     @EnvironmentObject private var model: AppModel
     @State private var confirmsUnmount = false
 
     var body: some View {
-        // The list shows which location is mounted (a green checkmark); work
-        // in progress shows in the button.
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Spacer()
-                // Mount (and open in Finder) when nothing is mounted; Unmount
-                // while mounted. The list is locked while mounted.
-                if model.mountURL != nil {
-                    Button(role: .destructive) {
-                        confirmsUnmount = true
-                    } label: {
-                        ButtonLabel(title: "Unmount", activity: model.activity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.red)
-                    .controlSize(.large)
-                    .help("Removes Jottacloud from Finder. Your files stay in Jottacloud.")
-                } else {
-                    Button {
-                        Task { await model.mountSelected() }
-                    } label: {
-                        ButtonLabel(title: "Mount", activity: model.activity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(model.selectedLocation == nil)
+        HStack {
+            Spacer()
+            if model.selectedIsMounted {
+                Button(role: .destructive) {
+                    confirmsUnmount = true
+                } label: {
+                    ButtonLabel(title: "Unmount", activity: model.selectedActivity)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .controlSize(.large)
+                .help("Removes this location from Finder. Your files stay in Jottacloud.")
+            } else {
+                Button {
+                    Task { await model.mountSelected() }
+                } label: {
+                    ButtonLabel(title: "Mount", activity: model.selectedActivity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.selectedLocation == nil || model.extensionEnabled == false)
             }
-            .disabled(model.isBusy)
         }
+        .disabled(model.isBusy)
         .confirmationDialog(
-            "Unmount “\(mountedName ?? "Jottacloud")”?",
+            "Unmount “\(selectedName ?? "Jottacloud")”?",
             isPresented: $confirmsUnmount
         ) {
             Button("Unmount", role: .destructive) {
-                Task { await model.disconnect() }
+                Task { await model.unmountSelected() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -707,13 +692,8 @@ private struct FinderStatus: View {
         }
     }
 
-    private var mountedName: String? {
-        guard model.mountURL != nil,
-              let mounted = model.mountedLocation ?? model.selectedLocation
-        else {
-            return nil
-        }
-        return model.displayName(of: mounted)
+    private var selectedName: String? {
+        model.selectedLocation.map(model.displayName)
     }
 }
 
@@ -729,7 +709,7 @@ private struct AdvancedSettingsView: View {
     }
 
     private var isMounted: Bool {
-        model.mountURL != nil && model.mountedLocationID == location.id
+        model.isMounted(location)
     }
 
     /// Empty means the location's own name.
@@ -874,7 +854,11 @@ private struct ButtonLabel: View {
             if let activity {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
-                    Text(activity == .mounting ? "Mounting…" : "Unmounting…")
+                    if case .mounting = activity {
+                        Text("Mounting…")
+                    } else {
+                        Text("Unmounting…")
+                    }
                 }
             } else {
                 Text(title)

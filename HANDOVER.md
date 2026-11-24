@@ -124,10 +124,12 @@ and delete; and confirm writes outside the scope fail.
 
 ## How it fits together
 
-- **Mount resource.** The app mounts an `FSPathURLResource` for the empty
-  `<group>/JottaCloudMount` directory (`JottaFSStorage.mountAnchorDirectoryURL`),
-  deliberately separate from the credentials directory. The extension declares
-  `FSSupportsPathURLs` only and accepts exactly that directory. A path resource
+- **Mount resource.** The app mounts an `FSPathURLResource` for a location's
+  mount anchor, `<group>/JottaCloudMount/<anchor name>`
+  (`JottaFSStorage.prepareMountAnchor`), deliberately separate from the
+  credentials directory. One anchor per location, so several locations can be
+  mounted at once; the anchor's `Location.plist` names the location. The
+  extension declares `FSSupportsPathURLs` only and accepts only anchors. A path resource
   makes the mount `local`; the earlier generic `jottafs://mount` resource was
   non-local, so Finder treated it as a server volume without a server and left
   it out of the sidebar. A mismatch between the resource kind/scheme and the
