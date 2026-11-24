@@ -18,7 +18,8 @@ struct StagedFile: Sendable {
 /// land here and are uploaded on close or sync (docs/write-support-design.md).
 final class StagingArea: @unchecked Sendable {
     /// Largest file the volume will stage; larger writes fail with EFBIG.
-    static let maximumSize: UInt64 = 2 << 30
+    /// 2 GiB.
+    static let maximumSize: UInt64 = 2 * 1024 * 1024 * 1024
 
     private let directory: URL
     private let lock = NSLock()
@@ -44,6 +45,10 @@ final class StagingArea: @unchecked Sendable {
         lock.withLock { files[id] }
     }
 
+    var stagedIdentifiers: [UInt64] {
+        lock.withLock { Array(files.keys) }
+    }
+
     var dirtyIdentifiers: [UInt64] {
         lock.withLock { files.filter(\.value.dirty).map(\.key) }
     }
@@ -54,12 +59,16 @@ final class StagingArea: @unchecked Sendable {
         _ id: UInt64,
         populate: @escaping @Sendable (URL) async throws -> Void
     ) async throws -> StagedFile {
-        let task: Task<StagedFile, Error> = lock.withLock {
+        enum Lookup {
+            case staged(StagedFile)
+            case loading(Task<StagedFile, Error>)
+        }
+        let lookup: Lookup = lock.withLock {
             if let existing = loading[id] {
-                return existing
+                return .loading(existing)
             }
             if let staged = files[id] {
-                return Task { staged }
+                return .staged(staged)
             }
             let url = directory.appendingPathComponent("\(id)-\(UUID().uuidString)")
             let task = Task {
@@ -83,7 +92,14 @@ final class StagingArea: @unchecked Sendable {
                 }
             }
             loading[id] = task
-            return task
+            return .loading(task)
+        }
+        let task: Task<StagedFile, Error>
+        switch lookup {
+        case .staged(let staged):
+            return staged
+        case .loading(let loadingTask):
+            task = loadingTask
         }
         do {
             let staged = try await task.value
@@ -102,6 +118,23 @@ final class StagingArea: @unchecked Sendable {
     }
 
     /// Records a modification: new size, dirty, next generation.
+    /// Records a write that ended at `endOffset`. Concurrent writes can
+    /// finish in any order, so the size only grows here (truncation uses
+    /// `markModified(_:size:)`).
+    func markWritten(_ id: UInt64, endingAt endOffset: UInt64) {
+        lock.withLock {
+            guard var staged = files[id] else {
+                return
+            }
+            staged.size = max(staged.size, endOffset)
+            staged.dirty = true
+            staged.generation &+= 1
+            staged.modified = Date()
+            files[id] = staged
+        }
+    }
+
+    /// Records a change that sets the size (create, truncate).
     func markModified(_ id: UInt64, size: UInt64, modified: Date = Date()) {
         lock.withLock {
             guard var staged = files[id] else {

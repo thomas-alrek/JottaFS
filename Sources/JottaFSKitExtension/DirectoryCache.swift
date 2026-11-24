@@ -125,8 +125,19 @@ actor DirectoryCache {
             return snapshot
         }
         var entries = snapshot.entries.filter { overlay[$0.entry.name.lowercased()] == nil }
-        entries += overlay.values.compactMap(\.entry)
-        return DirectorySnapshot(entries: entries, verifier: snapshot.verifier)
+        // A stable order (paged enumeration relies on it).
+        entries += overlay.values.compactMap(\.entry).sorted { $0.entry.name < $1.entry.name }
+        // A different verifier for every overlay state, so FSKit notices
+        // when local changes appear or expire.
+        var hasher = Hasher()
+        hasher.combine(snapshot.verifier)
+        for (name, change) in overlay.sorted(by: { $0.key < $1.key }) {
+            hasher.combine(name)
+            hasher.combine(change.entry == nil)
+            hasher.combine(change.expires)
+        }
+        let verifier = UInt64(bitPattern: Int64(hasher.finalize())) | 1
+        return DirectorySnapshot(entries: entries, verifier: verifier)
     }
 
     private func fetch(

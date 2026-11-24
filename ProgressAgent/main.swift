@@ -14,8 +14,12 @@ import Security
 
 private let extensionIdentifier = "no.alrek.jottafs.extension"
 private let fileSystemType = "jottacloud" // the extension's FSShortName
+// Keep in sync with `JottaFSStorage.mountAnchorDirectoryURL()` (the agent
+// deliberately does not link JottaFSCore).
+private let mountAnchorSuffix = "/group.no.alrek.jottafs/JottaCloudMount"
 
-/// Mount point of the JottaCloud volume, found in the mount table.
+/// Mount point of the JottaFS volume, found in the mount table (the volume
+/// is named after its location, so the path is not fixed).
 private func jottaCloudMountPoint() -> URL? {
     var mounts: UnsafeMutablePointer<statfs>?
     let count = getmntinfo(&mounts, MNT_NOWAIT)
@@ -27,7 +31,15 @@ private func jottaCloudMountPoint() -> URL? {
         let type = withUnsafeBytes(of: &mount.f_fstypename) {
             String(cString: $0.bindMemory(to: CChar.self).baseAddress!)
         }
-        guard type == fileSystemType else {
+        let source = withUnsafeBytes(of: &mount.f_mntfromname) {
+            String(cString: $0.bindMemory(to: CChar.self).baseAddress!)
+        }
+        let sourcePath = source.hasPrefix("file://") ? (URL(string: source)?.path ?? "") : source
+        guard type == fileSystemType,
+              sourcePath.trimmingCharacters(in: CharacterSet(charactersIn: "/")).hasSuffix(
+                  mountAnchorSuffix.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+              )
+        else {
             continue
         }
         let path = withUnsafeBytes(of: &mount.f_mntonname) {
@@ -50,9 +62,10 @@ private final class ProgressRegistry {
         guard let components = JottaFSProgressService.safeComponents(of: path) else {
             return
         }
-        // The agent is sandboxed; fall back to the usual mount point if the
-        // mount table is not readable.
-        let mountPoint = jottaCloudMountPoint() ?? URL(fileURLWithPath: "/Volumes/JottaCloud", isDirectory: true)
+        // No volume in the mount table: nothing to show progress on.
+        guard let mountPoint = jottaCloudMountPoint() else {
+            return
+        }
         // String-built with an explicit isDirectory: inferring it would lstat
         // the path on the JottaCloud volume while its extension may be busy.
         let fileURL = URL(
@@ -142,7 +155,14 @@ private func clientRequirement() -> String {
        !team.isEmpty {
         return #"identifier "\#(extensionIdentifier)" and anchor apple generic and certificate leaf[subject.OU] = "\#(team)""#
     }
+    #if DEBUG
+    // Ad-hoc development builds have no team.
     return #"identifier "\#(extensionIdentifier)""#
+    #else
+    // The agent is a Mach service in the user session: never accept an
+    // ad-hoc signed client in a release build.
+    return #"identifier "\#(extensionIdentifier)" and anchor apple generic"#
+    #endif
 }
 
 private final class ListenerDelegate: NSObject, NSXPCListenerDelegate {

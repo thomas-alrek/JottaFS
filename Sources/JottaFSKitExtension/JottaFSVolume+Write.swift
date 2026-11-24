@@ -3,13 +3,13 @@ import FSKit
 import JottaFSCore
 import OSLog
 
-private let writeLogger = Logger(subsystem: "no.alrek.jottafs.extension", category: "Write")
+private let writeLogger = Logger.extension("Write")
 
 /// Write support (docs/write-support-design.md): everything inside the mounted
 /// location can be created, written, renamed and deleted.
 extension JottaFSVolume: FSVolume.OpenCloseHandler {
 
-    // MARK: Scope
+    // MARK: Permissions
 
     /// The remote location of an existing item that may be modified: any
     /// item inside the mounted location (not the volume root itself, the
@@ -34,6 +34,12 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         default:
             return false
         }
+    }
+
+    /// Names the volume root provides itself (the Trash and the volume icon).
+    func isReservedRootName(_ name: String) -> Bool {
+        JottaFSNames.sameName(name, DirectoryCache.trashesName)
+            || JottaFSNames.sameName(name, Self.volumeIconName)
     }
 
     private func validateNewName(_ name: FSFileName) throws -> String {
@@ -129,7 +135,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             return try await createTrashMetadata(named: newName, type: type, in: parent)
         }
         guard let location = parent.childLocation(named: newName),
-              !(isVolumeRoot(parent) && JottaFSNames.sameName(newName, DirectoryCache.trashesName))
+              !(isVolumeRoot(parent) && isReservedRootName(newName))
         else {
             throw POSIXError(.EPERM)
         }
@@ -229,9 +235,10 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         }
         do {
             let staged = try await stage(item, keepContents: true)
-            let fileSize = try JottaFSStagingFile.write(contents, to: staged.url, at: UInt64(offset))
-            staging.markModified(item.identifier, size: fileSize)
-            updateEntry(item, size: fileSize, modified: Date())
+            await readAhead.invalidate(item.identifier)
+            _ = try JottaFSStagingFile.write(contents, to: staged.url, at: UInt64(offset))
+            staging.markWritten(item.identifier, endingAt: end)
+            updateEntry(item, size: staging.file(item.identifier)?.size ?? end, modified: Date())
         } catch {
             throw posixError(error)
         }
@@ -314,6 +321,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
                 throw POSIXError(.EFBIG)
             }
             do {
+                await readAhead.invalidate(item.identifier)
                 let staged = try await stage(item, keepContents: newSize > 0)
                 try JottaFSStagingFile.truncate(staged.url, to: newSize)
                 staging.markModified(item.identifier, size: newSize)
@@ -407,6 +415,8 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         guard uploaded.isSet else {
             return
         }
+        // The remote file changed.
+        await readAhead.invalidate(item.identifier)
         writeLogger.info("Uploaded a file.")
         if let parent = itemStore.item(identifier: item.parentIdentifier) {
             await directoryCache.recordPresent(
@@ -458,6 +468,11 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
     /// returned as an error from close (Finder reports the copy as failed);
     /// the data stays staged and is retried on the next close or sync.
     func closeItem(_ item: FSItem, modes: FSVolume.OpenModes, context: FSContext) async throws {
+        // `modes` are the modes still open: when none are left, the
+        // read-ahead blocks are no longer needed.
+        if modes.isEmpty, let item = item as? JottacloudItem {
+            await readAhead.invalidate(item.identifier)
+        }
         guard !modes.contains(.write),
               let item = item as? JottacloudItem,
               staging.file(item.identifier)?.dirty == true
@@ -493,36 +508,10 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
                 throw POSIXError(.ENOTEMPTY)
             }
         }
-        // Stop pending uploads of this file: discard its staged data first
-        // (an upload that has not started then finds nothing to send), and
-        // wait for one already running to finish before trashing.
-        if !isDirectory {
-            staging.discard(item.identifier)
-            await staging.waitForUpload(item.identifier)
-        }
-        // Like unlink(2) on a local disk, removal is permanent: the item is
-        // trashed and then that trashed item is deleted permanently.
-        var trashed = true
-        let started = Date()
-        do {
-            try await client.trash(volume: location.volume, path: location.path, isDirectory: isDirectory)
-        } catch JottacloudError.httpStatus(404) {
-            // Created locally and never uploaded; nothing to delete remotely.
-            trashed = false
-        } catch {
-            throw posixError(error)
-        }
-        staging.discard(item.identifier)
+        try await deletePermanently(item, at: location)
         await directoryCache.recordAbsent(name: item.entry.name, inDirectory: parent.path)
         let itemAttributes = attributes(for: item)
         itemStore.remove(item)
-        if trashed {
-            if let servicePath = target.servicePath(volume: location.volume, path: location.path) {
-                await deleteJustTrashed(servicePath: servicePath, since: started)
-            } else {
-                writeLogger.error("Removed an item to the Jottacloud trash (no permanent delete here).")
-            }
-        }
         guard let result = FSRemoveItemResult(
             itemAttributes: itemAttributes,
             directoryAttributes: attributes(for: parent),
@@ -531,6 +520,37 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             throw POSIXError(.EIO)
         }
         return result
+    }
+
+    /// Deletes a live item permanently, like unlink(2) on a local disk: it is
+    /// trashed, then that trashed item is deleted permanently. Pending and
+    /// running uploads of the file are stopped first, so they cannot create
+    /// it again.
+    private func deletePermanently(_ item: JottacloudItem, at location: (volume: JottacloudRemoteVolume, path: String)) async throws {
+        await readAhead.invalidate(item.identifier)
+        let isDirectory = item.entry.kind == .directory
+        if !isDirectory {
+            // An upload that has not started finds nothing to send; wait for
+            // one that is running.
+            staging.discard(item.identifier)
+            await staging.waitForUpload(item.identifier)
+        }
+        let started = Date()
+        do {
+            try await client.trash(volume: location.volume, path: location.path, isDirectory: isDirectory)
+        } catch JottacloudError.httpStatus(404) {
+            // Created locally and never uploaded; nothing to delete remotely.
+            staging.discard(item.identifier)
+            return
+        } catch {
+            throw posixError(error)
+        }
+        staging.discard(item.identifier)
+        if let servicePath = target.servicePath(volume: location.volume, path: location.path) {
+            await deleteJustTrashed(servicePath: servicePath, since: started)
+        } else {
+            writeLogger.error("Removed an item to the Jottacloud trash (no permanent delete here).")
+        }
     }
 
     // MARK: Rename
@@ -565,7 +585,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         }
         let from = try writableLocation(of: item)
         guard let to = destination.childLocation(named: newName),
-              !(isVolumeRoot(destination) && JottaFSNames.sameName(newName, DirectoryCache.trashesName))
+              !(isVolumeRoot(destination) && isReservedRootName(newName))
         else {
             throw POSIXError(.EPERM)
         }
@@ -593,18 +613,10 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
                     throw POSIXError(.ENOTEMPTY)
                 }
             }
-            do {
-                try await client.trash(
-                    volume: overLocation.volume,
-                    path: overLocation.path,
-                    isDirectory: over.entry.kind == .directory
-                )
-            } catch JottacloudError.httpStatus(404) {
-            } catch {
-                throw posixError(error)
-            }
+            // Replaced like on a local disk (apps that save by renaming a new
+            // file over the old one would otherwise fill the Trash).
+            try await deletePermanently(over, at: overLocation)
             overAttributes = attributes(for: over)
-            staging.discard(over.identifier)
             itemStore.remove(over)
         }
 

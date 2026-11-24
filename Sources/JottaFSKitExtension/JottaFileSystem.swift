@@ -8,10 +8,7 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     private static let containerIdentifier = UUID(
         uuidString: "5A49278E-AF1A-4501-97A1-C1910A984A91"
     )!
-    private let logger = Logger(
-        subsystem: "no.alrek.jottafs.extension",
-        category: "Resource"
-    )
+    private let logger = Logger.extension("Resource")
     private var activeResourceURL: URL?
 
     /// The only resource this file system mounts: the empty mount-anchor
@@ -27,10 +24,7 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
     func probeResource(resource: FSResource) async throws -> FSProbeResult {
         guard Self.acceptedResourceURL(resource) != nil,
-              let credentialsDirectory = JottaFSStorage.credentialsDirectoryURL(),
-              let credentialsURL = try? JottaFSStorage.credentialsFileURL(
-                in: credentialsDirectory
-              )
+              let credentialsDirectory = JottaFSStorage.credentialsDirectoryURL()
         else {
             logger.info("Probe rejected: resource URL or shared storage is unavailable.")
             return .notRecognized
@@ -62,7 +56,7 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             let client = JottacloudClient(
                 credentials: credentials,
                 persistCredentials: { updated in
-                    try JottaFSStorage.saveCredentials(updated, to: credentialsDirectory)
+                    try JottaFSStorage.saveTokens(of: updated, to: credentialsDirectory)
                 },
                 loadSavedCredentials: {
                     try? JottaFSStorage.loadCredentials(from: credentialsDirectory)
@@ -104,10 +98,10 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 && JottaFSNames.sameName($0.mountpoint, credentials.mountpoint)
         }) else {
             logger.error("The chosen Jottacloud location no longer exists.")
-            throw JottacloudError.noRemoteVolumes
+            throw JottacloudError.locationNotFound
         }
         var deviceServicePath: String?
-        if volume.device != "Jotta" {
+        if !volume.isBuiltIn {
             deviceServicePath = try? await client.listBackupDevices().first { JottaFSNames.sameName($0.name, volume.device) }?.path
             if deviceServicePath == nil {
                 logger.error("No service path for the backup device; the Trash is unavailable.")
@@ -133,5 +127,13 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 struct JottaFSKitModule: UnaryFileSystemExtension {
     var fileSystem: JottaFileSystem {
         JottaFileSystem()
+    }
+}
+
+extension Logger {
+    /// A logger for the file system extension (subsystem
+    /// `no.alrek.jottafs.extension`).
+    static func `extension`(_ category: String) -> Logger {
+        Logger(subsystem: "no.alrek.jottafs.extension", category: category)
     }
 }

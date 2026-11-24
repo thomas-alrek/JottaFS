@@ -228,21 +228,86 @@ public enum JottaFSStorage {
         )
     }
 
+    /// Replaces the saved credentials (used when signing in). Other changes
+    /// go through `updateCredentials`, which keeps concurrent writers from
+    /// undoing each other.
     public static func saveCredentials(
         _ credentials: JottacloudCredentials,
         to directory: URL
     ) throws {
-        let url = try credentialsFileURL(in: directory)
-        let encoder = PropertyListEncoder()
-        encoder.outputFormat = .binary
-        try encoder.encode(credentials).write(to: url, options: .atomic)
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o600],
-            ofItemAtPath: url.path
-        )
+        try withCredentialsLock(in: directory) {
+            try writeCredentials(credentials, to: directory)
+        }
     }
 
-    public static func encodeCredentials(_ credentials: JottacloudCredentials) throws -> Data {
+    /// Changes some fields of the saved credentials: read, change and write
+    /// under an exclusive lock that the app and the file system extension
+    /// share. Each writer changes only its own fields (tokens, location or
+    /// profile), so a token rotated by one process is never written back
+    /// stale by the other.
+    @discardableResult
+    public static func updateCredentials(
+        in directory: URL,
+        _ change: (inout JottacloudCredentials) throws -> Void
+    ) throws -> JottacloudCredentials {
+        try withCredentialsLock(in: directory) {
+            var credentials = try loadCredentials(from: directory)
+            try change(&credentials)
+            try writeCredentials(credentials, to: directory)
+            return credentials
+        }
+    }
+
+    /// Saves rotated tokens only.
+    public static func saveTokens(of credentials: JottacloudCredentials, to directory: URL) throws {
+        try updateCredentials(in: directory) { saved in
+            saved.accessToken = credentials.accessToken
+            saved.refreshToken = credentials.refreshToken
+            saved.expiresAt = credentials.expiresAt
+        }
+    }
+
+    /// An `flock` on `credentials.lock` next to the credentials file.
+    private static func withCredentialsLock<T>(in directory: URL, _ body: () throws -> T) throws -> T {
+        _ = try credentialsFileURL(in: directory)
+        let lockPath = directory.appendingPathComponent("credentials.lock", isDirectory: false).path
+        let descriptor = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { flock(descriptor, LOCK_UN) }
+        return try body()
+    }
+
+    /// Writes the file atomically with mode 0600 from the start (a temporary
+    /// file created 0600, then renamed over the old one).
+    private static func writeCredentials(_ credentials: JottacloudCredentials, to directory: URL) throws {
+        let url = try credentialsFileURL(in: directory)
+        let data = try encodeCredentials(credentials)
+        let temporary = directory.appendingPathComponent(".credentials-\(UUID().uuidString).tmp", isDirectory: false)
+        let descriptor = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        do {
+            try handle.write(contentsOf: data)
+            try handle.synchronize()
+            try handle.close()
+            guard rename(temporary.path, url.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
+    }
+
+    static func encodeCredentials(_ credentials: JottacloudCredentials) throws -> Data {
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
         return try encoder.encode(credentials)

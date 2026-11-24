@@ -148,8 +148,13 @@ deletion that was listed. A live item at the same path is never deleted.
   Finder waited). Deleting one from the Trash deletes all of its contents.
 - Folders under `.Trashes` are protected by macOS privacy controls: only
   apps with Full Disk Access (and Finder) can list them.
-- A rename over an existing file still sends the replaced file to the
-  Jottacloud trash (not permanent).
+- A rename over an existing file deletes the replaced file permanently,
+  like `rm` (apps that save by renaming a new file over the old one would
+  otherwise fill the Trash), after waiting for any upload of it.
+- Permanent deletes after a trash operation only accept a trash entry
+  deleted within 5 seconds of the operation, and Empty Trash refuses an
+  entry whose deletion time is not known yet, so an older trashed copy at
+  the same path is never deleted by mistake.
 
 ## Update: one mounted location (2026-11-24)
 

@@ -130,18 +130,6 @@ private struct RootView: View {
         model.phase == .signedIn ? CGSize(width: 480, height: 660) : CGSize(width: 480, height: 480)
     }
 
-    /// The first sentence of an error message is the alert title; the rest
-    /// is its detail text.
-    private var errorParts: (title: String, detail: String) {
-        guard let message = model.errorMessage else {
-            return ("", "")
-        }
-        if let end = message.range(of: ". ") {
-            return (String(message[..<end.lowerBound]) + ".", String(message[end.upperBound...]))
-        }
-        return (message, "")
-    }
-
     var body: some View {
         Group {
             switch model.phase {
@@ -168,17 +156,20 @@ private struct RootView: View {
         .frame(width: windowSize.width - 64, height: windowSize.height - 64)
         // Errors show in an alert, so the window layout never changes.
         .alert(
-            errorParts.title,
+            model.alert?.title ?? "",
             isPresented: Binding(
-                get: { model.errorMessage != nil },
-                set: { if !$0 { model.errorMessage = nil } }
-            )
-        ) {
+                get: { model.alert != nil },
+                set: { if !$0 { model.alert = nil } }
+            ),
+            presenting: model.alert
+        ) { _ in
             Button("OK", role: .cancel) {
-                model.errorMessage = nil
+                model.alert = nil
             }
-        } message: {
-            Text(errorParts.detail)
+        } message: { alert in
+            if let message = alert.message {
+                Text(message)
+            }
         }
 
     }
@@ -233,9 +224,8 @@ private struct SignInView: View {
                         .multilineTextAlignment(.center)
                 }
 
-
                 Button("Sign in with a personal login token instead") {
-                    model.errorMessage = nil
+                    model.alert = nil
                     showsTokenSignIn = true
                 }
                 .buttonStyle(.link)
@@ -292,13 +282,12 @@ private struct TokenSignInView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-
             Spacer(minLength: 0)
 
             HStack {
                 Button("Back") {
                     token = ""
-                    model.errorMessage = nil
+                    model.alert = nil
                     isShown = false
                 }
                 .controlSize(.large)
@@ -332,6 +321,7 @@ private struct Step<Content: View>: View {
                 .font(.callout.bold())
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(.tint.opacity(0.15)))
+                .accessibilityHidden(true)
             content
         }
     }
@@ -368,7 +358,8 @@ private struct WaitingForBrowserView: View {
 private struct SignedInView: View {
     @EnvironmentObject private var model: AppModel
     @State private var confirmsSignOut = false
-    @State private var showsAdvanced = false
+    /// The location the Advanced sheet is open for.
+    @State private var advancedLocation: JottacloudRemoteVolume?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -417,7 +408,7 @@ private struct SignedInView: View {
                     }
                     Spacer()
                     Button("Advanced…") {
-                        showsAdvanced = true
+                        advancedLocation = model.selectedLocation
                     }
                     .disabled(model.selectedLocation == nil)
                 }
@@ -426,7 +417,6 @@ private struct SignedInView: View {
             // Nothing can be shown in Finder until JottaFS is allowed in
             // System Settings (the notice above explains it).
             .disabled(model.extensionEnabled == false)
-            .opacity(model.extensionEnabled == false ? 0.5 : 1)
 
             if model.loginItemNeedsApproval {
                 Notice(
@@ -450,11 +440,9 @@ private struct SignedInView: View {
                 .disabled(model.extensionEnabled == false && model.mountURL == nil)
 
         }
-        .sheet(isPresented: $showsAdvanced) {
-            if let location = model.selectedLocation {
-                AdvancedSettingsView(location: location)
-                    .environmentObject(model)
-            }
+        .sheet(item: $advancedLocation) { location in
+            AdvancedSettingsView(location: location)
+                .environmentObject(model)
         }
         .confirmationDialog(
             "Sign out of Jottacloud?",
@@ -526,7 +514,7 @@ private struct LocationPicker: View {
                                 return
                             }
                             model.selectedLocationID = id
-                            Task { await model.showSelectedInFinder() }
+                            Task { await model.mountSelected() }
                         }
                         .frame(minHeight: 120, maxHeight: .infinity)
                         // Scroll again whenever the list's size or contents
@@ -599,10 +587,10 @@ private struct LocationPicker: View {
         }
         // The built-in Jottacloud locations first, then backups.
         order.sort { lhs, rhs in
-            (lhs == "Jotta" ? 0 : 1, lhs) < (rhs == "Jotta" ? 0 : 1, rhs)
+            (lhs == JottacloudRemoteVolume.builtInDevice ? 0 : 1, lhs) < (rhs == JottacloudRemoteVolume.builtInDevice ? 0 : 1, rhs)
         }
         return order.map { device in
-            (device == "Jotta" ? "Jottacloud" : "Backup from \(device)", byDevice[device] ?? [])
+            (device == JottacloudRemoteVolume.builtInDevice ? "Jottacloud" : "Backup from \(device)", byDevice[device] ?? [])
         }
     }
 }
@@ -638,7 +626,7 @@ private struct LocationRow: View {
     }
 
     private var symbol: String {
-        guard location.device == "Jotta" else {
+        guard location.isBuiltIn else {
             return "folder"
         }
         switch location.mountpoint.lowercased() {
@@ -653,7 +641,7 @@ private struct LocationRow: View {
         if let customName {
             return "Shown in Finder as “\(customName)”"
         }
-        guard location.device == "Jotta" else {
+        guard location.isBuiltIn else {
             return nil
         }
         switch location.mountpoint.lowercased() {
@@ -689,7 +677,7 @@ private struct FinderStatus: View {
                     .help("Removes Jottacloud from Finder. Your files stay in Jottacloud.")
                 } else {
                     Button {
-                        Task { await model.showSelectedInFinder() }
+                        Task { await model.mountSelected() }
                     } label: {
                         ButtonLabel(title: "Mount", activity: model.activity)
                     }
@@ -750,7 +738,7 @@ private struct AdvancedSettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Advanced")
                     .font(.title2.bold())
-                Text(location.device == "Jotta" ? location.mountpoint : "\(location.mountpoint) · Backup from \(location.device)")
+                Text(location.isBuiltIn ? location.mountpoint : "\(location.mountpoint) · Backup from \(location.device)")
                     .foregroundStyle(.secondary)
             }
 
@@ -765,7 +753,7 @@ private struct AdvancedSettingsView: View {
                     if isMounted {
                         Text("Unmount “\(model.displayName(of: location))” to change its name.")
                     } else if !isValid {
-                        Text("A name can’t contain “/” or “:”.")
+                        Text("This name can’t be used. Avoid “/” and “:”, and use a shorter name.")
                             .foregroundStyle(.red)
                     } else {
                         Text("The disk gets this name the next time you mount it. Leave it empty to use “\(defaultName)”.")
@@ -807,14 +795,14 @@ private struct AdvancedSettingsView: View {
 /// A button title, or a spinner with "Mounting…"/"Unmounting…" while busy.
 private struct ButtonLabel: View {
     let title: String
-    let activity: String?
+    let activity: AppModel.Activity?
 
     var body: some View {
         Group {
             if let activity {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.small)
-                    Text(activity.hasPrefix("Mounting") ? "Mounting…" : activity)
+                    Text(activity == .mounting ? "Mounting…" : "Unmounting…")
                 }
             } else {
                 Text(title)
@@ -836,6 +824,7 @@ private struct Notice: View {
             Image(systemName: systemImage)
                 .font(.title2)
                 .foregroundStyle(.orange)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.headline)
                 Text(message)

@@ -42,6 +42,10 @@ func requestUnmountFromService() async throws {
         proxy.unmountJottaFSVolume { message in
             once.resume(with: .success(message))
         }
+        // A hung service must not leave the app on "Unmounting…" forever.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
+            once.resume(with: .failure(UnmountError.serviceUnavailable))
+        }
     }
     if let failure {
         throw UnmountError.failed(failure)

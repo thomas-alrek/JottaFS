@@ -214,7 +214,8 @@ enum RemoteAPIChecks {
             try JottaFSNames.validate(name)
         }
         for name in ["", ".", "..", "a/b", "a:b", "a*b", "a?b", "a|b", "a<b", "a>b", "a\"b", "a%b",
-                     "a\u{0}b", "a\nb", String(repeating: "x", count: 256)] {
+                     "a\u{0}b", "a\nb", String(repeating: "x", count: 256),
+                     String(repeating: "å", count: 128)] { // 256 bytes of UTF-8
             do {
                 try JottaFSNames.validate(name)
                 throw CheckFailure.expectedAnError

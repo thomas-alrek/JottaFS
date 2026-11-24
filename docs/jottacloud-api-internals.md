@@ -69,7 +69,9 @@ belongs to its transfer layer and is not needed for the OAuth flow.
 Plan for JottaFS: run the flow from the host app (not the extension) with
 `jottacli`, scope `openid offline_access`, PKCE `S256` (falling back to
 `plain` only if refused), and verify `state` on the callback (the official
-app does not appear to). A sandboxed listener needs
+app does not appear to). Implemented 2026-11-24: Jottacloud accepts S256 for
+`jottacli` and a `http://localhost:<port>/callback` redirect; JottaFS uses S256
+only and checks `state` in the callback server and again in the client. A sandboxed listener needs
 `com.apple.security.network.server`.
 
 Unconfirmed: the exact `scope` the app requests (probably from discovery),
@@ -176,14 +178,24 @@ the shipped binary, not from decompiled control flow or network traffic.
 Download a file with `?mode=bin` and a `Range: bytes=start-end` header. The
 expected response is HTTP 206. Request identity encoding so content coding
 cannot change the byte offsets, and verify that `Content-Range` starts at the
-requested offset and fits within the requested length. Some server behavior may
-return HTTP 200 despite the range request; in that case stream and skip to the
-requested offset rather than buffering the entire file. Observed 2026-11-24:
+requested offset and fits within the requested length. If the server answers
+HTTP 200 despite the range request, JottaFS reads the start of the body only
+for offset 0 and otherwise fails the read rather than downloading and
+discarding everything before the offset. Observed 2026-11-24:
 Jottacloud answers 416 (`text/xml`) when the range *end* extends past the end of
 the file, even if the start is valid, instead of returning a truncated 206.
 Clamp the range end to the listed file size and do not send a request at or
 after EOF; then a 416 means there is no data at that offset. Cap one FUSE/FSKit read request (the prototype
 used 1 MiB) and return short reads at end of file.
+
+Each range request waits about 70–100 ms for its first byte, and one
+download runs at only about 4–5 MB/s (measured 2026-11-24, independent of the
+range size). JottaFS therefore reads ahead once 2 MiB of a file have been read
+in order (`ReadAhead.swift`): 8 MiB blocks at fixed positions, with up to four
+downloading at the same time ahead of the reader. Random reads, and readers
+that only look at the start of a file (Finder thumbnails), still use one
+request each. Responses are collected in chunks and cancelled at the
+requested length.
 
 ## Existing implementation decisions
 

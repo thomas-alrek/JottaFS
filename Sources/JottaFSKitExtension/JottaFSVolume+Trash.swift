@@ -3,7 +3,7 @@ import FSKit
 import JottaFSCore
 import OSLog
 
-private let trashLogger = Logger(subsystem: "no.alrek.jottafs.extension", category: "Trash")
+private let trashLogger = Logger.extension("Trash")
 
 /// Finder's Trash on the volume (docs/trash-design.md): `/.Trashes/<uid>`
 /// shows the whole Jottacloud trash. Moving an item there trashes it on
@@ -61,22 +61,27 @@ extension JottaFSVolume {
             throw POSIXError(.EPERM)
         }
         let isDirectory = item.entry.kind == .directory
-        if !isDirectory {
-            // The trashed copy must hold the latest data.
-            do {
-                try await flush(item)
-            } catch {
-                throw posixError(error)
+        // The trashed copy must hold the latest data: upload the file, or
+        // every unsaved file inside the folder.
+        let pending = isDirectory ? stagedDescendants(of: item) : [item]
+        do {
+            for file in pending {
+                try await flush(file)
+                await staging.waitForUpload(file.identifier)
             }
-            await staging.waitForUpload(item.identifier)
+        } catch {
+            throw posixError(error)
         }
+        await readAhead.invalidate(item.identifier)
         let started = Date()
         do {
             try await client.trash(volume: location.volume, path: location.path, isDirectory: isDirectory)
         } catch {
             throw posixError(error)
         }
-        staging.discard(item.identifier)
+        for file in pending {
+            staging.discard(file.identifier)
+        }
         let found = await findTrashed(servicePath, since: started)
         if found == nil {
             trashLogger.error("Trashed an item but could not find it in the trash yet; it gets a name at the next listing.")
@@ -99,6 +104,13 @@ extension JottaFSVolume {
         await directoryCache.recordPresent(JottacloudDirectoryEntry(entry: entry, role: item.role), inDirectory: trashFolder.path)
         trashLogger.info("Moved an item to the Trash.")
         return try renameResult(item, name: name, source: source, destination: trashFolder, over: nil)
+    }
+
+    /// Staged (possibly unsaved) files inside a folder.
+    private func stagedDescendants(of folder: JottacloudItem) -> [JottacloudItem] {
+        let prefix = folder.path.lowercased() + "/"
+        return staging.stagedIdentifiers.compactMap { itemStore.item(identifier: $0) }
+            .filter { $0.path.lowercased().hasPrefix(prefix) }
     }
 
     // MARK: Put Back, rename in the Trash
@@ -125,7 +137,7 @@ extension JottaFSVolume {
             let newURL = trash.localURL(newName)
             do {
                 if newURL != url {
-                    _ = try? FileManager.default.removeItem(at: newURL)
+                    try? FileManager.default.removeItem(at: newURL)
                     try FileManager.default.moveItem(at: url, to: newURL)
                 }
             } catch {
@@ -227,10 +239,17 @@ extension JottaFSVolume {
             }
             await trash.localFilesChanged()
         case .trashed(let trashed, true):
+            // An entry whose deletion time is not known yet (just trashed and
+            // not found in the trash) could match another trashed copy at the
+            // same path; wait for a listing to identify it.
+            guard trashed.isTrashed else {
+                trashLogger.error("A Trash entry is not identified yet; not deleting it permanently.")
+                throw POSIXError(.EBUSY)
+            }
             do {
                 try await client.deletePermanently(
                     path: trashed.path,
-                    expectedDeletedAtMillis: trashed.isTrashed ? trashed.deletedAtMillis : nil
+                    expectedDeletedAtMillis: trashed.deletedAtMillis
                 )
                 trashLogger.info("Deleted a Trash entry permanently.")
             } catch JottacloudError.notInTrash {
@@ -277,10 +296,13 @@ extension JottaFSVolume {
     /// The trashed item at `servicePath` trashed at or after `since` (with
     /// some clock tolerance), retried briefly because listings can lag.
     func findTrashed(_ servicePath: String, since started: Date) async -> JottacloudPathItem? {
-        let earliest = UInt64(max(0, started.timeIntervalSince1970 - 300) * 1000)
-        for delay in [0, 250, 500, 1000, 2000] as [UInt64] {
+        // Only a deletion from this operation: a few seconds of clock skew,
+        // never an older trashed copy at the same path (which the user may
+        // want to keep).
+        let earliest = UInt64(max(0, started.timeIntervalSince1970 - 5) * 1000)
+        for delay in [0, 250, 500, 1000, 2000] {
             if delay > 0 {
-                try? await Task.sleep(nanoseconds: delay * 1_000_000)
+                try? await Task.sleep(for: .milliseconds(delay))
             }
             if let item = try? await client.pathItem(servicePath, includeDeleted: true),
                item.isTrashed, item.deletedAtMillis >= earliest {

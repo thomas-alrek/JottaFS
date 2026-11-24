@@ -1,4 +1,5 @@
 import FSKit
+import os
 import JottaFSCore
 
 /// The mounted Jottacloud location (such as `Jotta/Archive`, or one
@@ -21,7 +22,7 @@ struct MountTarget: Sendable {
     /// The service path of `path` in the mounted location, or nil.
     func servicePath(volume: JottacloudRemoteVolume, path: String) -> String? {
         let root: String?
-        if volume.device == "Jotta" {
+        if volume.isBuiltIn {
             root = JottacloudClient.servicePath(device: volume.device, mountpoint: volume.mountpoint, path: "")
         } else {
             root = deviceServicePath.map { "\($0)/\(volume.mountpoint)" }
@@ -68,11 +69,39 @@ struct JottacloudDirectoryEntry: Sendable {
 
 final class JottacloudItem: FSItem {
     let identifier: UInt64
-    // Mutable only through ItemStore (under its lock) when an item is renamed.
-    var parentIdentifier: UInt64
-    var path: String
-    var role: JottacloudItemRole
-    var entry: RemoteEntry
+
+    /// The item's mutable state. FSKit calls the volume concurrently and
+    /// renames, moves to the Trash and writes change these fields, so every
+    /// access goes through a lock (a plain `String` or enum assignment is not
+    /// atomic and can crash a concurrent reader).
+    private struct State {
+        var parentIdentifier: UInt64
+        var path: String
+        var role: JottacloudItemRole
+        var entry: RemoteEntry
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    var parentIdentifier: UInt64 {
+        get { state.withLock { $0.parentIdentifier } }
+        set { state.withLock { $0.parentIdentifier = newValue } }
+    }
+
+    var path: String {
+        get { state.withLock { $0.path } }
+        set { state.withLock { $0.path = newValue } }
+    }
+
+    var role: JottacloudItemRole {
+        get { state.withLock { $0.role } }
+        set { state.withLock { $0.role = newValue } }
+    }
+
+    var entry: RemoteEntry {
+        get { state.withLock { $0.entry } }
+        set { state.withLock { $0.entry = newValue } }
+    }
 
     init(
         identifier: UInt64,
@@ -82,10 +111,12 @@ final class JottacloudItem: FSItem {
         entry: RemoteEntry
     ) {
         self.identifier = identifier
-        self.parentIdentifier = parentIdentifier
-        self.path = path
-        self.role = role
-        self.entry = entry
+        self.state = OSAllocatedUnfairLock(initialState: State(
+            parentIdentifier: parentIdentifier,
+            path: path,
+            role: role,
+            entry: entry
+        ))
         super.init()
     }
 

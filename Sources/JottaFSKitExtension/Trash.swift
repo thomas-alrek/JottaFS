@@ -3,7 +3,7 @@ import Foundation
 import JottaFSCore
 import OSLog
 
-private let trashLogger = Logger(subsystem: "no.alrek.jottafs.extension", category: "Trash")
+private let trashLogger = Logger.extension("Trash")
 
 /// State behind the virtual Trash (docs/trash-design.md).
 ///
@@ -205,6 +205,7 @@ actor TrashStore {
         let now = Date()
         tombstones = tombstones.filter { $0.value > now }
         var updated = false
+        let localTaken = Set(localNames().map { $0.lowercased() })
         for item in page where item.isTrashed && belongsToLocation(item) {
             let key = Self.key(item)
             seen.insert(key)
@@ -216,7 +217,7 @@ actor TrashStore {
                 updated = true
             }
             if names[key] == nil {
-                let name = Self.uniqueName(item.name, taken: usedNames.union(localNames().map { $0.lowercased() }))
+                let name = Self.uniqueName(item.name, taken: usedNames.union(localTaken))
                 names[key] = name
                 usedNames.insert(name.lowercased())
                 updated = true
@@ -276,6 +277,12 @@ actor TrashStore {
             save()
         }
         changed()
+    }
+
+    /// Stops background loading (the volume is going away).
+    func stop() {
+        refreshTask?.cancel()
+        refreshTask = nil
     }
 
     /// A local metadata file was created, renamed or removed.

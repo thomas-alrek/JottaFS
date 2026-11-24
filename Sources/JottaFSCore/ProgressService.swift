@@ -13,7 +13,7 @@ import Foundation
 @objc(JottaFSProgressServiceProtocol)
 public protocol JottaFSProgressServiceProtocol {
     /// Starts showing upload progress for `path`, relative to the volume root
-    /// (for example `Jotta/Archive/JottaFS-Test/a.bin`).
+    /// (relative to the volume root, for example `Photos/a.jpg`).
     func beginUpload(identifier: String, path: String, totalBytes: Int64)
     func updateUpload(identifier: String, bytesSent: Int64)
     func endUpload(identifier: String)

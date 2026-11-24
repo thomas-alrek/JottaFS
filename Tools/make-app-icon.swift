@@ -4,6 +4,10 @@ import CoreGraphics
 // Draws the JottaFS app icon (1024×1024) to the PNG path given as the first
 // argument. Build the .icns with sips (all sizes) and iconutil.
 let size = 1024
+guard CommandLine.arguments.count == 2 else {
+    print("Usage: make-app-icon <output.png>")
+    exit(2)
+}
 let out = CommandLine.arguments[1]
 
 func color(_ hex: UInt32, _ alpha: CGFloat = 1) -> CGColor {

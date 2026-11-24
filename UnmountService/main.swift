@@ -137,9 +137,13 @@ private func hostAppRequirement() -> String {
        !team.isEmpty {
         return #"identifier "\#(hostAppIdentifier)" and anchor apple generic and certificate leaf[subject.OU] = "\#(team)""#
     }
+    #if DEBUG
     // Unsigned/ad-hoc development builds have no team; launchd still limits an
     // embedded XPC service to its containing app.
     return #"identifier "\#(hostAppIdentifier)""#
+    #else
+    return #"identifier "\#(hostAppIdentifier)" and anchor apple generic"#
+    #endif
 }
 
 final class ServiceDelegate: NSObject, NSXPCListenerDelegate {

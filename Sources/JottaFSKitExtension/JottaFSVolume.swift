@@ -10,13 +10,15 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     /// (served by the `FSVolume.XattrHandler` extension below).
     static let volumeIconName = ".VolumeIcon.icns"
     let client: JottacloudClient
-    /// What the volume shows (a location or a whole backup device).
+    /// The mounted Jottacloud location.
     let target: MountTarget
     let itemStore: ItemStore
     let volumeName: String
     let directoryCache: DirectoryCache
     let staging: StagingArea
     let trash: TrashStore
+    /// Larger, prefetched reads while a file is read sequentially.
+    let readAhead = ReadAhead()
     private let statistics: FSStatFSResult
     private let capabilities: FSVolume.SupportedCapabilities
     private let volumeIconData: Data
@@ -80,7 +82,9 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         // Jottacloud names are case-insensitive.
         self.capabilities.caseFormat = .insensitiveCasePreserving
         let identifier = FSVolume.Identifier(
-            uuid: Self.stableVolumeIdentifier(for: accountIdentifier)
+            // One identifier per account and location, so Finder and
+            // Spotlight never mix up two locations.
+            uuid: Self.stableVolumeIdentifier(for: "\(accountIdentifier)/\(target.volume.id)")
         )
         super.init(
             volumeID: identifier,
@@ -111,6 +115,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
 
     func deactivateVolume(options: FSDeactivateOptions) async throws {
         try? await flushAll()
+        await trash.stop()
+        await readAhead.removeAll()
         await directoryCache.clear()
     }
 
@@ -182,6 +188,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
                 staging.discard(item.identifier)
             }
         }
+        await readAhead.invalidate(item.identifier)
         itemStore.reclaim(item)
     }
 
@@ -300,9 +307,13 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             )
         }
 
+        // A later page of a listing that changed since the first page:
+        // indexes no longer match, so FSKit must start over.
         let start = Int(cookie.rawValue)
-        guard start <= records.count else {
-            throw POSIXError(.EINVAL)
+        guard start == 0 || verifier.rawValue == snapshot.verifier,
+              start <= records.count
+        else {
+            throw FSError(.invalidDirectoryCookie)
         }
         for index in start..<records.count {
             let record = records[index]
@@ -352,13 +363,23 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         } else {
         switch item.role {
         case .remote(let volume, let remotePath):
-            data = try await client.readRange(
-                volume: volume,
-                path: remotePath,
+            let client = client
+            let fileSize = item.entry.size
+            data = try await readAhead.read(
+                item.identifier,
                 offset: UInt64(offset),
                 length: length,
-                fileSize: item.entry.size
-            )
+                fileSize: fileSize
+            ) { blockOffset, blockLength in
+                try await client.readRange(
+                    volume: volume,
+                    path: remotePath,
+                    offset: blockOffset,
+                    length: blockLength,
+                    fileSize: fileSize,
+                    maximumLength: max(blockLength, JottacloudClient.maxReadSize)
+                )
+            }
         case .trashLocal(let url):
             data = try JottaFSStagingFile.read(from: url, at: UInt64(offset), length: length)
         case .trashed:
@@ -400,8 +421,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         attributes.fileID = FSItem.Identifier(item.identifier)
         attributes.parentID = FSItem.Identifier(item.parentIdentifier)
         attributes.type = itemType(item.entry.kind)
-        // Write bits only where writes are allowed: a second barrier, since
-        // the kernel then rejects writes elsewhere before they reach us.
+        // Write bits only where writes are allowed, so the kernel rejects
+        // other writes before they reach the extension.
         let writable = grantsWritePermission(item)
         switch (item.entry.kind, writable) {
         case (.directory, true): attributes.mode = 0o755
@@ -440,8 +461,9 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         // Every time attribute must be valid: getattrlist(2) fails with EINVAL
         // for any requested time FSKit cannot supply, and Finder hides a
         // volume whose root it cannot stat that way. Jottacloud listings only
-        // carry a modification time, and virtual items (root, devices,
-        // mountpoints, volume icon) carry none, so fall back to mount time.
+        // carry a modification time, and virtual items (the volume root,
+        // volume icon and Trash folders) carry none, so fall back to mount
+        // time.
         let time = item.entry.modified.map {
             timespec(tv_sec: Int($0.timeIntervalSince1970), tv_nsec: 0)
         } ?? mountTime
@@ -465,18 +487,16 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         guard isVolumeRoot(directory) else {
             return snapshot.entries
         }
-        guard !snapshot.entries.contains(where: {
-            $0.entry.name == Self.volumeIconName
-        }) else {
-            throw POSIXError(.EEXIST)
-        }
+        // The virtual icon wins over a remote file with the same name (one
+        // could exist if another client created it); throwing here would
+        // break every lookup and listing of the root.
         let iconEntry = RemoteEntry(
             name: Self.volumeIconName,
             kind: .file,
             size: UInt64(volumeIconData.count),
             modified: nil
         )
-        return snapshot.entries + [
+        return snapshot.entries.filter { !JottaFSNames.sameName($0.entry.name, Self.volumeIconName) } + [
             JottacloudDirectoryEntry(entry: iconEntry, role: .volumeIcon)
         ]
     }
@@ -574,7 +594,7 @@ extension JottaFSVolume: FSVolume.XattrHandler {
         policy: FSVolume.SetXattrPolicy,
         context: FSContext
     ) async throws -> FSSetXattrResult {
-        throw POSIXError(.EROFS)
+        throw POSIXError(.ENOTSUP)
     }
 
     func xattrs(of item: FSItem, context: FSContext) async throws -> FSListXattrsResult {

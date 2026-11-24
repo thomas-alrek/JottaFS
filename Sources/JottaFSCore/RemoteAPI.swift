@@ -19,6 +19,8 @@ public enum JottacloudError: Error, LocalizedError {
     case notInTrash
     case browserLoginFailed(String)
     case browserLoginStateMismatch
+    case invalidPath
+    case locationNotFound
 
     public var errorDescription: String? {
         switch self {
@@ -54,6 +56,10 @@ public enum JottacloudError: Error, LocalizedError {
             "Jottacloud did not complete the sign-in (\(reason))."
         case .browserLoginStateMismatch:
             "The sign-in response did not match this sign-in attempt."
+        case .invalidPath:
+            "The path cannot be used in a Jottacloud request."
+        case .locationNotFound:
+            "The chosen Jottacloud location no longer exists."
         }
     }
 }
@@ -74,13 +80,6 @@ public struct RemoteEntry: Sendable, Equatable {
         self.kind = kind
         self.size = size
         self.modified = modified
-    }
-
-    public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.name == rhs.name
-            && lhs.kind == rhs.kind
-            && lhs.size == rhs.size
-            && lhs.modified == rhs.modified
     }
 }
 
@@ -117,8 +116,16 @@ public struct JottacloudStorage: Sendable, Equatable {
 }
 
 public struct JottacloudRemoteVolume: Sendable, Equatable, Identifiable {
+    /// Jottacloud's own device (Archive, Sync, Shared…); other devices are
+    /// computer backups.
+    public static let builtInDevice = "Jotta"
+
     public let device: String
     public let mountpoint: String
+
+    public var isBuiltIn: Bool {
+        device == Self.builtInDevice
+    }
 
     public var id: String {
         "\(device)/\(mountpoint)"
@@ -150,7 +157,7 @@ public struct JottacloudCredentials: Codable, Sendable, Equatable {
 
     public init(
         username: String,
-        device: String = "Jotta",
+        device: String = JottacloudRemoteVolume.builtInDevice,
         mountpoint: String = "Archive",
         accessToken: String,
         refreshToken: String,
@@ -168,10 +175,15 @@ public struct JottacloudCredentials: Codable, Sendable, Equatable {
 }
 
 public actor JottacloudClient {
+    /// Identifies JottaFS in requests (the app version, from the bundle).
+    static let userAgent: String = {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        return "jottafs/\(version)"
+    }()
     private static let clientID = "jottacli"
     private static let apiRoot = URL(string: "https://api.jottacloud.com/")!
     private static let jfsRoot = "https://jfs.jottacloud.com/jfs/"
-    private static let maxReadSize = 1024 * 1024
+    public static let maxReadSize = 1024 * 1024
 
     private let http: URLSession
     private let authHTTP: URLSession
@@ -196,27 +208,30 @@ public actor JottacloudClient {
         self.persistCredentials = persistCredentials
         self.loadSavedCredentials = loadSavedCredentials
         self.http = URLSession(configuration: .ephemeral)
-        let configuration = URLSessionConfiguration.ephemeral
-        self.authHTTP = URLSession(
-            configuration: configuration,
-            delegate: NoRedirectDelegate(),
-            delegateQueue: nil
-        )
+        self.authHTTP = Self.identitySession
     }
+
+    deinit {
+        http.finishTasksAndInvalidate()
+    }
+
+    /// For identity requests (discovery, tokens): never follows redirects.
+    /// Shared and never invalidated, so it does not leak per client.
+    static let identitySession = URLSession(
+        configuration: .ephemeral,
+        delegate: NoRedirectDelegate(),
+        delegateQueue: nil
+    )
 
     public static func authenticate(
         loginToken: String,
-        device: String = "Jotta",
+        device: String = JottacloudRemoteVolume.builtInDevice,
         mountpoint: String = "Archive",
         persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)? = nil
     ) async throws -> JottacloudClient {
         let login = try decodeLoginToken(loginToken)
         let discoveryURL = try officialIdentityURL(login.wellKnownLink)
-        let authHTTP = URLSession(
-            configuration: .ephemeral,
-            delegate: NoRedirectDelegate(),
-            delegateQueue: nil
-        )
+        let authHTTP = identitySession
 
         let discoveryData = try await requestData(
             from: authHTTP,
@@ -297,7 +312,7 @@ public actor JottacloudClient {
         credentials
     }
 
-    public func replaceCredentials(_ credentials: JottacloudCredentials) {
+    func replaceCredentials(_ credentials: JottacloudCredentials) {
         self.credentials = credentials
     }
 
@@ -340,17 +355,22 @@ public actor JottacloudClient {
         return try parseDirectory(response.data)
     }
 
+    /// Reads `length` bytes at `offset` (one ranged request). Reads are
+    /// limited to `maximumLength` (1 MiB unless a caller reads ahead in
+    /// larger blocks).
     public func readRange(
         volume: JottacloudRemoteVolume,
         path: String,
         offset: UInt64,
         length: Int,
-        fileSize: UInt64
+        fileSize: UInt64,
+        maximumLength: Int = maxReadSize
     ) async throws -> Data {
         guard let (boundedLength, rangeEnd) = Self.byteRange(
             offset: offset,
             length: length,
-            fileSize: fileSize
+            fileSize: fileSize,
+            maximumLength: maximumLength
         ) else {
             return Data()
         }
@@ -362,23 +382,24 @@ public actor JottacloudClient {
         guard let url = components.url else {
             throw JottacloudError.invalidRangeResponse
         }
+        let range = "bytes=\(offset)-\(rangeEnd)"
         var accessToken = try await validAccessToken()
-        var (bytes, response) = try await http.bytes(
-            for: Self.getRequest(url: url, accessToken: accessToken, range: "bytes=\(offset)-\(rangeEnd)")
+        var result = try await Self.boundedData(
+            http,
+            for: Self.getRequest(url: url, accessToken: accessToken, range: range),
+            limit: boundedLength,
+            allowsFullResponse: offset == 0
         )
-        if (response as? HTTPURLResponse)?.statusCode == 401 {
+        if result.response.statusCode == 401 {
             accessToken = try await refreshAfterRejection(accessToken)
-            (bytes, response) = try await http.bytes(
-                for: Self.getRequest(
-                    url: url,
-                    accessToken: accessToken,
-                    range: "bytes=\(offset)-\(rangeEnd)"
-                )
+            result = try await Self.boundedData(
+                http,
+                for: Self.getRequest(url: url, accessToken: accessToken, range: range),
+                limit: boundedLength,
+                allowsFullResponse: offset == 0
             )
         }
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw JottacloudError.httpStatus(-1)
-        }
+        let httpResponse = result.response
         let statusCode = httpResponse.statusCode
         if statusCode == 416 {
             return Data()
@@ -398,21 +419,35 @@ public actor JottacloudClient {
                 maximumLength: boundedLength
             )
         }
-
-        var skipRemaining = statusCode == 200 ? offset : 0
-        var data = Data()
-        data.reserveCapacity(boundedLength)
-        for try await byte in bytes {
-            if skipRemaining > 0 {
-                skipRemaining -= 1
-                continue
-            }
-            data.append(byte)
-            if data.count == boundedLength {
-                break
-            }
+        // A 200 ignores the range: fine at offset 0 (the start is read), but
+        // at any other offset it would mean downloading and discarding
+        // everything before it, possibly gigabytes (the download was
+        // cancelled as soon as the status arrived).
+        if statusCode == 200, offset > 0 {
+            throw JottacloudError.invalidRangeResponse
         }
-        return data
+        return result.data
+    }
+
+    /// Downloads at most `limit` bytes of a response, in chunks as they
+    /// arrive (collecting a large range byte by byte was the bottleneck of
+    /// sequential reads), and cancels the transfer when `limit` is reached.
+    /// Without `allowsFullResponse`, a 200 (a server ignoring the range) is
+    /// cancelled before its body is downloaded.
+    static func boundedData(
+        _ session: URLSession,
+        for request: URLRequest,
+        limit: Int,
+        allowsFullResponse: Bool
+    ) async throws -> (data: Data, response: HTTPURLResponse) {
+        let collector = BoundedDataCollector(limit: limit, allowsFullResponse: allowsFullResponse)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                collector.start(session: session, request: request, continuation: continuation)
+            }
+        } onCancel: {
+            collector.cancel()
+        }
     }
 
     /// Returns the request length and inclusive range end, or nil when there is
@@ -422,13 +457,14 @@ public actor JottacloudClient {
     static func byteRange(
         offset: UInt64,
         length: Int,
-        fileSize: UInt64
+        fileSize: UInt64,
+        maximumLength: Int = maxReadSize
     ) -> (length: Int, end: UInt64)? {
         guard length > 0, offset < fileSize else {
             return nil
         }
         let available = fileSize - offset
-        let boundedLength = Int(min(UInt64(min(length, maxReadSize)), available))
+        let boundedLength = Int(min(UInt64(min(length, maximumLength)), available))
         return (boundedLength, offset + UInt64(boundedLength) - 1)
     }
 
@@ -528,21 +564,49 @@ public actor JottacloudClient {
 
     private func rotateRefreshToken() async throws -> String {
         if let refreshTask {
-            credentials = try await refreshTask.value
+            adoptTokens(try await refreshTask.value)
             return credentials.accessToken
         }
-        if let saved = loadSavedCredentials?(),
-           saved.username == credentials.username,
-           saved.refreshToken != credentials.refreshToken {
+        if adoptSavedTokens(), credentials.expiresAt.timeIntervalSinceNow > 30 {
             // Another process already rotated the tokens.
-            credentials.accessToken = saved.accessToken
-            credentials.refreshToken = saved.refreshToken
-            credentials.expiresAt = saved.expiresAt
-            if saved.expiresAt.timeIntervalSinceNow > 30 {
+            return credentials.accessToken
+        }
+        do {
+            return try await refreshNow()
+        } catch JottacloudError.httpStatus(let status) where status == 400 || status == 401 {
+            // Our refresh token may have been rotated by the other process
+            // meanwhile: retry once with the newest saved one.
+            guard adoptSavedTokens() else {
+                throw JottacloudError.httpStatus(status)
+            }
+            if credentials.expiresAt.timeIntervalSinceNow > 30 {
                 return credentials.accessToken
             }
+            return try await refreshNow()
         }
+    }
 
+    /// Takes over tokens another process saved; true if they were newer.
+    private func adoptSavedTokens() -> Bool {
+        guard let saved = loadSavedCredentials?(),
+              saved.username == credentials.username,
+              saved.refreshToken != credentials.refreshToken
+        else {
+            return false
+        }
+        adoptTokens(saved)
+        return true
+    }
+
+    /// Updates only the token fields, so changes made to other fields while
+    /// a refresh was running (location, profile) are kept.
+    private func adoptTokens(_ source: JottacloudCredentials) {
+        credentials.accessToken = source.accessToken
+        credentials.refreshToken = source.refreshToken
+        credentials.expiresAt = source.expiresAt
+    }
+
+    private func refreshNow() async throws -> String {
         let currentCredentials = credentials
         let session = authHTTP
         let persistCredentials = persistCredentials
@@ -564,7 +628,7 @@ public actor JottacloudClient {
         }
         refreshTask = task
         do {
-            credentials = try await task.value
+            adoptTokens(try await task.value)
             refreshTask = nil
             return credentials.accessToken
         } catch {
@@ -627,7 +691,7 @@ public actor JottacloudClient {
             .map { "/" + $0 }
             .joined()
         guard let url = components.url else {
-            throw JottacloudError.invalidLoginToken
+            throw JottacloudError.invalidPath
         }
         return url
     }
@@ -639,7 +703,7 @@ public actor JottacloudClient {
     ) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("jottafs/0.1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(JottacloudClient.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         if let range {
             request.setValue(range, forHTTPHeaderField: "Range")
@@ -693,7 +757,7 @@ public actor JottacloudClient {
     ) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue("jottafs/0.1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(JottacloudClient.userAgent, forHTTPHeaderField: "User-Agent")
         if let form {
             request.setValue(
                 "application/x-www-form-urlencoded",
@@ -1158,12 +1222,9 @@ private func validName(_ name: String) -> Bool {
 
 private func parseTimestamp(_ value: String) -> Date? {
     let normalized = value.replacingOccurrences(of: "-T", with: "T")
-    let formatter = ISO8601DateFormatter()
-    if let date = formatter.date(from: normalized) {
-        return date
-    }
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return formatter.date(from: normalized)
+    // Listings can hold tens of thousands of entries: reuse the parsers.
+    return (try? Date(normalized, strategy: .iso8601))
+        ?? (try? Date(normalized, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
 }
 
 // MARK: - Mutations
@@ -1387,7 +1448,8 @@ extension JottacloudClient {
             }
         }
         if case JottacloudError.httpStatus(let status) = error {
-            // 507 (quota full) and other 5xx are not worth retrying.
+            // Overload and temporary server errors; 507 (quota full) and
+            // other statuses are not worth retrying.
             return [429, 500, 502, 503, 504].contains(status)
         }
         return false
@@ -1439,7 +1501,7 @@ extension JottacloudClient {
     ) -> URLRequest {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("jottafs/0.1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue(JottacloudClient.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -1456,7 +1518,7 @@ extension JottacloudClient {
         query: (name: String, value: String)
     ) throws -> URL {
         guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            throw JottacloudError.invalidXML
+            throw JottacloudError.invalidPath
         }
         if trailingSlash, !components.percentEncodedPath.hasSuffix("/") {
             components.percentEncodedPath += "/"
@@ -1467,7 +1529,7 @@ extension JottacloudClient {
         let value = query.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? query.value
         components.percentEncodedQuery = "\(query.name)=\(value)"
         guard let result = components.url else {
-            throw JottacloudError.invalidXML
+            throw JottacloudError.invalidPath
         }
         return result
     }
@@ -1561,14 +1623,14 @@ extension JottacloudClient {
     static let fileService = "no.jotta.openapi.file.v2.FileService"
     static let trashPath = "/trash"
     /// gRPC status codes used here.
-    public static let grpcNotFound = 5
+    static let grpcNotFound = 5
     static let grpcUnauthenticated = 16
 
     /// The service path of `path` in a `Jotta` mountpoint, for example
     /// `/archive/folder` for `Jotta/Archive/folder`. Other devices (backups)
     /// are not mapped yet and return nil.
     public static func servicePath(device: String, mountpoint: String, path: String) -> String? {
-        guard device == "Jotta", !mountpoint.isEmpty, !mountpoint.contains("/") else {
+        guard device == JottacloudRemoteVolume.builtInDevice, !mountpoint.isEmpty, !mountpoint.contains("/") else {
             return nil
         }
         let root = "/" + mountpoint.lowercased()
@@ -1599,30 +1661,6 @@ extension JottacloudClient {
         )
         let next = page.cursor.isEmpty || page.children.isEmpty ? nil : page.cursor
         return (page.children, next)
-    }
-
-    /// Children of a folder (for example a trashed folder), paged.
-    public func listChildren(
-        of path: String,
-        includeDeleted: Bool,
-        maximumEntries: Int,
-        sort: UInt64 = 1
-    ) async throws -> (items: [JottacloudPathItem], complete: Bool) {
-        var items: [JottacloudPathItem] = []
-        var cursor: String?
-        repeat {
-            let page = try await getPath(
-                path,
-                includeChildren: true,
-                includeDeleted: includeDeleted,
-                limit: UInt64(min(500, max(1, maximumEntries - items.count))),
-                sort: sort,
-                cursor: cursor
-            )
-            items += page.children
-            cursor = page.cursor.isEmpty || page.children.isEmpty ? nil : page.cursor
-        } while cursor != nil && items.count < maximumEntries
-        return (items, cursor == nil)
     }
 
     /// One item, or nil if it does not exist. With `includeDeleted`, a
@@ -1855,16 +1893,10 @@ extension JottacloudClient {
 /// login"). The browser returns to `redirectURI` on this Mac; the code is
 /// exchanged with the verifier that never leaves the app.
 public struct JottacloudBrowserLogin: Sendable {
-    public enum ChallengeMethod: String, Sendable {
-        case s256 = "S256"
-        case plain
-    }
-
     /// Open this in the user's browser.
     public let authorizationURL: URL
     public let redirectURI: String
     public let state: String
-    public let challengeMethod: ChallengeMethod
     let codeVerifier: String
     let tokenEndpoint: URL
 }
@@ -1876,11 +1908,8 @@ extension JottacloudClient {
 
     /// Starts a browser sign-in returning to `redirectURI` (for example
     /// `http://localhost:<port>/callback`).
-    public static func beginBrowserLogin(
-        redirectURI: String,
-        challengeMethod: JottacloudBrowserLogin.ChallengeMethod = .s256
-    ) async throws -> JottacloudBrowserLogin {
-        let session = URLSession(configuration: .ephemeral, delegate: NoRedirectDelegate(), delegateQueue: nil)
+    public static func beginBrowserLogin(redirectURI: String) async throws -> JottacloudBrowserLogin {
+        let session = identitySession
         let data = try await requestData(from: session, url: identityDiscoveryURL, method: "GET")
         let discovery = try JSONDecoder().decode(WellKnown.self, from: data)
         let tokenEndpoint = try officialIdentityURL(discovery.tokenEndpoint)
@@ -1890,7 +1919,7 @@ extension JottacloudClient {
         )
         let verifier = try randomURLSafeString(byteCount: 48)
         let state = try randomURLSafeString(byteCount: 24)
-        let challenge = challengeMethod == .s256 ? Self.s256Challenge(verifier) : verifier
+        let challenge = Self.s256Challenge(verifier)
         guard var components = URLComponents(url: authorizationEndpoint, resolvingAgainstBaseURL: false) else {
             throw JottacloudError.unsafeIdentityURL
         }
@@ -1901,7 +1930,7 @@ extension JottacloudClient {
             URLQueryItem(name: "scope", value: "openid offline_access"),
             URLQueryItem(name: "state", value: state),
             URLQueryItem(name: "code_challenge", value: challenge),
-            URLQueryItem(name: "code_challenge_method", value: challengeMethod.rawValue),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
         ]
         guard let url = components.url else {
             throw JottacloudError.unsafeIdentityURL
@@ -1910,7 +1939,6 @@ extension JottacloudClient {
             authorizationURL: url,
             redirectURI: redirectURI,
             state: state,
-            challengeMethod: challengeMethod,
             codeVerifier: verifier,
             tokenEndpoint: tokenEndpoint
         )
@@ -1920,7 +1948,7 @@ extension JottacloudClient {
     public static func completeBrowserLogin(
         _ login: JottacloudBrowserLogin,
         callbackQuery: [String: String],
-        device: String = "Jotta",
+        device: String = JottacloudRemoteVolume.builtInDevice,
         mountpoint: String = "Archive",
         persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)? = nil
     ) async throws -> JottacloudClient {
@@ -1933,7 +1961,7 @@ extension JottacloudClient {
         guard let code = callbackQuery["code"], !code.isEmpty else {
             throw JottacloudError.browserLoginFailed("no authorization code")
         }
-        let session = URLSession(configuration: .ephemeral, delegate: NoRedirectDelegate(), delegateQueue: nil)
+        let session = identitySession
         let data = try await requestData(
             from: session,
             url: login.tokenEndpoint,
@@ -2014,5 +2042,105 @@ extension JottacloudClient {
             }
             return JottacloudBackupDevice(id: id, name: name, path: path)
         }
+    }
+}
+
+/// Collects one bounded download (see `JottacloudClient.boundedData`).
+private final class BoundedDataCollector: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let limit: Int
+    private let allowsFullResponse: Bool
+    private let lock = NSLock()
+    private var data = Data()
+    private var response: HTTPURLResponse?
+    private var task: URLSessionDataTask?
+    private var continuation: CheckedContinuation<(data: Data, response: HTTPURLResponse), Error>?
+
+    init(limit: Int, allowsFullResponse: Bool) {
+        self.limit = limit
+        self.allowsFullResponse = allowsFullResponse
+        super.init()
+        data.reserveCapacity(min(limit, 64 * 1024 * 1024))
+    }
+
+    func start(
+        session: URLSession,
+        request: URLRequest,
+        continuation: CheckedContinuation<(data: Data, response: HTTPURLResponse), Error>
+    ) {
+        let task = session.dataTask(with: request)
+        task.delegate = self
+        lock.withLock {
+            self.task = task
+            self.continuation = continuation
+        }
+        task.resume()
+    }
+
+    func cancel() {
+        let task = lock.withLock { self.task }
+        task?.cancel()
+        finish(.failure(CancellationError()))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let httpResponse = response as? HTTPURLResponse else {
+            completionHandler(.cancel)
+            finish(.failure(JottacloudError.httpStatus(-1)))
+            return
+        }
+        lock.withLock { self.response = httpResponse }
+        let status = httpResponse.statusCode
+        // Only a 206 (or a 200 when allowed) has a body worth reading; error
+        // bodies are small and are not needed.
+        if status == 206 || (status == 200 && allowsFullResponse) {
+            completionHandler(.allow)
+        } else {
+            completionHandler(.cancel)
+            finish(.success(()))
+        }
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive chunk: Data) {
+        let complete: Bool = lock.withLock {
+            let remaining = limit - data.count
+            if remaining > 0 {
+                data.append(chunk.prefix(remaining))
+            }
+            return data.count >= limit
+        }
+        if complete {
+            dataTask.cancel()
+            finish(.success(()))
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error, (error as? URLError)?.code != .cancelled {
+            finish(.failure(error))
+        } else {
+            finish(.success(()))
+        }
+    }
+
+    private func finish(_ outcome: Result<Void, Error>) {
+        let (continuation, result): (CheckedContinuation<(data: Data, response: HTTPURLResponse), Error>?, Result<(data: Data, response: HTTPURLResponse), Error>) = lock.withLock {
+            let continuation = self.continuation
+            self.continuation = nil
+            switch outcome {
+            case .failure(let error):
+                return (continuation, .failure(error))
+            case .success:
+                guard let response else {
+                    return (continuation, .failure(JottacloudError.httpStatus(-1)))
+                }
+                return (continuation, .success((data, response)))
+            }
+        }
+        continuation?.resume(with: result)
     }
 }

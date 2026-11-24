@@ -21,7 +21,7 @@ public enum JottaFSNames {
         guard !name.isEmpty,
               name != ".",
               name != "..",
-              name.count <= 255,
+              name.utf8.count <= 255,  // a byte limit, like the volume's maximum name length
               name.unicodeScalars.allSatisfy({
                   !forbidden.contains($0) && !CharacterSet.controlCharacters.contains($0)
               })
@@ -104,9 +104,7 @@ struct AllocateRequest: Encodable, Equatable {
 
     /// RFC 3339 without fractional seconds, as Jottacloud expects.
     static func timestamp(_ date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.string(from: date)
+        date.formatted(.iso8601)
     }
 }
 

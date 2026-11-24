@@ -19,6 +19,11 @@ final class AppModel: ObservableObject {
         case signedIn
     }
 
+    enum Activity: Equatable {
+        case mounting
+        case unmounting
+    }
+
     static let extensionBundleID = "no.alrek.jottafs.extension"
     private static let mountAtLoginKey = "MountAtLogin"
 
@@ -31,9 +36,10 @@ final class AppModel: ObservableObject {
     @Published var selectedLocationID: String?
     @Published private(set) var mountURL: URL?
     @Published private(set) var mountedLocationID: String?
-    /// What the app is doing right now ("Opening Archive in Finder…").
-    @Published private(set) var activity: String?
-    @Published var errorMessage: String?
+    /// What the app is doing right now (shown in the main button).
+    @Published private(set) var activity: Activity?
+    /// The error to show in an alert.
+    @Published var alert: AppAlert?
     /// nil while unknown.
     @Published private(set) var extensionEnabled: Bool?
     @Published private(set) var progressAgentNeedsApproval = false
@@ -46,11 +52,9 @@ final class AppModel: ObservableObject {
     /// login); set by the app delegate.
     var showWindow: (() -> Void)?
 
-
     private var credentialsDirectory: URL?
     private var client: JottacloudClient?
     private var callbackServer: LoopbackCallbackServer?
-    private var browserLogin: JottacloudBrowserLogin?
     private var signInTask: Task<Void, Never>?
     private var authSession: ASWebAuthenticationSession?
     private var extensionWatch: Task<Void, Never>?
@@ -78,14 +82,12 @@ final class AppModel: ObservableObject {
             return
         }
         mountAtLogin = UserDefaults.standard.bool(forKey: Self.mountAtLoginKey)
-        refreshLoginItemStatus()
-        registerProgressAgent()
         observeVolumeChanges()
         do {
             credentialsDirectory = try JottaFSStorage.prepareCredentialsDirectory()
         } catch {
             phase = .signedOut
-            errorMessage = "JottaFS could not prepare its storage. Reinstall the app and try again."
+            alert = AppAlert(title: "JottaFS couldn’t prepare its storage.", message: "Reinstall the app and try again.")
             return
         }
         await refreshSystemState()
@@ -131,16 +133,15 @@ final class AppModel: ObservableObject {
                 Self.bringWindowToFront()
             }
         } else if extensionWatch == nil {
+            // Check again in two seconds (each check schedules the next one
+            // while the extension stays off).
             extensionWatch = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(2))
-                    guard let self, !Task.isCancelled else {
-                        return
-                    }
-                    self.extensionWatch = nil
-                    await self.refreshExtensionState()
+                try? await Task.sleep(for: .seconds(2))
+                guard let self, !Task.isCancelled else {
                     return
                 }
+                self.extensionWatch = nil
+                await self.refreshExtensionState()
             }
         }
     }
@@ -148,19 +149,25 @@ final class AppModel: ObservableObject {
     // MARK: Sign in with the browser
 
     func signInWithBrowser() {
-        errorMessage = nil
-        signInTask?.cancel()
-        signInTask = Task { await runBrowserSignIn(challengeMethod: .s256) }
+        alert = nil
+        stopSignIn()
+        signInTask = Task { await runBrowserSignIn() }
     }
 
     func cancelSignIn() {
+        stopSignIn()
+        phase = .signedOut
+    }
+
+    /// Ends the current sign-in attempt completely: its task, its browser
+    /// session and its callback server.
+    private func stopSignIn() {
         signInTask?.cancel()
+        signInTask = nil
         authSession?.cancel()
         authSession = nil
         callbackServer?.stop()
         callbackServer = nil
-        browserLogin = nil
-        phase = .signedOut
     }
 
     /// Opens the sign-in page in a web authentication session: a browser
@@ -169,8 +176,9 @@ final class AppModel: ObservableObject {
     /// server, which redirects on to `jottafs://signed-in`; the browser then
     /// completes the session, closes the tab and returns to JottaFS. (A page
     /// cannot close its own tab, and Safari keeps the tab open when the app
-    /// cancels the session.)
-    private func startAuthenticationSession(_ url: URL, server: LoopbackCallbackServer) {
+    /// cancels the session.) Returns false if no session could start.
+    private func startAuthenticationSession(_ url: URL, server: LoopbackCallbackServer) -> ASWebAuthenticationSession? {
+        let reference = SessionReference()
         let session = ASWebAuthenticationSession(
             url: url,
             callbackURLScheme: LoopbackCallbackServer.sessionCallbackScheme
@@ -180,23 +188,28 @@ final class AppModel: ObservableObject {
             signInLogger.info("Sign-in session ended (completed: \(callbackURL != nil, privacy: .public), error: \((error as NSError?)?.code ?? 0, privacy: .public)).")
             server?.stop()
             Task { @MainActor in
-                self?.authSession = nil
+                guard let self, self.authSession === reference.session else {
+                    return
+                }
+                self.authSession = nil
                 Self.bringWindowToFront()
             }
         }
+        reference.session = session
         session.presentationContextProvider = AuthenticationPresenter.shared
         // Reuse an existing jottacloud.com login in the browser.
         session.prefersEphemeralWebBrowserSession = false
-        authSession = session
-        if !session.start() {
-            authSession = nil
-            NSWorkspace.shared.open(url)
+        guard session.start() else {
+            return nil
         }
+        authSession = session
+        return session
     }
 
-    private func runBrowserSignIn(challengeMethod: JottacloudBrowserLogin.ChallengeMethod) async {
+    private func runBrowserSignIn() async {
         let server = LoopbackCallbackServer()
         callbackServer = server
+        var session: ASWebAuthenticationSession?
         defer {
             server.stop()
             if callbackServer === server {
@@ -205,38 +218,32 @@ final class AppModel: ObservableObject {
         }
         do {
             let redirectURI = try await server.start()
-            let login = try await JottacloudClient.beginBrowserLogin(
-                redirectURI: redirectURI,
-                challengeMethod: challengeMethod
-            )
-            browserLogin = login
+            let login = try await JottacloudClient.beginBrowserLogin(redirectURI: redirectURI)
+            try Task.checkCancellation()
             phase = .waitingForBrowser
-            startAuthenticationSession(login.authorizationURL, server: server)
+            // Expect this sign-in's state; redirect to the session only if a
+            // web authentication session runs (else the browser shows a page).
+            server.expect(state: login.state, redirectsToSession: true)
+            session = startAuthenticationSession(login.authorizationURL, server: server)
+            if session == nil {
+                server.expect(state: login.state, redirectsToSession: false)
+                NSWorkspace.shared.open(login.authorizationURL)
+            }
             let query = try await server.waitForCallback()
+            try Task.checkCancellation()
             // The browser now follows the redirect to `jottafs://` and ends
             // the session itself; cancel it only if that has not happened
             // after a few seconds.
-            if let pending = authSession {
+            if let session {
                 Task { @MainActor [weak self] in
                     try? await Task.sleep(for: .seconds(5))
-                    if self?.authSession === pending {
-                        pending.cancel()
-                        self?.authSession = nil
+                    if let self, self.authSession === session {
+                        session.cancel()
+                        self.authSession = nil
                     }
                 }
             }
-            guard !Task.isCancelled else {
-                return
-            }
             Self.bringWindowToFront()
-            // Fall back once if Jottacloud only accepts plain PKCE, which the
-            // official app uses.
-            if challengeMethod == .s256,
-               query["error"] != nil,
-               (query["error_description"] ?? "").localizedCaseInsensitiveContains("code_challenge") {
-                await runBrowserSignIn(challengeMethod: .plain)
-                return
-            }
             phase = .finishingSignIn
             let directory = try storageDirectory()
             let signedIn = try await JottacloudClient.completeBrowserLogin(
@@ -244,22 +251,25 @@ final class AppModel: ObservableObject {
                 callbackQuery: query,
                 persistCredentials: Self.persistence(directory)
             )
+            try Task.checkCancellation()
             try await finishSignIn(signedIn)
         } catch {
-            authSession?.cancel()
-            authSession = nil
+            // A newer attempt (Start Over) or Cancel owns the shared state.
             guard !Task.isCancelled else {
                 return
+            }
+            if let session, authSession === session {
+                session.cancel()
+                authSession = nil
             }
             phase = .signedOut
             // Closing the sign-in window is not an error.
             if case LoopbackCallbackServer.ServerError.cancelled = error {
-                errorMessage = nil
+                alert = nil
             } else {
-                errorMessage = friendlySignInMessage(error, usedToken: false)
+                alert = signInAlert(for: error, usedToken: false)
             }
         }
-        browserLogin = nil
     }
 
     /// Brings the app's window to the front after sign-in.
@@ -300,7 +310,7 @@ final class AppModel: ObservableObject {
         guard !token.isEmpty else {
             return
         }
-        errorMessage = nil
+        alert = nil
         phase = .finishingSignIn
         do {
             let directory = try storageDirectory()
@@ -311,7 +321,7 @@ final class AppModel: ObservableObject {
             try await finishSignIn(signedIn)
         } catch {
             phase = .signedOut
-            errorMessage = friendlySignInMessage(error, usedToken: true)
+            alert = signInAlert(for: error, usedToken: true)
         }
     }
 
@@ -341,18 +351,25 @@ final class AppModel: ObservableObject {
     /// Unmounts the volume first (it uses these credentials); sign-out stops
     /// if it cannot be unmounted.
     func signOut() async {
-        errorMessage = nil
+        alert = nil
         refreshMountState()
         if mountURL != nil {
             await disconnect()
             guard mountURL == nil else {
-                errorMessage = "JottaFS couldn’t sign out because Jottacloud is still mounted. "
-                    + (errorMessage ?? UnmountError.volumeStillMounted.localizedDescription)
+                alert = AppAlert(
+                    title: "JottaFS couldn’t sign out because Jottacloud is still mounted.",
+                    message: alert?.message ?? UnmountError.volumeStillMounted.localizedDescription
+                )
                 return
             }
         }
         if let credentialsDirectory {
-            try? JottaFSStorage.deleteCredentials(from: credentialsDirectory)
+            do {
+                try JottaFSStorage.deleteCredentials(from: credentialsDirectory)
+            } catch {
+                alert = AppAlert(title: "JottaFS couldn’t sign out.", message: error.localizedDescription)
+                return
+            }
         }
         if mountAtLogin {
             setMountAtLogin(false)
@@ -378,31 +395,38 @@ final class AppModel: ObservableObject {
         await refreshAccountProfile(client)
         do {
             let account = try await client.listAccount()
+            // Signed out (or in again) meanwhile: these results are stale.
+            guard self.client === client else {
+                return
+            }
             locations = account.volumes
+            loadCustomNames()
             if selectedLocation == nil {
-                selectedLocationID = (account.volumes.first { $0.device == "Jotta" && $0.mountpoint == "Archive" }
+                selectedLocationID = (account.volumes.first { $0.isBuiltIn && $0.mountpoint == "Archive" }
                     ?? account.volumes.first)?.id
             }
-            errorMessage = nil
+            alert = nil
         } catch {
-            errorMessage = friendlyMessage(error, action: "load your Jottacloud locations")
+            guard self.client === client else {
+                return
+            }
+            alert = errorAlert(error, title: "JottaFS couldn’t load your Jottacloud locations.")
         }
     }
 
     /// Updates the name and email shown for the account (saved with the
     /// credentials, so they also show offline).
     private func refreshAccountProfile(_ client: JottacloudClient) async {
-        guard let profile = try? await client.fetchAccountProfile() else {
+        guard let profile = try? await client.fetchAccountProfile(), self.client === client else {
             return
         }
         accountName = profile.name
         accountEmail = profile.email
-        if let directory = credentialsDirectory,
-           var saved = try? JottaFSStorage.loadCredentials(from: directory),
-           saved.accountName != profile.name || saved.accountEmail != profile.email {
-            saved.accountName = profile.name
-            saved.accountEmail = profile.email
-            try? JottaFSStorage.saveCredentials(saved, to: directory)
+        if let directory = credentialsDirectory {
+            _ = try? JottaFSStorage.updateCredentials(in: directory) { saved in
+                saved.accountName = profile.name
+                saved.accountEmail = profile.email
+            }
         }
     }
 
@@ -419,13 +443,13 @@ final class AppModel: ObservableObject {
 
     // MARK: Finder
 
-    /// Shows the selected location in Finder, mounting it (or switching to
-    /// it) first when needed.
-    func showSelectedInFinder() async {
+    /// Mounts the selected location and opens it in Finder (the Mount
+    /// button and a double-click in the list).
+    func mountSelected() async {
         guard let location = selectedLocation else {
             return
         }
-        errorMessage = nil
+        alert = nil
         if let mountURL, mountedLocationID == location.id {
             showInFinder(mountURL)
             return
@@ -440,7 +464,7 @@ final class AppModel: ObservableObject {
     /// Mounts `location`, disconnecting another mounted location first.
     private func mount(_ location: JottacloudRemoteVolume) async -> Bool {
         guard extensionEnabled != false else {
-            errorMessage = "Turn on JottaFS in System Settings first (see above)."
+            alert = Self.extensionOffAlert
             return false
         }
         if mountURL != nil {
@@ -449,10 +473,10 @@ final class AppModel: ObservableObject {
                 return false
             }
         }
-        activity = "Mounting “\(displayName(of: location))”…"
+        activity = .mounting
         defer { activity = nil }
         do {
-            try saveLocation(location)
+            try await saveLocation(location)
             let resource = FSPathURLResource(url: try JottaFSStorage.prepareMountAnchorDirectory(), writable: true)
             mountURL = try await FSClient.shared.mountSingleVolume(
                 resource: resource,
@@ -462,15 +486,14 @@ final class AppModel: ObservableObject {
             mountedLocationID = location.id
             return true
         } catch {
-            refreshMountState()
+            await refreshSystemState()
             if mountURL != nil {
                 mountedLocationID = location.id
                 return true
             }
-            await refreshSystemState()
-            errorMessage = extensionEnabled == false
-                ? "Turn on JottaFS in System Settings first (see above)."
-                : friendlyMessage(error, action: "open Jottacloud in Finder")
+            alert = extensionEnabled == false
+                ? Self.extensionOffAlert
+                : errorAlert(error, title: "JottaFS couldn’t mount the location.")
             return false
         }
     }
@@ -480,7 +503,7 @@ final class AppModel: ObservableObject {
         guard mountURL != nil else {
             return
         }
-        activity = "Unmounting…"
+        activity = .unmounting
         defer { activity = nil }
         var failure: Error?
         do {
@@ -490,17 +513,18 @@ final class AppModel: ObservableObject {
         }
         refreshMountState()
         if mountURL != nil {
-            errorMessage = (failure ?? UnmountError.volumeStillMounted).localizedDescription
+            alert = AppAlert(
+                title: "JottaFS couldn’t unmount the location.",
+                message: (failure ?? UnmountError.volumeStillMounted).localizedDescription
+            )
         } else {
             mountedLocationID = nil
         }
     }
 
-    /// Opens a Finder window on the mounted volume. `selectFile(_:inFileViewerRootedAtPath:)`
-    /// only asks Finder to show the folder, so the sandboxed app needs no
-    /// access to it (asking Finder to *open* it via Apple Events made Finder
-    /// report that JottaFS may not open the volume).
-    func showInFinder(_ url: URL) {
+    /// Opens a Finder window on the mounted volume. This only asks Finder to
+    /// show the folder, so the sandboxed app needs no access to it.
+    private func showInFinder(_ url: URL) {
         if !NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path) {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
@@ -540,7 +564,7 @@ final class AppModel: ObservableObject {
     // MARK: Open at login
 
     func setMountAtLogin(_ enabled: Bool) {
-        errorMessage = nil
+        alert = nil
         do {
             if enabled {
                 try SMAppService.mainApp.register()
@@ -550,7 +574,10 @@ final class AppModel: ObservableObject {
             mountAtLogin = enabled
             UserDefaults.standard.set(enabled, forKey: Self.mountAtLoginKey)
         } catch {
-            errorMessage = "JottaFS could not \(enabled ? "turn on" : "turn off") opening at login. Check Login Items in System Settings."
+            alert = AppAlert(
+                title: enabled ? "JottaFS couldn’t turn on mounting at login." : "JottaFS couldn’t turn off mounting at login.",
+                message: "Check Login Items in System Settings."
+            )
         }
         refreshLoginItemStatus()
     }
@@ -576,6 +603,7 @@ final class AppModel: ObservableObject {
         if mountURL == nil, let saved = loadSavedCredentials() {
             let location = JottacloudRemoteVolume(device: saved.device, mountpoint: saved.mountpoint)
             locations = [location]
+            loadCustomNames()
             guard await mount(location) else {
                 // Show the problem as a normal app, with Dock icon and menu.
                 launchedAtLogin = false
@@ -614,13 +642,20 @@ final class AppModel: ObservableObject {
         customName(of: location) ?? location.mountpoint
     }
 
-    /// Bumped when a custom name changes, so views re-read the names.
-    @Published private(set) var customNamesVersion = 0
+    /// Names the user chose for locations in Finder, by location id (read
+    /// once per listing, not for every row on every update).
+    @Published private(set) var customNames: [String: String] = [:]
 
     /// The name the user chose for a location in Finder, if any.
     func customName(of location: JottacloudRemoteVolume) -> String? {
-        _ = customNamesVersion
-        return JottaFSStorage.customVolumeName(device: location.device, mountpoint: location.mountpoint)
+        customNames[location.id]
+    }
+
+    private func loadCustomNames() {
+        customNames = Dictionary(uniqueKeysWithValues: locations.compactMap { location in
+            JottaFSStorage.customVolumeName(device: location.device, mountpoint: location.mountpoint)
+                .map { (location.id, $0) }
+        })
     }
 
     /// Saves the name a location gets in Finder; nil or empty restores the
@@ -631,10 +666,10 @@ final class AppModel: ObservableObject {
             ? nil : trimmed
         do {
             try JottaFSStorage.setCustomVolumeName(value, device: location.device, mountpoint: location.mountpoint)
+            customNames[location.id] = value
         } catch {
-            errorMessage = "JottaFS couldn’t save the name. Use a name without “/” or “:”."
+            alert = AppAlert(title: "JottaFS couldn’t save the name.", message: error.localizedDescription)
         }
-        customNamesVersion += 1
     }
 
     // MARK: Storage
@@ -668,67 +703,72 @@ final class AppModel: ObservableObject {
 
     /// Saves the chosen location with the credentials; the extension mounts
     /// it. Only changed while nothing is mounted.
-    private func saveLocation(_ location: JottacloudRemoteVolume) throws {
+    private func saveLocation(_ location: JottacloudRemoteVolume) async throws {
         let directory = try storageDirectory()
-        var credentials = try JottaFSStorage.loadCredentials(from: directory)
-        credentials.device = location.device
-        credentials.mountpoint = location.mountpoint
-        try JottaFSStorage.saveCredentials(credentials, to: directory)
-        if let client {
-            Task { await client.setLocation(device: location.device, mountpoint: location.mountpoint) }
+        try JottaFSStorage.updateCredentials(in: directory) { saved in
+            saved.device = location.device
+            saved.mountpoint = location.mountpoint
         }
+        await client?.setLocation(device: location.device, mountpoint: location.mountpoint)
     }
 
+    /// Saves rotated tokens only (never other fields, which the extension
+    /// or the app may have changed meanwhile).
     private static func persistence(_ directory: URL?) -> @Sendable (JottacloudCredentials) async throws -> Void {
         { credentials in
             guard let directory else {
                 return
             }
-            try JottaFSStorage.saveCredentials(credentials, to: directory)
+            try JottaFSStorage.saveTokens(of: credentials, to: directory)
         }
     }
 
     // MARK: Messages
 
-    private func friendlySignInMessage(_ error: Error, usedToken: Bool) -> String {
+    private static let extensionOffAlert = AppAlert(
+        title: "Turn on JottaFS in System Settings.",
+        message: "Open System Settings → General → Login Items & Extensions → File System Extensions, and turn on JottaFS."
+    )
+
+    private func signInAlert(for error: Error, usedToken: Bool) -> AppAlert {
+        let title = "JottaFS couldn’t sign you in."
         if let error = error as? JottacloudError {
             switch error {
             case .invalidLoginToken:
-                return "That doesn’t look like a personal login token. Copy the whole token from Jottacloud and paste it again."
+                return AppAlert(title: title, message: "That doesn’t look like a personal login token. Copy the whole token from Jottacloud and paste it again.")
             case .httpStatus(400), .httpStatus(401):
-                return usedToken
+                return AppAlert(title: title, message: usedToken
                     ? "This token has already been used or has expired. Create a new token in Jottacloud and try again."
-                    : "Jottacloud didn’t accept the sign-in. Please try again."
+                    : "Jottacloud didn’t accept the sign-in. Please try again.")
             case .browserLoginStateMismatch:
-                return "The sign-in didn’t match this window. Please try again."
+                return AppAlert(title: title, message: "The sign-in didn’t match this window. Please try again.")
             case .browserLoginFailed:
-                return "Sign-in didn’t finish in the browser. Please try again."
+                return AppAlert(title: title, message: "Sign-in didn’t finish in the browser. Please try again.")
             default:
                 break
             }
         }
-        if error is LoopbackCallbackServer.ServerError {
-            return error.localizedDescription
-        }
-        return friendlyMessage(error, action: "sign in")
+        return errorAlert(error, title: title)
     }
 
-    private func friendlyMessage(_ error: Error, action: String) -> String {
+    /// An alert for `error` with a full-sentence title (no sentence
+    /// fragments, so each title can be translated as a whole).
+    private func errorAlert(_ error: Error, title: String) -> AppAlert {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .timedOut, .dnsLookupFailed:
-                return "JottaFS can’t reach Jottacloud. Check your internet connection and try again."
+                return AppAlert(title: "JottaFS can’t reach Jottacloud.", message: "Check your internet connection and try again.")
             default:
                 break
             }
         }
-        if case JottacloudError.noRemoteVolumes = error {
-            return "This location isn’t available in your Jottacloud account any more. Choose another one."
+        if case JottacloudError.locationNotFound = error {
+            return AppAlert(title: "This location isn’t available any more.", message: "Choose another location.")
         }
         if case JottacloudError.tokenRefreshDisabled = error {
-            return "Your sign-in has expired. Sign out and sign in again."
+            return AppAlert(title: "Your sign-in has expired.", message: "Sign out and sign in again.")
         }
-        return "JottaFS couldn’t \(action). \(error.localizedDescription)"
+        return AppAlert(title: title, message: error.localizedDescription)
     }
 }
 
@@ -744,3 +784,14 @@ final class AuthenticationPresenter: NSObject, ASWebAuthenticationPresentationCo
 }
 
 private let signInLogger = Logger(subsystem: "no.alrek.jottafs", category: "SignIn")
+
+/// Lets a session's completion handler recognise its own session.
+private final class SessionReference: @unchecked Sendable {
+    weak var session: ASWebAuthenticationSession?
+}
+
+/// An error shown to the user in an alert.
+struct AppAlert: Equatable {
+    let title: String
+    let message: String?
+}
