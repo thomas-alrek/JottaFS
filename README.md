@@ -50,6 +50,7 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
 - [Use JottaFS](#use-jottafs)
 - [The Trash](#the-trash)
 - [Limits](#limits)
+- [Troubleshooting](#troubleshooting)
 - [Privacy and security](#privacy-and-security)
 - [How JottaFS works](#how-jottafs-works)
 - [Development](#development)
@@ -229,6 +230,22 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
 - The **Get Info** window shows the format as "Unknown (jottacloud)".
 - JottaFS keeps folder lists for a short time. Changes that you make on a
   different device can take some seconds to show in Finder.
+
+## Troubleshooting
+
+**"JottaFS couldn't mount the location" with `com.apple.extensionKit.errorDomain
+error 2`.** More than one copy of JottaFS is on your Mac (for example an old
+copy, or a build from Xcode), and macOS uses the extension of a different copy.
+
+1. Quit JottaFS. Delete the other copies of JottaFS, and empty the Trash.
+2. Quit System Settings. Then open **System Settings → General → Login Items
+   & Extensions → File System Extensions**, and turn **JottaFS** off and on.
+3. Open JottaFS from Applications and mount again.
+
+If the problem continues, restart your Mac.
+
+**The location list is disabled.** Turn on **JottaFS** in **File System
+Extensions** (step 2 above). JottaFS finds the change automatically.
 
 ## Privacy and security
 
