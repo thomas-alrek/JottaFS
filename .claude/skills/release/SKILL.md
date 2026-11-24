@@ -1,65 +1,73 @@
 ---
 name: release
-description: Build, notarize and publish a JottaFS release on GitHub, and update the Homebrew casks (Casks/jottafs.rb and Casks/jottafs@<version>.rb) for it. Use when asked to build a release, a notarized DMG, a new version, or to tag/publish/release JottaFS.
+description: Release JottaFS in one command - commit pending work, write the release notes for the next version, build and notarize the DMG, update the Homebrew casks, commit, tag, push and create the GitHub release. Use when asked to release, ship or publish a new JottaFS version (args - optional "minor" or "major"; default is the next patch version). For a local test build only, use make release instead.
 ---
 
 # Release JottaFS
 
-The full reference is `docs/releasing.md`. Only tag, push or publish when the
-owner asks for it; a local build for testing stops after step 3.
+Invoking this skill is the owner's request to publish: it ends with a tag, a
+push and a public GitHub release. If the request was only for a local test
+build, stop and run `make release` (or `SKIP_NOTARIZE=1 make release`)
+instead. Reference: `docs/releasing.md`.
 
-## 1. Prepare
+Arguments: none for the next patch version, `minor` or `major` to bump that
+instead. Below, `<bump>` is `--patch`, `--minor` or `--major`.
 
-- Commit the changes that go into the release (`/commit`).
-- `VERSION` holds the last built version; `make release` builds the next
-  patch version (`make release-minor` / `make release-major` when asked).
-  To rebuild a version that was never published, delete
-  `dist/JottaFS-<version>.dmg` and its changelog and restore `VERSION`
-  with `git checkout -- VERSION` first.
-- Write `docs/release-notes/<version>.md` (plain language, ASD-STE100
-  style, same sections as earlier notes: New, Fixed/Faster, Known limits,
-  Requirements) and commit it before building; the build copies it into
-  `dist/JottaFS-<version>-CHANGELOG.md`.
+## 1. Commit pending work
 
-## 2. Build
+If `git status` shows changes, commit them first, following the `commit`
+skill (logical commits, Conventional Commits, the attribution trailer).
+Check the diff for secrets (tokens, passwords, keys) before committing.
+Never commit `dist/`, `build/` or credentials.
 
-Run `make release` in the background (it takes several minutes because of
-notarization) and log to the scratchpad. It archives, exports with
-Developer ID, checks every component's provisioning profile has the app
-groups it is signed for, notarizes and staples the app and the DMG, and
-checks the app with Gatekeeper. Do not edit sources while it archives.
+## 2. Write the release notes
 
-## 3. Check
+1. `NEXT=$(scripts/release.sh <bump> --version)` gives the version.
+2. Read what changed: `git log --oneline v<last version>..HEAD` and the
+   diffs as needed.
+3. Write `docs/release-notes/$NEXT.md` for JottaFS users (not developers):
+   plain language in ASD-STE100 style, like the earlier notes in that
+   folder. Sections as needed: `## JottaFS <version>`, `### New`,
+   `### Faster`, `### Fixed`, `### Known limits` (copy the current ones from
+   the README's Limits section and the previous notes, updated),
+   `### Requirements` (Apple silicon, macOS 27 or later, a Jottacloud
+   account). Leave out internal changes users cannot notice.
+4. Commit it: `docs: add the <version> release notes`.
 
-- The log ends with `EXIT 0`, `status: Accepted` and `accepted`.
-- `dist/JottaFS-<version>.dmg` exists and the changelog matches the notes.
-- Remove `build/release` afterwards (`rm -rf build/release`): extra copies
-  of the app make macOS register the extension more than once
-  (ExtensionKit error 2 when mounting).
+## 3. Build, notarize and publish
 
-## 4. Publish (only when asked)
+Run `scripts/release.sh <bump>` in the background (Bash
+`run_in_background`), logging to the scratchpad. It takes several minutes
+(notarization). Do not edit sources while it runs. It:
 
-Run `scripts/publish-release.sh --yes`. It:
+1. checks the tree is clean, the notes are committed and the tag is free;
+2. builds, exports with Developer ID, checks provisioning profiles for app
+   groups, notarizes and staples the app and the DMG, and checks the app
+   with Gatekeeper (`scripts/build-release.sh`);
+3. removes `build/release`;
+4. updates the Homebrew casks (`Casks/jottafs.rb` and the pinned
+   `Casks/jottafs@<version>.rb` through `scripts/update-cask.sh`), commits
+   them with `VERSION` as "Release <version>", tags `v<version>`, pushes the
+   branch and the tag, and creates the GitHub release with the DMG and the
+   notes (`scripts/publish-release.sh --yes`);
+5. checks that the asset's checksum, the casks and the latest release
+   match, and runs `brew style` on the casks.
 
-1. runs `scripts/update-cask.sh <version> <sha256>`, which updates
-   `Casks/jottafs.rb` and adds `Casks/jottafs@<version>.rb`;
-2. commits `VERSION` and `Casks/` as "Release <version>";
-3. tags `v<version>`, pushes the branch and the tag;
-4. creates the GitHub release with the DMG and the changelog.
+## 4. Report
 
-**Every published release must update the casks.** If a release is ever
-published another way, run `scripts/update-cask.sh <version> <sha256>`
-with the DMG's SHA-256, commit `Casks/` and push.
+When it finishes, read the end of the log. On success, tell the owner the
+release URL, the commits pushed (`git log --oneline` since the previous
+release) and anything the script warned about. On failure, report the
+failing step and the error; nothing is tagged or pushed if the build fails.
+If it failed after tagging, do not delete tags or releases without asking.
 
-## 5. Verify
+## Rules
 
-```sh
-gh release view v<version> --json assets,isDraft,isPrerelease
-gh api repos/thomas-alrek/JottaFS/releases/latest --jq .tag_name
-shasum -a 256 dist/JottaFS-<version>.dmg   # equals the asset digest and the cask's sha256
-HOMEBREW_DEVELOPER=1 HOMEBREW_NO_AUTO_UPDATE=1 brew style Casks/*.rb
-```
-
-Use `HOMEBREW_DEVELOPER=1` for Homebrew developer commands so developer
-mode is not switched on permanently; check with `brew developer` that it is
-still off.
+- Every published release updates the casks (AGENTS.md, "Releases"); the
+  script does this. If a release is ever published another way, run
+  `scripts/update-cask.sh <version> <sha256>`, commit `Casks/` and push.
+- Use `HOMEBREW_DEVELOPER=1` only per command for Homebrew developer
+  commands, so developer mode is not switched on permanently.
+- If notarization or signing fails because of Apple account setup (for
+  example a new bundle identifier that is not in the app group), stop and
+  tell the owner what to change in the developer portal.

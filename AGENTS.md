@@ -42,9 +42,11 @@ location as a read-write volume.
 
 ## Releases
 
-- Follow [docs/releasing.md](docs/releasing.md) (the `release` skill in
-  `.claude/skills/release` walks through it). Build with `make release`
-  and publish with `make publish` / `scripts/publish-release.sh`.
+- Follow [docs/releasing.md](docs/releasing.md). The `release` skill
+  (`.claude/skills/release`) does a whole release in one command: commit,
+  release notes, then `scripts/release.sh` (`make ship`), which builds,
+  notarizes, updates the casks, tags, pushes and publishes. For a local
+  test build only, use `make release`.
 - Every notarized release published on GitHub must update the Homebrew
   casks in the same release commit: `Casks/jottafs.rb` gets the new version
   and the DMG's SHA-256, and `Casks/jottafs@<version>.rb` is added so the

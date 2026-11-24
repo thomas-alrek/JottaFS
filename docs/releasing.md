@@ -95,6 +95,19 @@ mounted; the new extension is used from the next mount.
 So that installed apps can update, every release must be published with
 `make publish` (the tag and the DMG asset are what the app looks for).
 
+## Release in one step
+
+```sh
+make ship          # next patch version; make ship-minor / make ship-major
+```
+
+`scripts/release.sh` needs a clean working tree and the committed release
+notes for the next version (`scripts/release.sh --version` prints it). It
+runs `scripts/build-release.sh`, removes `build/release`, runs
+`scripts/publish-release.sh --yes` (below) and then checks the published
+asset's checksum, the casks and that the release is the latest one. Nothing
+is tagged or pushed if the build fails.
+
 ## Publish
 
 ```sh
