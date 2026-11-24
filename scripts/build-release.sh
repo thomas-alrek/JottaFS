@@ -150,6 +150,21 @@ codesign -d --verbose=2 "$APP" 2>&1 | grep -E "Authority=Developer ID Applicatio
     || fail "The app is not signed with Developer ID and the hardened runtime."
 lipo -archs "$APP/Contents/MacOS/$APP_NAME"
 
+# Every app group a component is signed for must be in its provisioning
+# profile, or macOS denies it the shared container (seen when a new bundle
+# identifier was registered before it was added to the app group).
+while IFS= read -r -d '' profile; do
+    bundle="$(dirname "$(dirname "$profile")")"
+    signed="$(codesign -d --entitlements - --xml "$bundle" 2>/dev/null \
+        | plutil -extract 'com\.apple\.security\.application-groups' json -o - - 2>/dev/null || echo '[]')"
+    allowed="$(security cms -D -i "$profile" 2>/dev/null \
+        | plutil -extract 'Entitlements.com\.apple\.security\.application-groups' json -o - - 2>/dev/null || echo '[]')"
+    for group in $(echo "$signed" | tr -d '[]"' | tr ',' ' '); do
+        [[ "$allowed" == *"\"$group\""* ]] \
+            || fail "$(basename "$bundle") is signed for app group $group, but its provisioning profile does not include it. Add the bundle identifier to the group in the developer portal, delete the old profile in ~/Library/Developer/Xcode/UserData/Provisioning Profiles and build again."
+    done
+done < <(find "$APP" -name embedded.provisionprofile -print0)
+
 # MARK: Notarize the app
 
 notarize() {

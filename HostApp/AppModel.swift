@@ -1,5 +1,6 @@
 import AppKit
 import AuthenticationServices
+import FinderSync
 import OSLog
 import FSKit
 import JottaFSCore
@@ -39,6 +40,7 @@ final class AppModel: ObservableObject {
     /// The locations to mount at login, chosen per location. A list of
     /// `["Device": …, "Mountpoint": …]`.
     private static let loginLocationsKey = "MountAtLoginLocations"
+    private static let offeredFinderExtensionKey = "OfferedFinderExtension"
 
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var username = ""
@@ -59,6 +61,8 @@ final class AppModel: ObservableObject {
     /// The locations to mount at login, in the order they were turned on.
     @Published private(set) var loginLocations: [JottacloudRemoteVolume] = []
     @Published private(set) var loginItemNeedsApproval = false
+    /// Asks once whether to turn on the Finder extension (share links).
+    @Published var offersFinderExtension = false
 
     /// Set by the app delegate when macOS opened the app at login.
     var launchedAtLogin = false
@@ -149,6 +153,7 @@ final class AppModel: ObservableObject {
         let enabled = extensions.first { $0.bundleIdentifier == Self.extensionBundleID }?.isEnabled ?? false
         let wasDisabled = extensionEnabled == false
         extensionEnabled = enabled
+        offerFinderExtensionIfNeeded()
         if enabled {
             extensionWatch?.cancel()
             extensionWatch = nil
@@ -418,6 +423,7 @@ final class AppModel: ObservableObject {
             }
             locations = account.volumes
             loadCustomNames()
+            offerFinderExtensionIfNeeded()
             // Start on a mounted location if there is one.
             if let mounted = account.volumes.first(where: isMounted), !selectedIsMounted {
                 selectedLocationID = mounted.id
@@ -731,6 +737,24 @@ final class AppModel: ObservableObject {
         SMAppService.openSystemSettingsLoginItems()
     }
 
+    /// Once, when JottaFS works (signed in, file system extension on, window
+    /// shown): offer to turn on the Finder extension, unless it is on.
+    private func offerFinderExtensionIfNeeded() {
+        guard extensionEnabled == true, phase == .signedIn, !launchedAtLogin,
+              !UserDefaults.standard.bool(forKey: Self.offeredFinderExtensionKey),
+              !FIFinderSyncController.isExtensionEnabled
+        else {
+            return
+        }
+        UserDefaults.standard.set(true, forKey: Self.offeredFinderExtensionKey)
+        offersFinderExtension = true
+    }
+
+    /// The Finder extensions page of System Settings.
+    func openFinderExtensionSettings() {
+        FIFinderSyncController.showExtensionManagementInterface()
+    }
+
     func openExtensionSettings() {
         openedExtensionSettings = FSClient.shared.openFileSystemExtensionsSettings()
     }
@@ -752,6 +776,19 @@ final class AppModel: ObservableObject {
     /// The location's name in Finder (a custom name, if set).
     func displayName(of location: JottacloudRemoteVolume) -> String {
         customName(of: location) ?? location.mountpoint
+    }
+
+    /// The name the location has in Finder: while mounted, its volume's
+    /// actual name (numbered, such as "Desktop (2)", if another volume had
+    /// the name), else the name it gets at the next mount.
+    func finderName(of location: JottacloudRemoteVolume) -> String {
+        mounts[location.id]?.mountPoint.lastPathComponent ?? displayName(of: location)
+    }
+
+    /// `finderName(of:)`, or nil when it is the location's own name.
+    func finderNameIfDifferent(of location: JottacloudRemoteVolume) -> String? {
+        let name = finderName(of: location)
+        return name == location.mountpoint ? nil : name
     }
 
     /// Names the user chose for locations in Finder, by location id (read

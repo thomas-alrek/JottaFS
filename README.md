@@ -88,6 +88,13 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   **Update** to install it. JottaFS opens again with the new version.
 - **Fast folders.** JottaFS keeps folder lists for a short time. Large folders
   open quickly.
+- **Share links from Finder.** Control-click a file or folder on a
+  Jottacloud disk and choose **Copy Jottacloud Link**. For a shared item,
+  **Stop Sharing Jottacloud Link** removes the link. Turn on the Finder extension once: JottaFS
+  asks, or use **JottaFS → Settings**.
+- **Download cache.** JottaFS keeps recently downloaded file data on your Mac
+  (1 GB by default). Files that you open again open immediately. Change the
+  size in **JottaFS → Settings**.
 
 ## Requirements
 
@@ -276,6 +283,7 @@ Extensions** (step 2 above). JottaFS finds the change automatically.
 | `JottaFSKitExtension` | The FSKit file system. It shows the location and does all file operations. |
 | `JottaFSCore` | The Jottacloud client: sign-in, folder lists, downloads, uploads and the trash. |
 | `JottaFSUnmountService` | An XPC service that unmounts the disk through Disk Arbitration. |
+| `JottaFSFinderSync` | A Finder extension: **Copy Jottacloud Link** and **Stop Sharing Jottacloud Link** for items on JottaFS disks. |
 | `JottaFSProgressAgent` | A background helper that shows upload progress on file icons in Finder. |
 
 ## Development

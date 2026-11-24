@@ -197,6 +197,73 @@ that only look at the start of a file (Finder thumbnails), still use one
 request each. Responses are collected in chunks and cancelled at the
 requested length.
 
+### Download speed and `ContentLocatorService` (measured 2026-11-24)
+
+The desktop daemon (`jottad`) does not download through `jfs`. Its embedded
+descriptor `no/jotta/openapi/content/v2/content.v2.proto` defines
+`no.jotta.openapi.content.v2.ContentLocatorService` (on `grpc.jotta.cloud`):
+
+```proto
+rpc DownloadLocation(DownloadLocationRequest) returns (DownloadLocationResponse);
+rpc DownloadLocations(DownloadLocationsRequest) returns (DownloadLocationsResponse);
+rpc PrepareDownload(PrepareDownloadRequest) returns (DownloadLocationResponse);
+message DownloadLocationRequest { oneof ref { ContentRef plain = 1; string encoded_ref = 2; } }
+message DownloadLocationResponse {
+  oneof result { Located located = 1; NotFound not_found = 2; NotSupported not_supported = 3;
+                 AccessDenied access_denied = 4; AccountLocked account_locked = 5; }
+  message Located { string url = 1; optional int64 size = 2; optional string md5 = 3; optional string owner = 4; }
+}
+// no.jotta.openapi.ContentRef: file_or_folder = 1 (FileOrFolderRef { path = 1 }),
+// file_revision = 12 (FileRevisionRef { username = 1; checksum = 2; optional path = 3 }), …
+```
+
+`DownloadLocation` with `file_or_folder.path` in service form
+(`/archive/<path>`) returns `located` with a URL on a storage host
+(`001-up-s.jotta.cloud`, HTTP/1.1), the size and the MD5. That URL needs the
+normal `Authorization: Bearer` header (401 without) and supports ranges (206).
+It is **not faster** than `jfs` (64 MiB random test file, one Mac, one
+network):
+
+| Path | Throughput |
+|---|---|
+| `jfs` ranged read, one 16 MiB request | 6.9 MB/s |
+| storage URL, one 32 MiB range | 4.8 MB/s |
+| storage URL, 4 / 8 parallel 8 MiB ranges | 5.6 / 4.7 MB/s total |
+| storage URL, whole file without range | 4.3 MB/s |
+| upload, one 64 MiB file | 11.9 MB/s |
+| upload, three 32 MiB files at once | 14.3 MB/s total |
+
+Downloads are limited to about 5–7 MB/s in total per account (or client),
+whatever the host, range size or number of connections; uploads on the same
+connection are twice as fast. Parallel requests do not raise the download
+limit, so JottaFS's read-ahead helps only by hiding request latency. Faster
+reads have to come from not downloading: JottaFS keeps downloaded 8 MiB blocks
+in a disk cache keyed by the listing's MD5 and the block index
+(`BlockCache.swift`, in the app group's `Library/Caches/BlockCache`; 1024 MB
+by default, set and cleared in the app's Settings, emptied after a restart), and downloads files of at most 4 MiB whole on the first
+read.
+
+### Public share links (checked 2026-11-24)
+
+`GET` on a file's or folder's JFS path with `?mode=enableShare` (bearer
+token) returns HTTP 200 and the item's XML (`<file …>` or `<folder …>`) with
+two extra elements:
+
+```xml
+<publicURI>13f86255648645d197b10a8fddcd9d13</publicURI>
+<publicSharePath>/s/32013f86255648645d197b10a8fddcd9d13</publicSharePath>
+```
+
+A plain `GET` of the item (no `mode`) also contains `publicSharePath` when
+the item is shared, including items shared on jottacloud.com (confirmed with
+the Finder extension, 2026-11-24). The link is
+`https://www.jottacloud.com` + `publicSharePath`. Enabling an
+item that is already shared returns the same link. `?mode=disableShare`
+returns the XML without these elements and removes the link. Checked on a
+test file and a test folder in `JottaFS-Test`; both links were removed
+afterwards. The web app answers every `/s/…` address with the same HTTP 200
+page, so the HTTP status of a share link does not show whether it works.
+
 ## Existing implementation decisions
 
 - One reusable HTTP client; bounded request timeouts.

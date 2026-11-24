@@ -1,4 +1,5 @@
 import AppKit
+import FinderSync
 import JottaFSCore
 import SwiftUI
 
@@ -6,14 +7,154 @@ import SwiftUI
 struct JottaFSApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    // The window is created by the app delegate (AppKit), not by a SwiftUI
-    // scene, so a launch at login never shows (or flashes) a window.
+    // The main window is created by the app delegate (AppKit), not by a
+    // SwiftUI scene, so a launch at login never shows (or flashes) a window.
+    // The Settings window (JottaFS → Settings…) only opens on request.
     var body: some Scene {
         Settings {
-            EmptyView()
+            SettingsView()
         }
-        .commands {
-            CommandGroup(replacing: .appSettings) {}
+    }
+}
+
+/// App-wide settings: the size of the download cache, which the file system
+/// extension reads from the shared settings, and clearing it.
+private struct SettingsView: View {
+    /// In MB; 0 is off.
+    private static let sizes = [0, 256, 512, 1024, 2048, 4096, 8192]
+    @State private var limit = JottaFSStorage.blockCacheLimitMB()
+    @State private var used: UInt64 = 0
+    @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
+    @State private var confirmsClear = false
+    @State private var failure: String?
+
+    /// The limit in bytes (MB in the settings are 1 048 576 bytes).
+    private var limitBytes: UInt64 {
+        UInt64(limit) * 1024 * 1024
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Cache size", selection: $limit) {
+                    ForEach(Self.sizes, id: \.self) { size in
+                        Text(Self.title(for: size)).tag(size)
+                    }
+                }
+                .onChange(of: limit) { _, newValue in
+                    do {
+                        try JottaFSStorage.setBlockCacheLimitMB(newValue)
+                    } catch {
+                        failure = "JottaFS couldn’t save the setting."
+                    }
+                }
+                usage
+            } header: {
+                Text("Download Cache")
+            } footer: {
+                Text("JottaFS keeps recently downloaded file data on your Mac, so files you open again open immediately. When the cache is full, the oldest data is removed. The cache is emptied when you restart your Mac.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                LabeledContent {
+                    if finderExtensionEnabled {
+                        Label("On", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    } else {
+                        Button("Turn On…") {
+                            FIFinderSyncController.showExtensionManagementInterface()
+                        }
+                        .help("Opens the Finder extensions in System Settings. Turn on JottaFS there.")
+                    }
+                } label: {
+                    Text("Share links in Finder")
+                    Text(finderExtensionEnabled
+                        ? "Control-click a file or folder on a Jottacloud disk to copy its link."
+                        : "Turn on JottaFS under Finder extensions to copy Jottacloud links from Finder.")
+                }
+            } header: {
+                Text("Finder")
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 460)
+        .fixedSize(horizontal: false, vertical: true)
+        .task {
+            // Keep the figures current while the window is open (the user
+            // may turn the Finder extension on in System Settings).
+            while !Task.isCancelled {
+                used = JottaFSStorage.blockCacheSize()
+                finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+        .confirmationDialog("Clear the download cache?", isPresented: $confirmsClear) {
+            Button("Clear Cache", role: .destructive) {
+                do {
+                    try JottaFSStorage.clearBlockCache()
+                } catch {
+                    failure = "JottaFS couldn’t clear the cache."
+                }
+                used = JottaFSStorage.blockCacheSize()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Files you open again are downloaded from Jottacloud again. Your files in Jottacloud are not changed.")
+        }
+        .alert(failure ?? "", isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })) {
+            Button("OK") {}
+        }
+    }
+
+    /// "384 MB of 2 GB used", a bar that fills up, and Clear Cache.
+    private var usage: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if limit > 0 {
+                Gauge(value: Double(min(used, limitBytes)), in: 0...Double(max(limitBytes, 1))) {
+                    EmptyView()
+                }
+                .gaugeStyle(.linearCapacity)
+                .tint(used * 10 >= limitBytes * 9 ? .orange : .accentColor)
+                .accessibilityLabel("Cache used")
+                .accessibilityValue("\(Self.bytes(used)) of \(Self.bytes(limitBytes))")
+            }
+            HStack(alignment: .firstTextBaseline) {
+                Group {
+                    if limit > 0 {
+                        Text("\(Self.bytes(used)) of \(Self.bytes(limitBytes)) used")
+                    } else if used > 0 {
+                        Text("The cache is off. \(Self.bytes(used)) is still stored.")
+                    } else {
+                        Text("The cache is off.")
+                    }
+                }
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                Spacer()
+                // Red, like Unmount: it deletes data.
+                Button("Clear Cache…", role: .destructive) {
+                    confirmsClear = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+                .disabled(used == 0)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// "384 MB", "2 GB" (binary units, like the size choices).
+    private static func bytes(_ value: UInt64) -> String {
+        Int64(clamping: value).formatted(.byteCount(style: .memory))
+    }
+
+    private static func title(for size: Int) -> String {
+        switch size {
+        case 0: "Off"
+        case let size where size >= 1024 && size % 1024 == 0: "\(size / 1024) GB"
+        default: "\(size) MB"
         }
     }
 }
@@ -456,6 +597,15 @@ private struct SignedInView: View {
             AdvancedSettingsView(location: location)
                 .environmentObject(model)
         }
+        .alert("Copy Jottacloud links from Finder?", isPresented: $model.offersFinderExtension) {
+            Button("Turn On…") {
+                model.openFinderExtensionSettings()
+            }
+            .keyboardShortcut(.defaultAction)
+            Button("Not Now", role: .cancel) {}
+        } message: {
+            Text("Turn on JottaFS under Finder extensions in System Settings. Then you can Control-click a file or folder on a Jottacloud disk and copy a link to share it. You can also do this later in JottaFS Settings.")
+        }
         .confirmationDialog(
             "Sign out of Jottacloud?",
             isPresented: $confirmsSignOut
@@ -504,7 +654,7 @@ private struct LocationPicker: View {
                                         LocationRow(
                                             location: location,
                                             isOpen: model.isMounted(location),
-                                            customName: model.customName(of: location)
+                                            finderName: model.finderNameIfDifferent(of: location)
                                         )
                                         .tag(location.id)
                                         .id(location.id)
@@ -591,7 +741,8 @@ private struct LocationPicker: View {
 private struct LocationRow: View {
     let location: JottacloudRemoteVolume
     let isOpen: Bool
-    var customName: String?
+    /// The name in Finder, when it is not the location's own name.
+    var finderName: String?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -632,8 +783,8 @@ private struct LocationRow: View {
     }
 
     private var detail: String? {
-        if let customName {
-            return "Shown in Finder as “\(customName)”"
+        if let finderName {
+            return "Shown in Finder as “\(finderName)”"
         }
         guard location.isBuiltIn else {
             return nil
@@ -693,7 +844,7 @@ private struct FinderStatus: View {
     }
 
     private var selectedName: String? {
-        model.selectedLocation.map(model.displayName)
+        model.selectedLocation.map(model.finderName)
     }
 }
 
@@ -736,7 +887,7 @@ private struct AdvancedSettingsView: View {
                     .onSubmit(save)
                 Group {
                     if isMounted {
-                        Text("Unmount “\(model.displayName(of: location))” to change its name.")
+                        Text("Unmount “\(model.finderName(of: location))” to change its name.")
                     } else if !isValid {
                         Text("This name can’t be used. Avoid “/” and “:”, and use a shorter name.")
                             .foregroundStyle(.red)
