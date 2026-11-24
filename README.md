@@ -219,8 +219,12 @@ Jottacloud.
 
 Select a location, then select **Mount automatically when I log in**. Do this
 for each location that you want to mount at login. When you log in, JottaFS
-mounts these locations. Then JottaFS closes. No window opens. If a mount
-fails, JottaFS opens its window and shows the problem.
+waits for the network connection, mounts these locations and closes. No
+window and no Dock icon open. If a mount still fails after 3 minutes,
+JottaFS opens its window and shows the problem.
+
+JottaFS uses a background item for this. If macOS asks, allow **JottaFS** in
+**System Settings → General → Login Items & Extensions**.
 
 ### Update JottaFS
 
@@ -312,9 +316,10 @@ Extensions** (step 2 above). JottaFS finds the change automatically.
 | `JottaFS` (app) | Sign-in, location list, mount and unmount, mount at login. |
 | `JottaFSKitExtension` | The FSKit file system. It shows the location and does all file operations. |
 | `JottaFSCore` | The Jottacloud client: sign-in, folder lists, downloads, uploads and the trash. |
-| `JottaFSUnmountService` | An XPC service that unmounts the disk through Disk Arbitration. |
+| `JottaFSUnmountService` | An XPC service that unmounts the disk through Disk Arbitration and installs updates. |
 | `JottaFSFinderSync` | A Finder extension: **Copy Jottacloud Link** and **Stop Sharing Jottacloud Link** for items on JottaFS disks. |
 | `JottaFSProgressAgent` | A background helper that shows upload progress on file icons in Finder. |
+| Login agent | Starts JottaFS at login to mount the locations that you selected. |
 
 ## Development
 

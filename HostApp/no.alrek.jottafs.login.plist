@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>no.alrek.jottafs.login</string>
+    <!-- Mount at login: registered with SMAppService.agent while at least
+         one location is set to mount at login. launchd starts the app once
+         per login with an argument that says so, so the app knows for sure
+         that it was started at login (no window; it quits when done). -->
+    <key>BundleProgram</key>
+    <string>Contents/MacOS/JottaFS</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>JottaFS</string>
+        <string>--mount-at-login</string>
+    </array>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>no.alrek.jottafs</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

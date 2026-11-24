@@ -4,5 +4,11 @@
 <dict>
 	<key>CFBundleIconFile</key>
 	<string>JottaFS</string>
+	<!-- Starts without a Dock icon, so a launch at login (by the
+	     no.alrek.jottafs.login agent) never shows one. Every other launch
+	     switches to a normal Dock app at once (AppDelegate
+	     applicationWillFinishLaunching). -->
+	<key>LSUIElement</key>
+	<true/>
 </dict>
 </plist>

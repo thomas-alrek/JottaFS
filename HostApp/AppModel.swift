@@ -49,6 +49,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var accountEmail: String?
     @Published private(set) var locations: [JottacloudRemoteVolume] = []
     @Published private(set) var isLoadingLocations = false
+    /// The locations could not be loaded because there is no network yet;
+    /// they load by themselves when it is up (no error is shown meanwhile).
+    @Published private(set) var isWaitingForNetwork = false
     @Published var selectedLocationID: String?
     /// The mounted locations, by location id.
     @Published private(set) var mounts: [String: JottaFSStorage.MountedVolume] = [:]
@@ -120,6 +123,7 @@ final class AppModel: ObservableObject {
         await refreshSystemState()
         let saved = loadSavedCredentials()
         loadLoginLocations(migrating: saved)
+        migrateLoginItem()
         guard let saved else {
             phase = .signedOut
             if launchedAtLogin {
@@ -128,6 +132,7 @@ final class AppModel: ObservableObject {
             return
         }
         useClient(makeClient(saved), credentials: saved)
+        loginLogger.notice("Launched \(self.launchedAtLogin ? "at login (--mount-at-login)" : "normally", privacy: .public), \(Int(ProcessInfo.processInfo.systemUptime), privacy: .public) s after start-up.")
         if launchedAtLogin {
             await mountAtLoginLaunch()
             return
@@ -423,6 +428,8 @@ final class AppModel: ObservableObject {
                 return
             }
             locations = account.volumes
+            locationsLoadFailed = false
+            isWaitingForNetwork = false
             loadCustomNames()
             offerFinderExtensionIfNeeded()
             // Start on a mounted location if there is one.
@@ -437,7 +444,52 @@ final class AppModel: ObservableObject {
             guard self.client === client else {
                 return
             }
-            alert = errorAlert(error, title: "JottaFS couldn’t load your Jottacloud locations.")
+            locationsLoadFailed = true
+            if Self.isNetworkError(error) {
+                // Usually the network is not up yet (just after start-up):
+                // wait for it instead of showing an error.
+                isWaitingForNetwork = true
+                reloadLocationsWhenOnline()
+            } else {
+                alert = errorAlert(error, title: "JottaFS couldn’t load your Jottacloud locations.")
+            }
+        }
+    }
+
+    private var locationsReload: Task<Void, Never>?
+    private var locationsLoadFailed = false
+
+    /// Loads the locations again once the network is back (for up to 10
+    /// minutes), so the list does not stay on "couldn't be loaded" after the
+    /// Mac comes online.
+    private func reloadLocationsWhenOnline() {
+        guard locationsReload == nil else {
+            return
+        }
+        locationsReload = Task { [weak self] in
+            defer {
+                self?.locationsReload = nil
+                // Gave up: show the list's normal "couldn't be loaded" state.
+                if self?.locationsLoadFailed == true {
+                    self?.isWaitingForNetwork = false
+                }
+            }
+            let deadline = Date().addingTimeInterval(600)
+            while Date() < deadline, !Task.isCancelled {
+                guard await Self.waitForNetwork(until: deadline) else {
+                    return
+                }
+                // DNS and routes can lag a moment behind the network path.
+                try? await Task.sleep(for: .seconds(3))
+                guard let self, self.phase == .signedIn, self.locationsLoadFailed else {
+                    return
+                }
+                await self.loadLocations()
+                if !self.locationsLoadFailed {
+                    return
+                }
+                try? await Task.sleep(for: .seconds(10))
+            }
         }
     }
 
@@ -706,9 +758,9 @@ final class AppModel: ObservableObject {
         }
         do {
             if list.isEmpty {
-                try SMAppService.mainApp.unregister()
+                try Self.loginAgent.unregister()
             } else {
-                try SMAppService.mainApp.register()
+                try Self.loginAgent.register()
             }
         } catch {
             alert = AppAlert(
@@ -719,8 +771,28 @@ final class AppModel: ObservableObject {
         refreshLoginItemStatus()
     }
 
+    /// The launch agent that starts the app at login with `--mount-at-login`
+    /// (HostApp/no.alrek.jottafs.login.plist). The argument tells the app
+    /// for certain that it was started at login.
+    private static let loginAgent = SMAppService.agent(plistName: "no.alrek.jottafs.login.plist")
+    static let mountAtLoginArgument = "--mount-at-login"
+
+    /// Versions up to 1.0.4 registered the app itself as the login item
+    /// (SMAppService.mainApp), which cannot say how the app was started.
+    /// Move to the launch agent.
+    private func migrateLoginItem() {
+        guard SMAppService.mainApp.status == .enabled else {
+            return
+        }
+        try? SMAppService.mainApp.unregister()
+        if !loginLocations.isEmpty {
+            try? Self.loginAgent.register()
+        }
+        loginLogger.notice("Moved mount at login from the app login item to the launch agent.")
+    }
+
     private func refreshLoginItemStatus() {
-        let status = SMAppService.mainApp.status
+        let status = Self.loginAgent.status
         loginItemNeedsApproval = !loginLocations.isEmpty && status == .requiresApproval
         if !loginLocations.isEmpty, status == .notRegistered || status == .notFound {
             // Removed in System Settings: follow the system.
@@ -739,41 +811,26 @@ final class AppModel: ObservableObject {
             NSApp.terminate(nil)
             return
         }
+        // launchd also runs the agent when it is registered (turning on
+        // mount at login in the open app). Then JottaFS is already open and
+        // handles mounting itself; do nothing.
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+            .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        guard others.isEmpty else {
+            loginLogger.notice("JottaFS is already open; the login launch does nothing.")
+            NSApp.terminate(nil)
+            return
+        }
         locations = wanted
         loadCustomNames()
-        // At login the network is often not up yet (Wi-Fi still joining, DNS
-        // not ready). Wait for it, and retry mounts that fail because of the
-        // network, for up to `loginNetworkWait`; only then show a problem.
-        let deadline = Date().addingTimeInterval(Self.loginNetworkWait)
-        if await !Self.waitForNetwork(until: deadline) {
-            loginLogger.info("No network at login yet; trying to mount anyway.")
+        let mounted = await mountLoginLocations(wanted)
+        guard launchedAtLogin else {
+            // The user opened the window meanwhile: stay open, with the
+            // full list.
+            await loadLocations()
+            return
         }
-        var pending = wanted.filter { !isMounted($0) }
-        var failed = false
-        var pause: Duration = .seconds(2)
-        while !pending.isEmpty {
-            var retry: [JottacloudRemoteVolume] = []
-            for location in pending where !isMounted(location) {
-                guard await !mount(location) else {
-                    continue
-                }
-                if Self.isNetworkError(lastMountError), Date() < deadline {
-                    retry.append(location)
-                } else {
-                    failed = true
-                }
-            }
-            pending = retry
-            guard !pending.isEmpty else {
-                break
-            }
-            loginLogger.info("Mount at login failed on the network; retrying.")
-            alert = nil
-            try? await Task.sleep(for: pause)
-            pause = min(pause * 2, .seconds(30))
-            _ = await Self.waitForNetwork(until: deadline)
-        }
-        guard !failed else {
+        guard mounted else {
             // Show the problem as a normal app, with Dock icon and menu.
             launchedAtLogin = false
             showWindow?()
@@ -783,9 +840,79 @@ final class AppModel: ObservableObject {
         NSApp.terminate(nil)
     }
 
-    /// How long a launch at login waits for the network before it shows a
-    /// mount that failed because of it.
-    private static let loginNetworkWait: TimeInterval = 180
+    /// Mounts the locations chosen for login, retrying what can still work
+    /// for up to `loginWait`. Returns false if a mount failed for good (the
+    /// alert describes it).
+    private func mountLoginLocations(_ wanted: [JottacloudRemoteVolume]) async -> Bool {
+        // Right after login, several things may not be ready yet: Wi-Fi
+        // (and DNS), FSKit's list of enabled extensions (JottaFS can look
+        // turned off for a moment) and FSKit itself. Keep trying for up to
+        // `loginWait`; show the window only when a mount still fails then,
+        // or fails in a way that waiting cannot fix.
+        let deadline = Date().addingTimeInterval(Self.loginWait)
+        if await !Self.waitForNetwork(until: deadline) {
+            loginLogger.notice("No network at login yet; trying to mount anyway.")
+        }
+        var pending = wanted.filter { !isMounted($0) }
+        var failed = false
+        var pause: Duration = .seconds(2)
+        var attempt = 0
+        while !pending.isEmpty {
+            attempt += 1
+            if extensionEnabled != true {
+                await refreshExtensionState()
+            }
+            var retry: [JottacloudRemoteVolume] = []
+            for location in pending where !isMounted(location) {
+                guard await !mount(location) else {
+                    continue
+                }
+                let error = lastMountError
+                loginLogger.notice("Mount at login, attempt \(attempt, privacy: .public): failed (\(Self.describe(error), privacy: .public); JottaFS enabled: \(String(describing: self.extensionEnabled), privacy: .public)).")
+                if !Self.isPermanentMountError(error), Date() < deadline {
+                    retry.append(location)
+                } else {
+                    failed = true
+                }
+            }
+            pending = retry
+            guard !pending.isEmpty else {
+                break
+            }
+            alert = nil
+            try? await Task.sleep(for: pause)
+            pause = min(pause * 2, .seconds(20))
+            _ = await Self.waitForNetwork(until: deadline)
+        }
+        return !failed
+    }
+
+    /// How long a launch at login keeps trying before it shows a failed mount.
+    private static let loginWait: TimeInterval = 180
+
+    /// Errors that waiting cannot fix: the location is gone, or the sign-in
+    /// is no longer valid. Everything else is retried at login.
+    private static func isPermanentMountError(_ error: Error?) -> Bool {
+        switch error {
+        case JottacloudError.locationNotFound?, JottacloudError.tokenRefreshDisabled?, JottacloudError.invalidLoginToken?:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Domain and code of an error, for the log (no user data).
+    private static func describe(_ error: Error?) -> String {
+        guard let error else {
+            return "no error; not mounted"
+        }
+        let nsError = error as NSError
+        var text = "\(nsError.domain) \(nsError.code)"
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+            text += " / \(underlying.domain) \(underlying.code)"
+        }
+        return text
+    }
 
     /// Reads the locations to mount at login. Before 1.1 there was one
     /// switch, for the location saved in the credentials.

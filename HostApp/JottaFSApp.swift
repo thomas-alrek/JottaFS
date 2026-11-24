@@ -159,9 +159,10 @@ private struct SettingsView: View {
     }
 }
 
-/// Owns the model and the single JottaFS window. At login (macOS opened the
-/// app as a login item) it creates no window and no Dock icon, mounts the
-/// saved location and quits; the window only appears if that fails.
+/// Owns the model and the single JottaFS window. At login (started by the
+/// launch agent with `--mount-at-login`) it creates no window and no Dock
+/// icon, mounts the locations chosen for login and quits; the window only
+/// appears if that fails.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let model = AppModel()
@@ -170,13 +171,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var launchedAtLogin = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        let event = NSAppleEventManager.shared().currentAppleEvent
-        launchedAtLogin = event?.eventID == kAEOpenApplication
-            && event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+        // Started at login by the launch agent (no.alrek.jottafs.login),
+        // which passes this argument; any other launch is a normal one.
+        launchedAtLogin = CommandLine.arguments.contains(AppModel.mountAtLoginArgument)
+        // The app starts without a Dock icon (LSUIElement); a normal launch
+        // becomes a regular Dock app with a menu bar here, before any window.
         NSApp.setActivationPolicy(launchedAtLogin ? .accessory : .regular)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Never reopened by macOS after a restart or log-in ("Reopen windows
+        // when logging back in"): such a launch looks like a normal one and
+        // shows the window. Mount at login uses the login item instead.
+        NSApp.disableRelaunchOnLogin()
         model.launchedAtLogin = launchedAtLogin
         model.showWindow = { [weak self] in
             NSApp.setActivationPolicy(.regular)
@@ -198,6 +205,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// Clicking the Dock icon shows the window again.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // Opened by the user while the login item was still mounting: become
+        // a normal app and stay open.
+        if model.launchedAtLogin {
+            model.launchedAtLogin = false
+            NSApp.setActivationPolicy(.regular)
+            updater.start()
+        }
         showWindow()
         return true
     }
@@ -220,8 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func showWindow() {
         if let window {
-            NSApp.activate()
-            window.makeKeyAndOrderFront(nil)
+            Self.bringToFront(window)
             return
         }
         let hosting = NSHostingController(rootView: RootView().environmentObject(model).environmentObject(updater))
@@ -245,8 +258,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         Self.centerExactly(window)
         self.window = window
+        Self.bringToFront(window)
+    }
+
+    /// Makes JottaFS the active app with `window` in front. The app starts
+    /// as a background app (`LSUIElement`), so macOS does not activate it at
+    /// launch, and since macOS 14 `NSApp.activate()` is only a request. So it
+    /// also uses the older forcing call, orders the window front regardless,
+    /// and tries once more after the switch to a regular app has taken
+    /// effect.
+    private static func bringToFront(_ window: NSWindow) {
         NSApp.activate()
+        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            guard !NSApp.isActive, window.isVisible else {
+                return
+            }
+            NSRunningApplication.current.activate(options: [.activateAllWindows])
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     /// Centers exactly (`NSWindow.center()` places windows above the middle).
@@ -632,7 +665,11 @@ private struct LocationPicker: View {
             Group {
                 if model.locations.isEmpty {
                     VStack(spacing: 10) {
-                        if model.isLoadingLocations {
+                        if model.isWaitingForNetwork {
+                            ProgressView()
+                            Text("Waiting for a network connection…")
+                                .foregroundStyle(.secondary)
+                        } else if model.isLoadingLocations {
                             ProgressView()
                             Text("Loading your locations…")
                                 .foregroundStyle(.secondary)
