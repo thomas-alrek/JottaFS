@@ -64,8 +64,10 @@ location as a read-write volume.
 
 - Standard Jottacloud login tokens are single-use, base64url-encoded JSON.
 - OAuth refresh tokens rotate; concurrent refreshes must be serialized.
-- The extension discovers devices and mountpoints and exposes them as folders
-  in the mounted account view.
+- Each mounted volume is one Jottacloud location (a device's mountpoint, or
+  one backed-up folder of a computer backup); the app lists the locations
+  from the account's devices and mountpoints. JottaFS never creates or
+  deletes devices or mountpoints.
 - XML listing entries without a completed current revision are not exposed.
 - Only the official `id.jottacloud.com` identity host is supported.
 - Keep research and unresolved API assumptions in

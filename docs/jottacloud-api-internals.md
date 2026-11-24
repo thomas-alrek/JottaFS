@@ -1,8 +1,9 @@
 # Jottacloud API internals
 
-This document preserves the protocol research and implementation decisions
-from the initial Rust prototype. Jottacloud does not publish a complete API
-reference; these details are observed behavior and can change.
+The Jottacloud API research behind JottaFS, and the decisions that follow
+from it. Jottacloud does not publish a complete API reference; these details
+are observed behaviour (live probes on test items, rclone's backend, and
+static reading of the official apps) and can change.
 
 ## Authentication
 
@@ -33,7 +34,7 @@ Never log tokens or place them in process arguments. The personal login token
 is single-use; if a mount fails after successful authentication, generate a
 new one for the next attempt.
 
-## Browser login (not implemented; researched 2026-11-24)
+## Browser login (researched and implemented 2026-11-24)
 
 The official macOS app (`jottad` 26.11.12 in `/Applications/Jottacloud.app`)
 logs in through the browser with a standard OAuth authorization-code flow.
@@ -66,22 +67,24 @@ appears to be configured for this flow. JottaFS should not impersonate
 `desktop-mac`. The app's separate `AuthService/RegisterSession` gRPC call
 belongs to its transfer layer and is not needed for the OAuth flow.
 
-Plan for JottaFS: run the flow from the host app (not the extension) with
-`jottacli`, scope `openid offline_access`, PKCE `S256` (falling back to
-`plain` only if refused), and verify `state` on the callback (the official
-app does not appear to). Implemented 2026-11-24: Jottacloud accepts S256 for
-`jottacli` and a `http://localhost:<port>/callback` redirect; JottaFS uses S256
-only and checks `state` in the callback server and again in the client. A sandboxed listener needs
-`com.apple.security.network.server`.
+JottaFS runs the flow from the host app (not the extension) with `jottacli`,
+scope `openid offline_access` and PKCE `S256`; Jottacloud accepts S256 for
+`jottacli` and a `http://localhost:<port>/callback` redirect on any loopback
+port (confirmed by real sign-ins). JottaFS checks `state` in the callback
+server and again in the client (the official app does not appear to). The
+sign-in page opens in an `ASWebAuthenticationSession`; the loopback server
+answers the callback with a redirect to `jottafs://signed-in`, which ends the
+session and closes the browser tab (a page cannot close its own tab, and
+Safari keeps it open when the app cancels the session). A sandboxed listener
+needs `com.apple.security.network.server`.
 
-Unconfirmed: the exact `scope` the app requests (probably from discovery),
-whether Keycloak accepts any loopback port for `jottacli`, and whether S256
-is supported. One real login attempt settles all three.
+## Devices and mountpoints (researched 2026-11-24)
 
-## Devices and mountpoints (researched 2026-11-24, not used)
-
-Static analysis only (rclone source, the web app's protobuf descriptors,
-strings in `jottad`); nothing was sent to Jottacloud.
+JottaFS reads the account's devices and mountpoints (the location list) and
+`DeviceService.List` (the service path of each backup device, checked live).
+It never creates, changes or deletes devices or mountpoints. The rest of this
+section is static analysis only (rclone source, the web app's protobuf
+descriptors, strings in `jottad`).
 
 - The account root holds only devices, and a device holds only mountpoints;
   there are no plain folders at either level.
@@ -103,9 +106,9 @@ strings in `jottad`); nothing was sent to Jottacloud.
   device appears in the desktop app's setup list, where linking it would
   change its `installation_id`; `DeviceService.Delete` removes a whole
   device and must only ever use the exact `id` of a device JottaFS created.
-- Unknown until a live test (which needs a scope decision): accepted device
-  types, whether `FileService.CreateFolder` on `/backup/<id>/<name>` creates
-  a mountpoint, and whether deleting a device trashes or removes it.
+- Not tested (JottaFS does not create devices or mountpoints): accepted
+  device types, whether `FileService.CreateFolder` on `/backup/<id>/<name>`
+  creates a mountpoint, and whether deleting a device trashes or removes it.
 
 ## JFS paths and directory listings
 
@@ -185,8 +188,9 @@ discarding everything before the offset. Observed 2026-11-24:
 Jottacloud answers 416 (`text/xml`) when the range *end* extends past the end of
 the file, even if the start is valid, instead of returning a truncated 206.
 Clamp the range end to the listed file size and do not send a request at or
-after EOF; then a 416 means there is no data at that offset. Cap one FUSE/FSKit read request (the prototype
-used 1 MiB) and return short reads at end of file.
+after EOF; then a 416 means there is no data at that offset. One read request
+is at most 1 MiB, except read-ahead blocks (8 MiB), and reads are short at
+end of file.
 
 Each range request waits about 70–100 ms for its first byte, and one
 download runs at only about 4–5 MB/s (measured 2026-11-24, independent of the
@@ -264,20 +268,25 @@ test file and a test folder in `JottaFS-Test`; both links were removed
 afterwards. The web app answers every `/s/…` address with the same HTTP 200
 page, so the HTTP status of a share link does not show whether it works.
 
-## Existing implementation decisions
+## Implementation decisions
 
 - One reusable HTTP client; bounded request timeouts.
-- OAuth discovery and token requests do not follow redirects.
-- Directory metadata is cached briefly and with entry/count bounds. FSKit and
-  the kernel also cache metadata; keep the driver's own cache conservative.
-- Remote mutations are confined to `Jotta/Archive/JottaFS-Test` (see
-  [the write-support design](write-support-design.md)). The write endpoints
-  used are rclone's: `files/v1/allocate` + `upload_url` for uploads,
-  `?mkDir=true`, `?dl=true`/`?dlDir=true` (trash), and `?mv=`/`?mvDir=` with
-  a full `/<user>/<device>/<mountpoint>/...` destination. They are
-  unverified against an account until the live write tests have run.
-- Unit tests should use synthetic tokens and XML fixtures. A live account and
-  actual mount are required to validate undocumented server behavior.
+- OAuth discovery and token requests do not follow redirects. Only the
+  official `id.jottacloud.com` identity host is accepted.
+- Refresh tokens rotate: the app, the file system extension and the Finder
+  extension serialize credential writes with an `flock` and read the newest
+  saved tokens before refreshing.
+- Directory listings are cached briefly with entry and folder bounds (see
+  [the FSKit notes](fskit-internals.md#volume)); FSKit and the kernel cache
+  metadata too.
+- The write endpoints are rclone's: `files/v1/allocate` + `upload_url`,
+  `?mkDir=true`, `?dl=true`/`?dlDir=true`, and `?mv=`/`?mvDir=` with a full
+  `/<user>/<device>/<mountpoint>/...` destination; the Trash uses the gRPC
+  `FileService` ([write design](write-support-design.md),
+  [Trash design](trash-design.md)). All were verified live on test items.
+- Checks use synthetic tokens and XML fixtures. Undocumented server behaviour
+  needs a live account and a mount; live tests only touch new, uniquely named
+  items under `Jotta/Archive/JottaFS-Test` (AGENTS.md).
 
 ## References and limits
 
