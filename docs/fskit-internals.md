@@ -102,6 +102,13 @@ pending and running uploads.
   and a limited `FSVolume.XattrHandler` exposes only the root's
   `com.apple.FinderInfo` with `kHasCustomIcon`. Other extended attributes
   return `ENOTSUP`.
+  Observed 2026-11-24 (macOS 27.3): Finder's **sidebar** shows the app's icon
+  (`JottaFS.icns`, the cloud), not this volume icon (`JottaVolume.icns`, the
+  drive with the "J"), which other places use (window title, Get Info,
+  Desktop). It seems the sidebar takes the icon of the app that provides the
+  FSKit file system; this is not documented. Kept as it is; worth
+  researching further (for example whether the extension's own icon, or an
+  icon in its `Info.plist`, would be used instead).
 - **Case.** Jottacloud names are case-insensitive, so the volume is
   case-insensitive and case-preserving.
 - **Concurrency.** Callbacks run concurrently. Item state is behind a lock per
