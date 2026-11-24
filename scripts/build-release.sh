@@ -181,7 +181,6 @@ swiftc -O Tools/make-dmg-background.swift -o "$BUILD/make-dmg-background"
 "$BUILD/make-dmg-background" "$BUILD/background.png" 1
 "$BUILD/make-dmg-background" "$BUILD/background@2x.png" 2
 tiffutil -cathidpicheck "$BUILD/background.png" "$BUILD/background@2x.png" -out "$STAGE/.background/background.tiff" >/dev/null
-cp Resources/JottaFS.icns "$STAGE/.VolumeIcon.icns"
 
 VOLUME_NAME="$APP_NAME $VERSION"
 SIZE_MB=$(( $(du -sm "$STAGE" | cut -f1) + 20 ))
@@ -189,9 +188,8 @@ hdiutil create -quiet -srcfolder "$STAGE" -volname "$VOLUME_NAME" -fs HFS+ -form
 MOUNT="$(hdiutil attach -readwrite -noverify -noautoopen "$BUILD/rw.dmg" | awk -F'\t' '/\/Volumes\// { print $NF; exit }')"
 [[ -d "$MOUNT" ]] || fail "Could not mount the temporary DMG."
 
-# The custom volume icon, and the installer window layout (written by Finder
-# into the DMG's .DS_Store). Icon positions match Tools/make-dmg-background.swift.
-SetFile -a C "$MOUNT" 2>/dev/null || xcrun SetFile -a C "$MOUNT" 2>/dev/null || true
+# The installer window layout (written by Finder into the DMG's .DS_Store).
+# Icon positions match Tools/make-dmg-background.swift.
 osascript <<APPLESCRIPT
 tell application "Finder"
     tell disk "$VOLUME_NAME"
@@ -213,6 +211,11 @@ tell application "Finder"
     end tell
 end tell
 APPLESCRIPT
+# The custom volume icon, added after Finder's layout: Finder removes it
+# (and `hdiutil create -srcfolder` leaves it out).
+cp Resources/JottaFS.icns "$MOUNT/.VolumeIcon.icns"
+SetFile -a C "$MOUNT" 2>/dev/null || xcrun SetFile -a C "$MOUNT"
+[[ -f "$MOUNT/.VolumeIcon.icns" ]] || fail "The volume icon could not be added."
 sync
 hdiutil detach -quiet "$MOUNT" || { sleep 2; hdiutil detach -force -quiet "$MOUNT"; }
 hdiutil convert -quiet "$BUILD/rw.dmg" -format UDZO -imagekey zlib-level=9 -o "$DMG"
@@ -229,7 +232,16 @@ fi
 notarize "$DMG"
 if [[ "${SKIP_NOTARIZE:-0}" != 1 ]]; then
     xcrun stapler staple "$DMG"
-    spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+    xcrun stapler validate "$DMG"
+    if [[ -n "$IDENTITY" ]]; then
+        spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG"
+    fi
+    # What Gatekeeper checks on launch: the app inside the DMG.
+    CHECK="$BUILD/check"
+    mkdir -p "$CHECK"
+    hdiutil attach -quiet -readonly -nobrowse -noautoopen -mountpoint "$CHECK" "$DMG"
+    spctl --assess --type execute --verbose=2 "$CHECK/$APP_NAME.app" || { hdiutil detach -quiet "$CHECK"; fail "Gatekeeper rejects the app in the DMG."; }
+    hdiutil detach -quiet "$CHECK"
 fi
 
 # MARK: Changelog
