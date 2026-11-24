@@ -18,10 +18,6 @@ struct StagedFile: Sendable {
 /// container. Jottacloud needs a file's MD5 and size before upload, so writes
 /// land here and are uploaded on close or sync (docs/write-support-design.md).
 final class StagingArea: @unchecked Sendable {
-    /// Largest file the volume will stage; larger writes fail with EFBIG.
-    /// 2 GiB.
-    static let maximumSize: UInt64 = 2 * 1024 * 1024 * 1024
-
     private let directory: URL
     private let lock = NSLock()
     private var files: [UInt64: StagedFile] = [:]
@@ -253,6 +249,28 @@ final class StagingArea: @unchecked Sendable {
         while let running = lock.withLock({ uploading[id] }) {
             _ = try? await running.value
         }
+    }
+
+    /// Deletes the local copy of a file that is uploaded and unchanged (no
+    /// write since, no upload running), so a large copy onto the volume
+    /// needs local space for about one file at a time. Returns whether it
+    /// was deleted. Later reads come from Jottacloud; a later write stages
+    /// the file again.
+    @discardableResult
+    func discardIfUploaded(_ id: UInt64) -> Bool {
+        let url: URL? = lock.withLock {
+            guard let staged = files[id], !staged.dirty, uploading[id] == nil, loading[id] == nil else {
+                return nil
+            }
+            files.removeValue(forKey: id)
+            digests.removeValue(forKey: id)
+            return staged.url
+        }
+        guard let url else {
+            return false
+        }
+        try? FileManager.default.removeItem(at: url)
+        return true
     }
 
     /// Discards a staged file (after delete, or when a clean item is reclaimed).

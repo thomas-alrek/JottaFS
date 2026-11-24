@@ -99,9 +99,14 @@ up as it is written.
   the volume impossible to unmount (data still staged at unmount is lost). `close` cannot report errors to most
   apps, so a failed upload is not visible to the app that wrote the file. This
   is the main semantic limit of the design.
-- **Limits.** Staging is capped (proposed: 2 GiB per file and enough free
-  local disk), returning `EFBIG`/`ENOSPC` otherwise. Uploads are not resumed
-  across extension restarts in the first version.
+- **Limits.** Staging has no size limit of its own: a write that the local
+  disk cannot hold fails with `ENOSPC`. The local copy is deleted after a
+  successful upload once the file is closed for writing and unchanged
+  (`StagingArea.discardIfUploaded`), so copying many files onto the volume
+  needs local space for about one file at a time; a write that finds its
+  copy just deleted stages the file again. Uploads are not resumed across
+  extension restarts in the first version. (Until 1.0.3 staging was capped at
+  2 GiB per file, and uploaded copies stayed until the item was reclaimed.)
 - **Timestamps.** `created` and `modified` are sent with each upload;
   modification times set on a clean file are applied on its next upload only.
 

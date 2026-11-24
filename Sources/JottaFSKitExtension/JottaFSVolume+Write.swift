@@ -95,8 +95,17 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             default: break
             }
         }
+        // The Mac's disk is full (staged copies have no size limit of their
+        // own): the app writing gets "No space left on device".
         if (error as? CocoaError)?.code == .fileWriteOutOfSpace {
             return POSIXError(.ENOSPC)
+        }
+        let nsError = error as NSError
+        for candidate in [nsError, nsError.userInfo[NSUnderlyingErrorKey] as? NSError].compactMap({ $0 })
+            where candidate.domain == NSPOSIXErrorDomain {
+            if let code = POSIXErrorCode(rawValue: Int32(candidate.code)), code == .ENOSPC || code == .EDQUOT {
+                return POSIXError(.ENOSPC)
+            }
         }
         return POSIXError(.EIO)
     }
@@ -187,9 +196,6 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
     private func stage(_ item: JottacloudItem, keepContents: Bool) async throws -> StagedFile {
         let location = try writableLocation(of: item)
         let size = item.entry.size
-        guard size <= StagingArea.maximumSize else {
-            throw POSIXError(.EFBIG)
-        }
         let client = client
         return try await staging.stage(item.identifier) { url in
             guard keepContents, size > 0 else {
@@ -229,14 +235,18 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             return result
         }
         _ = try writableLocation(of: item)
-        let end = UInt64(offset) + UInt64(contents.count)
-        guard end <= StagingArea.maximumSize else {
-            throw POSIXError(.EFBIG)
-        }
         do {
             _ = try await stage(item, keepContents: true)
             await readAhead.invalidate(item.identifier)
-            let size = try staging.write(contents, to: item.identifier, at: UInt64(offset))
+            let size: UInt64
+            do {
+                size = try staging.write(contents, to: item.identifier, at: UInt64(offset))
+            } catch POSIXError.EBADF {
+                // The local copy was deleted after an upload just now: stage
+                // the file again and write.
+                _ = try await stage(item, keepContents: true)
+                size = try staging.write(contents, to: item.identifier, at: UInt64(offset))
+            }
             updateEntry(item, size: size, modified: Date())
         } catch {
             throw posixError(error)
@@ -316,13 +326,16 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         if item.entry.kind == .file, request.isValid(.size) {
             _ = try writableLocation(of: item)
             let newSize = request.size
-            guard newSize <= StagingArea.maximumSize else {
-                throw POSIXError(.EFBIG)
-            }
             do {
                 await readAhead.invalidate(item.identifier)
                 _ = try await stage(item, keepContents: newSize > 0)
-                try staging.truncate(item.identifier, to: newSize)
+                do {
+                    try staging.truncate(item.identifier, to: newSize)
+                } catch POSIXError.EBADF {
+                    // Deleted after an upload just now: stage it again.
+                    _ = try await stage(item, keepContents: newSize > 0)
+                    try staging.truncate(item.identifier, to: newSize)
+                }
                 updateEntry(item, size: newSize, modified: Date())
             } catch {
                 throw posixError(error)
@@ -481,6 +494,11 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         } catch {
             writeLogger.error("Upload on close failed (\(self.describe(error), privacy: .public)); the file stays staged for retry.")
             throw posixError(error)
+        }
+        // Uploaded and closed for writing: delete the local copy (never the
+        // file it was copied from, which JottaFS does not see).
+        if staging.discardIfUploaded(item.identifier) {
+            writeLogger.info("Deleted the local copy of an uploaded file.")
         }
     }
 
