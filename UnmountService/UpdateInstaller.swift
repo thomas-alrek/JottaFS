@@ -42,10 +42,13 @@ enum UpdateInstaller {
         let diskImage = try validatedDiskImage(diskImagePath)
         defer { try? FileManager.default.removeItem(at: diskImage) }
 
-        // The disk image itself: Developer ID, our team.
+        // The disk image: if it is signed, by our team (releases signed with
+        // Xcode's cloud-managed certificate leave it unsigned). The app
+        // inside is what must be ours, and is always checked below.
         try checkSignature(
             of: diskImage,
-            requirement: #"anchor apple generic and certificate leaf[subject.OU] = "\#(team)""#
+            requirement: #"anchor apple generic and certificate leaf[subject.OU] = "\#(team)""#,
+            allowUnsigned: true
         )
 
         let mountPoint = FileManager.default.temporaryDirectory
@@ -119,7 +122,7 @@ enum UpdateInstaller {
         return resolved
     }
 
-    private static func checkSignature(of url: URL, requirement text: String) throws {
+    private static func checkSignature(of url: URL, requirement text: String, allowUnsigned: Bool = false) throws {
         var code: SecStaticCode?
         var requirement: SecRequirement?
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
@@ -128,9 +131,11 @@ enum UpdateInstaller {
             throw Failure.message("The update’s signature couldn’t be checked.")
         }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
-        guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
-            throw Failure.message("The update isn’t signed by the JottaFS developer.")
+        let status = SecStaticCodeCheckValidity(code, flags, requirement)
+        if status == errSecSuccess || (allowUnsigned && status == errSecCSUnsigned) {
+            return
         }
+        throw Failure.message("The update isn’t signed by the JottaFS developer.")
     }
 
     private static func ownTeamIdentifier() -> String? {

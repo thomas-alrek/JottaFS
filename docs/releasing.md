@@ -6,11 +6,14 @@ release with the changelog and the DMG.
 
 ## One-time setup
 
-1. **Developer ID certificate.** In Xcode, open **Settings → Accounts**,
-   select the team (`PLY3DSPA3F`), click **Manage Certificates**, and add a
-   **Developer ID Application** certificate. Only the Account Holder or an
-   Admin can create one. The build tries to create it automatically, but
-   that also needs one of those roles.
+1. **Developer ID signing.** Sign in to Xcode (**Settings → Apple Accounts**)
+   with an Apple ID that is an Admin of Apriil Digital AS (`PLY3DSPA3F`)
+   with **Access to Cloud Managed Developer ID Certificate** (set by the
+   Account Holder in App Store Connect → Users and Access). The export then
+   signs with the cloud-managed certificate; nothing is installed locally,
+   and the DMG stays unsigned (the app in it is signed, and the DMG is
+   notarized and stapled). A local **Developer ID Application** certificate
+   also works; then the DMG is signed too.
 2. **Notarization credentials.** Create an app-specific password at
    [account.apple.com](https://account.apple.com) (Sign-In and Security →
    App-Specific Passwords). Then store the credentials in the keychain:
@@ -46,8 +49,10 @@ make release-major    # 1.4.2 → 2.0.0
 5. Makes the DMG: the app, a link to Applications, the background from
    `Tools/make-dmg-background.swift` and the JottaFS volume icon.
 6. Signs, notarizes and staples the DMG, and checks it with Gatekeeper.
-7. Writes `dist/JottaFS-<version>-CHANGELOG.md` from the commits since the
-   last tag.
+7. Writes `dist/JottaFS-<version>-CHANGELOG.md`: a copy of
+   `docs/release-notes/<version>.md` when that file exists (write one for
+   releases that deserve hand-written notes), otherwise the commits since
+   the last tag.
 8. Writes the new version to `VERSION`.
 
 To test the build before the notarization setup is complete, use
@@ -75,9 +80,10 @@ errors, timeouts (10 s) and other answers are only logged.
 helper service (`UnmountService/UpdateInstaller.swift`) then:
 
 1. accepts only a regular `.dmg` in the app's container;
-2. checks the DMG and the `JottaFS.app` inside it: Developer ID, the same
-   team as the helper, bundle identifier `no.alrek.jottafs`, and a version
-   newer than the installed one;
+2. checks the `JottaFS.app` inside the DMG: Developer ID, the same team as
+   the helper, bundle identifier `no.alrek.jottafs`, and a version newer
+   than the installed one (a signed DMG must also be signed by the team;
+   cloud-signed releases have an unsigned DMG);
 3. copies the app next to the installed one, removes the download
    quarantine, checks it again, and swaps it in atomically
    (`FileManager.replaceItemAt`). The location is the app that contains the

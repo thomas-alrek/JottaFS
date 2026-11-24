@@ -74,11 +74,10 @@ done
 [[ -z "$(git status --porcelain)" ]] || printf '\033[33mwarning:\033[0m the working tree has uncommitted changes.\n'
 [[ ! -e "$DMG" ]] || fail "$DMG already exists."
 
+# Developer ID signing of the app happens in the export, with a local
+# certificate or Xcode's cloud-managed Developer ID certificate (an Admin with
+# that access). Only signing the DMG needs a local certificate.
 IDENTITY="$(security find-identity -v -p codesigning | grep "Developer ID Application" | grep "($TEAM_ID)" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)"
-if [[ -z "$IDENTITY" ]]; then
-    printf '\033[33mwarning:\033[0m no "Developer ID Application" certificate for team %s is installed yet.\n' "$TEAM_ID"
-    printf '         Xcode will try to create one during the export (-allowProvisioningUpdates).\n'
-fi
 if [[ "${SKIP_NOTARIZE:-0}" != 1 ]]; then
     xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 \
         || fail "No notarization credentials in the keychain profile \"$NOTARY_PROFILE\". Run:
@@ -143,10 +142,7 @@ xcodebuild -exportArchive \
     -allowProvisioningUpdates \
     | grep -E "error:|EXPORT (SUCCEEDED|FAILED)" || true
 APP="$BUILD/export/$APP_NAME.app"
-[[ -d "$APP" ]] || fail "The export failed. A Developer ID certificate and Developer ID provisioning profiles (FSKit, App Groups) are required."
-
-IDENTITY="$(security find-identity -v -p codesigning | grep "Developer ID Application" | grep "($TEAM_ID)" | head -1 | sed -E 's/.*"(.*)"/\1/' || true)"
-[[ -n "$IDENTITY" ]] || fail "No Developer ID Application certificate for team $TEAM_ID after the export."
+[[ -d "$APP" ]] || fail "The export failed. Developer ID signing (a local certificate, or cloud-managed Developer ID access in Xcode) is required."
 
 step "Checking the signature"
 codesign --verify --deep --strict --verbose=1 "$APP"
@@ -222,7 +218,14 @@ hdiutil detach -quiet "$MOUNT" || { sleep 2; hdiutil detach -force -quiet "$MOUN
 hdiutil convert -quiet "$BUILD/rw.dmg" -format UDZO -imagekey zlib-level=9 -o "$DMG"
 
 step "Signing and notarizing the DMG"
-codesign --sign "$IDENTITY" --timestamp "$DMG"
+if [[ -n "$IDENTITY" ]]; then
+    codesign --sign "$IDENTITY" --timestamp "$DMG"
+else
+    # A cloud-managed certificate cannot sign files outside Xcode. The app
+    # inside is Developer ID signed, and the notarized, stapled DMG is what
+    # Gatekeeper checks.
+    echo "No local Developer ID certificate: the DMG is not signed (the app in it is)."
+fi
 notarize "$DMG"
 if [[ "${SKIP_NOTARIZE:-0}" != 1 ]]; then
     xcrun stapler staple "$DMG"
@@ -234,6 +237,11 @@ fi
 step "Writing the changelog"
 LAST_TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
 CHANGELOG="$DIST/$APP_NAME-$VERSION-CHANGELOG.md"
+NOTES="docs/release-notes/$VERSION.md"
+if [[ -f "$NOTES" ]]; then
+    # Hand-written release notes take precedence over the commit list.
+    cp "$NOTES" "$CHANGELOG"
+else
 {
     echo "## JottaFS $VERSION"
     echo
@@ -254,6 +262,7 @@ CHANGELOG="$DIST/$APP_NAME-$VERSION-CHANGELOG.md"
     echo
     echo "Requires macOS $DEPLOYMENT_TARGET or later ($ARCHS)."
 } > "$CHANGELOG"
+fi
 
 echo "$VERSION" > VERSION
 
