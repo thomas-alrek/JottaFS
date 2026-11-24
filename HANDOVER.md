@@ -48,9 +48,54 @@ tested.
   failed with "session owner -3 invalid" and then -60007 (interaction not
   allowed), so its `Info.plist` sets `XPCService.JoinExistingSession = true`.
   Verified 2026-11-24: mount and unmount from the app both work end to end.
-- Finder visibility: DiskArbitration classifies the volume as a network volume;
-  `ShowMountedServersOnDesktop` is already `1`, so that preference is not the
-  cause.
+- Finder visibility: Finder hides the volume everywhere, even inside
+  `/Volumes`, although Foundation reports it browsable and not hidden and
+  Finder's `CFVolumeObserver` sees the DiskArbitration disk. DiskArbitration
+  classifies it as a network volume; `ShowMountedServersOnDesktop` is already
+  `1`, so that preference is not the cause. The volume declared
+  `doesNotSupportVolumeSizes = true`, so `df` showed 0 blocks and Foundation
+  reported nil capacities. It now reports sizes from the account's
+  `<capacity>`/`<usage>` (`JottacloudStorage.volumeSizes`, never zero).
+  Verified that `df` then shows a size (3.2 TiB), but Finder still hid it.
+- Next finding: `getattrlist(2)` failed with EINVAL for `ATTR_CMN_CRTIME`,
+  `CHGTIME`, `ACCTIME`, `BKUPTIME` on files, and also `MODTIME` on the root and
+  virtual device/mountpoint folders, because only `modifyTime` was set and only
+  when the listing had one. `attributes(for:)` now sets all six times, falling
+  back to the mount time. Verified: the volume now appears on the Desktop and
+  under Go → Computer; it is still missing from the sidebar (check Finder →
+  Settings → Sidebar → Connected servers, since it is a non-local volume).
+- Volume icon: macOS only honours `.VolumeIcon.icns` at the root together with
+  `kHasCustomIcon` (0x0400) in the root's `com.apple.FinderInfo`. The icon was
+  served as `@JottaVolume.icns` without FinderInfo. It is now
+  `.VolumeIcon.icns`, and the volume implements `FSVolume.XattrHandler` in
+  "limited" mode, exposing only the root's FinderInfo. Verified: the custom
+  icon shows. The icon file is now omitted from directory enumeration but
+  still resolved by `lookupItem`; verified that Finder still shows the icon and
+  `ls -a` no longer lists it.
+- Sidebar: Finder logs "Unexpected volume format: jottacloud" and then probes
+  NetFS, i.e. treats the non-local volume as a server volume; with no server or
+  remount URL it gets no Locations entry. FSKit's only mount option is
+  read-only, so the volume cannot ask to be local. Open, deferred (lower
+  priority): dragging the volume into Favorites works meanwhile. Untried idea:
+  mount from an `FSPathURLResource` (not near the credentials directory) and
+  see whether the volume becomes local. Supporting evidence: Xcode's CoreDevice
+  DeviceFS FSKit volume is mounted from a `file://` path and is flagged
+  `local` (it is also `nobrowse`).
+- Format shows as "Unknown (jottacloud)". Open, deferred. Classic lookup is
+  `/Library/Filesystems/<f_fstypename>.fs` → `FSPersonalities` entry whose
+  `FSSubType` matches `f_fssubtype` → `FSName` (as macFUSE does). Adding
+  `FSSubType = 0` to the extension's own `FSPersonalities` (plus
+  `fileSystemSubType = 0`) was tested 2026-11-24: `f_fssubtype` is 0, but
+  Foundation and Finder still report "Unknown (jottacloud)", so FSKit
+  extension personalities are not consulted for the format name. Both settings
+  are kept, since they are harmless and match a future bundle. Remaining
+  option: a `jottacloud.fs` bundle in `/Library/Filesystems` with an
+  `FSPersonalities` entry (`FSName`, `FSSubType = 0`), which needs an admin
+  install.
+  Still EINVAL
+  (probably fine, unsupported by design): `ATTR_CMN_EXTENDED_SECURITY`/`UUID`/
+  `GRPUUID`, `ATTR_DIR_ENTRYCOUNT`, `ATTR_VOL_OBJCOUNT`/`FILECOUNT`/`DIRCOUNT`/
+  `MAXOBJCOUNT`/`QUOTA_SIZE`/`RESERVED_SIZE`.
 - `RemoteAPI.swift` still has the privacy-limited diagnostic log line in
   `readRange` (HTTP status and response headers only, subsystem
   `no.alrek.jottafs.extension`, category `JFSRead`).
@@ -98,7 +143,9 @@ Verified on a fresh mount:
   disabled extension". `pluginkit -e use` and the `+` in `pluginkit -m` do NOT
   control this; FSKit has its own enablement. Re-enable JottaFS in System
   Settings → General → Login Items & Extensions → File System Extensions
-  (turn it off and on if it already shows as on). A shell cannot mount; `FSClient.mountSingleVolume` needs the host app's
+  (turn it off and on if it already shows as on). If JottaFS is missing from
+  that list after a rebuild, quit System Settings completely (⌘Q) and reopen
+  it; a long-running System Settings shows a stale list. A shell cannot mount; `FSClient.mountSingleVolume` needs the host app's
   `com.apple.developer.fskit.mount` entitlement.
 
 ## Direct API probe
@@ -138,7 +185,7 @@ optional.
 1. Finder visibility. The generic URL-backed FSKit resource is not recognized
    by `diskutil`; comparison with block-device-based FSKit projects is
    suggestive, not proof of the cause.
-2. Verify the volume icon on a fresh mount.
+2. Verify the volume icon still shows with `.VolumeIcon.icns` unlisted.
 3. Decide whether to keep or remove the `JFSRead` diagnostic log line.
 4. Settle the signing team and a single installed app path; remove the stale
    `JottacloudFS.app` registration.

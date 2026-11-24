@@ -30,6 +30,8 @@
                 <true/>
                 <key>FSName</key>
                 <string>Jottacloud</string>
+                <key>FSSubType</key>
+                <integer>0</integer>
             </dict>
         </dict>
         <key>FSSupportsGenericURLResources</key>

@@ -5,13 +5,18 @@ import FSKit
 import JottaFSCore
 
 final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler {
-    private static let volumeIconName = "@JottaVolume.icns"
+    /// macOS only uses a custom volume icon named `.VolumeIcon.icns` at the
+    /// root, and only when the root's FinderInfo has `kHasCustomIcon` set
+    /// (served by the `FSVolume.XattrHandler` extension below).
+    static let volumeIconName = ".VolumeIcon.icns"
     private let client: JottacloudClient
     private let itemStore = ItemStore()
     private let directoryCache: DirectoryCache
     private let statistics: FSStatFSResult
     private let capabilities: FSVolume.SupportedCapabilities
     private let volumeIconData: Data
+    /// Timestamp for items without a remote modification time.
+    private let mountTime = timespec(tv_sec: time(nil), tv_nsec: 0)
 
     var supportedVolumeCapabilities: FSVolume.SupportedCapabilities {
         capabilities
@@ -48,6 +53,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     init(
         client: JottacloudClient,
         remoteVolumes: [JottacloudRemoteVolume],
+        storage: JottacloudStorage,
         accountIdentifier: String
     ) throws {
         self.volumeIconData = try Self.loadVolumeIcon()
@@ -55,7 +61,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         self.directoryCache = DirectoryCache(client: client, volumes: remoteVolumes)
         self.statistics = FSStatFSResult(fileSystemTypeName: "jottacloud")
         self.capabilities = FSVolume.SupportedCapabilities()
-        self.capabilities.doesNotSupportVolumeSizes = true
+        // Finder omits volumes that report no size (statfs f_blocks == 0).
+        self.capabilities.doesNotSupportVolumeSizes = false
         self.capabilities.doesNotSupportSettingFilePermissions = true
         self.capabilities.supportsFastStatFS = true
         self.capabilities.supportsHiddenFiles = true
@@ -67,8 +74,22 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             volumeID: identifier,
             volumeName: FSFileName(string: JottaFSStorage.volumeName)
         )
-        self.statistics.blockSize = 4_096
-        self.statistics.ioSize = 4_096
+        let blockSize: UInt64 = 4_096
+        let sizes = storage.volumeSizes(blockSize: blockSize)
+        // Matches FSSubType of the extension's FSPersonalities entry, which is
+        // where the volume's format name ("Jottacloud") may be looked up.
+        self.statistics.fileSystemSubType = 0
+        self.statistics.blockSize = Int(blockSize)
+        self.statistics.ioSize = Int(blockSize)
+        self.statistics.totalBytes = sizes.total
+        self.statistics.usedBytes = sizes.used
+        self.statistics.freeBytes = sizes.free
+        // Read-only: nothing is available to this volume's callers.
+        self.statistics.availableBytes = 0
+        self.statistics.totalBlocks = (sizes.total + blockSize - 1) / blockSize
+        self.statistics.usedBlocks = (sizes.used + blockSize - 1) / blockSize
+        self.statistics.freeBlocks = sizes.free / blockSize
+        self.statistics.availableBlocks = 0
     }
 
     func activateVolume(options: FSTaskOptions) async throws -> FSActivateResult {
@@ -213,7 +234,14 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             path: directory.path,
             role: directory.role
         )
-        let entries = try entries(in: snapshot, for: directory)
+        // The volume icon is resolvable by name (lookupItem), which is how
+        // Finder loads it, but is never listed, so `ls -a` does not show it.
+        let entries = try entries(in: snapshot, for: directory).filter {
+            if case .volumeIcon = $0.role {
+                return false
+            }
+            return true
+        }
         var records: [(name: String, item: JottacloudItem)] = []
         if requestedAttributes == nil {
             records.append((".", directory))
@@ -319,20 +347,34 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         attributes.parentID = FSItem.Identifier(item.parentIdentifier)
         attributes.type = itemType(item.entry.kind)
         attributes.mode = item.entry.kind == .directory ? 0o555 : 0o444
-        if case .volumeIcon = item.role {
+        switch item.role {
+        case .volumeIcon:
             attributes.flags = UInt32(UF_HIDDEN)
+        case .root:
+            // Root exposes only com.apple.FinderInfo (custom-icon flag).
+            attributes.supportsLimitedXAttrs = true
+        default:
+            break
         }
         attributes.linkCount = item.entry.kind == .directory ? 2 : 1
         attributes.uid = UInt32(getuid())
         attributes.gid = UInt32(getgid())
         attributes.size = item.entry.size
         attributes.allocSize = item.entry.size
-        if let modified = item.entry.modified {
-            attributes.modifyTime = timespec(
-                tv_sec: Int(modified.timeIntervalSince1970),
-                tv_nsec: 0
-            )
-        }
+        // Every time attribute must be valid: getattrlist(2) fails with EINVAL
+        // for any requested time FSKit cannot supply, and Finder hides a
+        // volume whose root it cannot stat that way. Jottacloud listings only
+        // carry a modification time, and virtual items (root, devices,
+        // mountpoints, volume icon) carry none, so fall back to mount time.
+        let time = item.entry.modified.map {
+            timespec(tv_sec: Int($0.timeIntervalSince1970), tv_nsec: 0)
+        } ?? mountTime
+        attributes.modifyTime = time
+        attributes.changeTime = time
+        attributes.accessTime = time
+        attributes.birthTime = time
+        attributes.addedTime = time
+        attributes.backupTime = timespec(tv_sec: 0, tv_nsec: 0)
         return attributes
     }
 
@@ -400,5 +442,61 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         var errorDescription: String? {
             "The Jottacloud volume icon is missing from the file system extension."
         }
+    }
+}
+
+/// "Limited" extended-attribute support: the volume has no general xattrs and
+/// only exposes the root's FinderInfo so Finder uses `.VolumeIcon.icns`.
+extension JottaFSVolume: FSVolume.XattrHandler {
+    private static let finderInfoName = "com.apple.FinderInfo"
+
+    /// 32-byte FinderInfo for a folder; Finder flags are the big-endian
+    /// UInt16 at offset 8, and `kHasCustomIcon` is 0x0400.
+    static let rootFinderInfo: Data = {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        bytes[8] = 0x04
+        return Data(bytes)
+    }()
+
+    private func isRoot(_ item: FSItem) -> Bool {
+        guard let item = item as? JottacloudItem, case .root = item.role else {
+            return false
+        }
+        return true
+    }
+
+    func supportedXattrNames(for item: FSItem) -> [FSFileName] {
+        isRoot(item) ? [FSFileName(string: Self.finderInfoName)] : []
+    }
+
+    func xattr(
+        named name: FSFileName,
+        of item: FSItem,
+        context: FSContext
+    ) async throws -> FSGetXattrResult {
+        guard isRoot(item),
+              name.string == Self.finderInfoName,
+              let result = FSGetXattrResult(xattrValue: Self.rootFinderInfo)
+        else {
+            throw POSIXError(.ENOATTR)
+        }
+        return result
+    }
+
+    func setXattr(
+        named name: FSFileName,
+        to value: Data?,
+        on item: FSItem,
+        policy: FSVolume.SetXattrPolicy,
+        context: FSContext
+    ) async throws -> FSSetXattrResult {
+        throw POSIXError(.EROFS)
+    }
+
+    func xattrs(of item: FSItem, context: FSContext) async throws -> FSListXattrsResult {
+        guard let result = FSListXattrsResult(xattrNames: supportedXattrNames(for: item)) else {
+            throw POSIXError(.EIO)
+        }
+        return result
     }
 }

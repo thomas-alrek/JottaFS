@@ -60,16 +60,18 @@ relaunch only the intended copy, and enable its extension in System Settings.
 Click **Open Extension Settings** and make sure JottaFS is enabled. Select
 **Mount Jottacloud**. FSKit
 mounts the account under `/Volumes`, with each device and mountpoint represented
-as a folder, and the app displays the resulting path. The root also provides a
-Finder-hidden, read-only `@JottaVolume.icns` icon file. The app detects an
+as a folder, and the app displays the resulting path. The root resolves a
+read-only `.VolumeIcon.icns` by name (it is not listed, even by `ls -a`), and
+the root's `com.apple.FinderInfo` sets the custom-icon flag so Finder uses it. The app detects an
 existing mount on launch and when reactivated; it offers **Unmount Jottacloud**
 instead of **Mount Jottacloud** while mounted. Use **Show in Finder** to reveal
-the mounted volume in Finder. Unmounting is non-forced; close open files or
-Finder windows on the volume if macOS reports it is busy. Both actions use
-Finder automation, so allow JottaFS to control Finder when macOS prompts
-or in **System Settings → Privacy & Security → Automation**.
+the mounted volume in Finder; this uses Finder automation, so allow JottaFS to
+control Finder when macOS prompts or in **System Settings → Privacy & Security
+→ Automation**. Unmounting is non-forced and goes through the embedded
+`JottaFSUnmountService` (DiskArbitration); close open files or Finder windows
+on the volume if macOS reports it is busy.
 
-The hidden root icon file supplies the intended volume icon. Sidebar visibility
+Sidebar visibility
 is controlled by Finder; check **Finder → Settings →
 Sidebar → Locations → Connected servers**, or drag the mounted volume into
 **Favorites** to pin it there.

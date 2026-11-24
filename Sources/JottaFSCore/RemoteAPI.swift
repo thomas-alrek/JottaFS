@@ -62,6 +62,30 @@ public struct RemoteEntry: Sendable, Equatable {
     }
 }
 
+/// Account storage figures from the JFS account document (`<capacity>`, where
+/// `-1` means unlimited, and `<usage>`, both in bytes). Either may be missing.
+public struct JottacloudStorage: Sendable, Equatable {
+    public let capacity: UInt64?
+    public let usage: UInt64?
+
+    public init(capacity: UInt64?, usage: UInt64?) {
+        self.capacity = capacity
+        self.usage = usage
+    }
+
+    /// Byte totals to report for the read-only volume. Never reports a zero
+    /// total: Finder hides volumes without a size. With a known quota the
+    /// volume is the quota; otherwise it is reported as full at its usage.
+    public func volumeSizes(blockSize: UInt64) -> (total: UInt64, used: UInt64, free: UInt64) {
+        let used = usage ?? 0
+        if let capacity, capacity >= used, capacity > 0 {
+            return (capacity, used, capacity - used)
+        }
+        let total = max(used, blockSize)
+        return (total, total, 0)
+    }
+}
+
 public struct JottacloudRemoteVolume: Sendable, Equatable, Identifiable {
     public let device: String
     public let mountpoint: String
@@ -207,10 +231,20 @@ public actor JottacloudClient {
     }
 
     public func listRemoteVolumes() async throws -> [JottacloudRemoteVolume] {
+        try await listAccount().volumes
+    }
+
+    /// Lists devices/mountpoints and reads the account's storage figures from
+    /// the same account document.
+    public func listAccount() async throws -> (
+        volumes: [JottacloudRemoteVolume],
+        storage: JottacloudStorage
+    ) {
         let accountURL = try Self.makeJFSPathURL([credentials.username])
         let accountResponse = try await authorizedGet(url: accountURL)
         try Self.checkSuccess(accountResponse.statusCode)
         let devices = try parseDriveDeviceNames(accountResponse.data)
+        let storage = parseAccountStorage(accountResponse.data)
 
         var volumes: [JottacloudRemoteVolume] = []
         for device in devices {
@@ -222,7 +256,7 @@ public actor JottacloudClient {
                 JottacloudRemoteVolume(device: device, mountpoint: $0)
             })
         }
-        return volumes
+        return (volumes, storage)
     }
 
     public func listDirectory(
@@ -690,6 +724,61 @@ func parseDriveDeviceNames(_ data: Data) throws -> [String] {
 
 func parseDeviceMountpointNames(_ data: Data) throws -> [String] {
     try parseJottacloudLocations(data, collecting: .mountpoints)
+}
+
+/// Reads `<capacity>` and `<usage>` directly under the account's root element.
+/// Missing or non-numeric values (and capacity `-1`, unlimited) become nil.
+func parseAccountStorage(_ data: Data) -> JottacloudStorage {
+    let delegate = AccountStorageParser()
+    let parser = XMLParser(data: data)
+    parser.delegate = delegate
+    guard parser.parse() else {
+        return JottacloudStorage(capacity: nil, usage: nil)
+    }
+    return JottacloudStorage(
+        capacity: delegate.values["capacity"].flatMap { UInt64($0) },
+        usage: delegate.values["usage"].flatMap { UInt64($0) }
+    )
+}
+
+private final class AccountStorageParser: NSObject, XMLParserDelegate {
+    private(set) var values: [String: String] = [:]
+    private var depth = 0
+    private var capturing: String?
+    private var text = ""
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        depth += 1
+        if depth == 2, elementName == "capacity" || elementName == "usage" {
+            capturing = elementName
+            text = ""
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if capturing != nil {
+            text += string
+        }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        if let capturing, capturing == elementName, depth == 2 {
+            values[capturing] = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.capturing = nil
+        }
+        depth -= 1
+    }
 }
 
 private func parseJottacloudLocations(

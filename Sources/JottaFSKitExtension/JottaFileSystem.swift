@@ -57,13 +57,17 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                     to: credentialsDirectory
                 )
             }
-            let remoteVolumes = try await client.listRemoteVolumes()
-            guard !remoteVolumes.isEmpty else {
+            let account = try await client.listAccount()
+            guard !account.volumes.isEmpty else {
                 throw JottacloudError.noRemoteVolumes
+            }
+            if account.storage.usage == nil {
+                logger.info("Account usage unavailable; reporting a minimal volume size.")
             }
             let volume = try JottaFSVolume(
                 client: client,
-                remoteVolumes: remoteVolumes,
+                remoteVolumes: account.volumes,
+                storage: account.storage,
                 accountIdentifier: credentials.username
             )
             activeResourceURL = resourceURL

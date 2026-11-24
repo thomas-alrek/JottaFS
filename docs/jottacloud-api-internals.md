@@ -51,6 +51,14 @@ entries and files whose current revision is not `COMPLETED`. Jottacloud
 timestamps may use a legacy dashed `-T` separator and should be normalized
 before RFC 3339 parsing.
 
+## Account storage
+
+The JFS account document (`GET /jfs/<username>`) is assumed to carry
+`<capacity>` (bytes, `-1` for unlimited) and `<usage>` (bytes) directly under
+its root element, as in rclone's Jottacloud backend. This is unconfirmed
+against current documentation; the client treats missing or non-numeric values
+as unknown and still reports a non-zero volume size.
+
 ## File reads
 
 Download a file with `?mode=bin` and a `Range: bytes=start-end` header. The

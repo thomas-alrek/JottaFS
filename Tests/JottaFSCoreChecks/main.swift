@@ -9,6 +9,7 @@ enum RemoteAPIChecks {
         try encodesEachJFSPathComponentAndPlusSigns()
         try validatesPartialContentRanges()
         try clampsByteRangesToFileSize()
+        try parsesAccountStorageAndReportsNonZeroVolumeSizes()
         try parsesCompleteListingsAndSkipsDeletedOrIncompleteItems()
         try parsesDevicesAndTheirMountpoints()
         try storesCredentialsAsBinaryPropertyList()
@@ -103,6 +104,45 @@ enum RemoteAPIChecks {
         precondition(JottacloudClient.byteRange(offset: 1474, length: 10, fileSize: 1474) == nil)
         precondition(JottacloudClient.byteRange(offset: 0, length: 10, fileSize: 0) == nil)
         precondition(JottacloudClient.byteRange(offset: 0, length: 0, fileSize: 10) == nil)
+    }
+
+    private static func parsesAccountStorageAndReportsNonZeroVolumeSizes() throws {
+        let limited = parseAccountStorage(Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <user time="2026-11-24-T12:00:00Z" host="dn">
+          <username>internal-id</username>
+          <capacity>1099511627776</capacity>
+          <usage>52428800</usage>
+          <devices>
+            <device><name>Jotta</name><usage>999</usage></device>
+          </devices>
+        </user>
+        """.utf8))
+        // Nested per-device <usage> must not override the account total.
+        precondition(limited == JottacloudStorage(capacity: 1_099_511_627_776, usage: 52_428_800))
+        let limitedSizes = limited.volumeSizes(blockSize: 4096)
+        precondition(limitedSizes.total == 1_099_511_627_776)
+        precondition(limitedSizes.used == 52_428_800)
+        precondition(limitedSizes.free == 1_099_511_627_776 - 52_428_800)
+
+        let unlimited = parseAccountStorage(Data(
+            "<user><capacity>-1</capacity><usage>8192</usage></user>".utf8
+        ))
+        precondition(unlimited == JottacloudStorage(capacity: nil, usage: 8192))
+        let unlimitedSizes = unlimited.volumeSizes(blockSize: 4096)
+        precondition(unlimitedSizes == (8192, 8192, 0))
+
+        let missing = parseAccountStorage(Data("<user><devices/></user>".utf8))
+        precondition(missing == JottacloudStorage(capacity: nil, usage: nil))
+        // Never a zero-sized volume, which Finder would hide.
+        precondition(missing.volumeSizes(blockSize: 4096) == (4096, 4096, 0))
+        precondition(
+            JottacloudStorage(capacity: 0, usage: 0).volumeSizes(blockSize: 4096) == (4096, 4096, 0)
+        )
+        // Over quota: treated like an unknown quota, reported full.
+        precondition(
+            JottacloudStorage(capacity: 100, usage: 500).volumeSizes(blockSize: 4096) == (4096, 4096, 0)
+        )
     }
 
     private static func parsesCompleteListingsAndSkipsDeletedOrIncompleteItems() throws {
