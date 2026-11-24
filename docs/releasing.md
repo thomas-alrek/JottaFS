@@ -102,5 +102,13 @@ make publish
 ```
 
 `scripts/publish-release.sh` shows the release and asks for confirmation.
-Then it commits `VERSION`, tags the commit `v<version>`, pushes the branch and
-the tag, and creates the GitHub release with the changelog and the DMG.
+Then it sets the version and the DMG's SHA-256 in the Homebrew cask
+(`Casks/jottafs.rb`), commits it with `VERSION`, tags the commit
+`v<version>`, pushes the branch and the tag, and creates the GitHub release
+with the changelog and the DMG.
+
+The repository is its own Homebrew tap (`brew tap thomas-alrek/jottafs
+https://github.com/thomas-alrek/JottaFS`), so the cask on `main` is what
+`brew install --cask jottafs` and `brew upgrade` use. Check the cask with
+`HOMEBREW_DEVELOPER=1 brew style Casks/jottafs.rb` (the variable keeps
+Homebrew's developer mode from being switched on permanently).

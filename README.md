@@ -105,7 +105,32 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
 
 ## Install
 
-There is no released version yet. Build JottaFS from the source code.
+### Download
+
+1. Download `JottaFS-<version>.dmg` from the
+   [latest release](https://github.com/thomas-alrek/JottaFS/releases/latest).
+2. Open the DMG and drag **JottaFS** to **Applications**.
+3. Open JottaFS from Applications.
+
+### Install with Homebrew (optional)
+
+The JottaFS repository is also a Homebrew tap. Add the tap one time:
+
+```sh
+brew tap thomas-alrek/jottafs https://github.com/thomas-alrek/JottaFS
+```
+
+Then install JottaFS:
+
+```sh
+brew install --cask thomas-alrek/jottafs/jottafs
+```
+
+JottaFS updates itself. To update with Homebrew instead, use
+`brew upgrade --cask jottafs`. To remove JottaFS, unmount your disks first,
+then use `brew uninstall --cask jottafs`.
+
+### Build from the source code
 
 1. Clone the repository:
 
@@ -244,8 +269,10 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
   Jottacloud must know the checksum of the complete file before the upload.
   The maximum file size for a write is 2 GiB.
 - The **Get Info** window shows the format as "Unknown (jottacloud)".
-- JottaFS keeps folder lists for a short time. Changes that you make on a
-  different device can take some seconds to show in Finder.
+- Finder does not show changes that you make on jottacloud.com or on a
+  different device until it reads the folder again. Close and open the
+  folder, or unmount the disk and mount it again. In Terminal, `ls` shows
+  the changes after approximately 15 seconds.
 
 ## Troubleshooting
 

@@ -38,7 +38,7 @@ CHANGELOG="dist/$APP_NAME-$VERSION-CHANGELOG.md"
 [[ -f "$DMG" ]] || fail "$DMG does not exist."
 [[ -f "$CHANGELOG" ]] || fail "$CHANGELOG does not exist."
 ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || fail "The tag $TAG already exists."
-[[ -z "$(git status --porcelain | grep -v ' VERSION$' || true)" ]] \
+[[ -z "$(git status --porcelain | grep -vE ' (VERSION|Casks/jottafs\.rb)$' || true)" ]] \
     || fail "The working tree has changes other than VERSION. Commit or stash them first."
 xcrun stapler validate "$DMG" >/dev/null 2>&1 \
     || printf '\033[33mwarning:\033[0m %s has no notarization ticket.\n' "$DMG"
@@ -51,12 +51,21 @@ echo
 cat "$CHANGELOG"
 echo
 if [[ "$ASSUME_YES" != 1 ]]; then
-    read -r -p "Commit VERSION, tag $TAG, push and create the GitHub release? [y/N] " answer
+    read -r -p "Commit VERSION and the Homebrew cask, tag $TAG, push and create the GitHub release? [y/N] " answer
     [[ "$answer" == [yY] ]] || { echo "Cancelled."; exit 1; }
 fi
 
-if [[ -n "$(git status --porcelain VERSION)" ]]; then
-    git add VERSION
+# The Homebrew cask (Casks/jottafs.rb) points at this release's DMG.
+CASK="Casks/jottafs.rb"
+if [[ -f "$CASK" ]]; then
+    SHA="$(shasum -a 256 "$DMG" | cut -d ' ' -f 1)"
+    sed -i '' -E "s/^  version \"[^\"]*\"/  version \"$VERSION\"/; s/^  sha256 \"[0-9a-f]*\"/  sha256 \"$SHA\"/" "$CASK"
+    grep -q "version \"$VERSION\"" "$CASK" && grep -q "sha256 \"$SHA\"" "$CASK" \
+        || fail "Could not update $CASK."
+fi
+
+if [[ -n "$(git status --porcelain VERSION "$CASK")" ]]; then
+    git add VERSION "$CASK"
     git commit -q -m "Release $VERSION"
 fi
 git tag -a "$TAG" -m "$APP_NAME $VERSION"
