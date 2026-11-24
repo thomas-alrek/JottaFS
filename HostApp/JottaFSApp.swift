@@ -24,6 +24,7 @@ struct JottaFSApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let model = AppModel()
+    private let updater = Updater()
     private var window: NSWindow?
     private var launchedAtLogin = false
 
@@ -39,9 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.showWindow = { [weak self] in
             NSApp.setActivationPolicy(.regular)
             self?.showWindow()
+            self?.updater.start()
         }
         if !launchedAtLogin {
             showWindow()
+            updater.start()
         }
         Task { await model.start() }
     }
@@ -80,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.makeKeyAndOrderFront(nil)
             return
         }
-        let hosting = NSHostingController(rootView: RootView().environmentObject(model))
+        let hosting = NSHostingController(rootView: RootView().environmentObject(model).environmentObject(updater))
         // The window follows the fixed size of each screen.
         hosting.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: hosting)
@@ -385,6 +388,8 @@ private struct SignedInView: View {
                 }
                 .disabled(model.isBusy)
             }
+
+            UpdateBanner()
 
             if model.extensionEnabled == false {
                 Notice(
@@ -789,6 +794,73 @@ private struct AdvancedSettingsView: View {
         }
         model.setCustomName(name, for: location)
         dismiss()
+    }
+}
+
+/// Offers a newer JottaFS release and shows the download and install.
+/// Nothing shows while there is no update (or GitHub can't be reached).
+private struct UpdateBanner: View {
+    @EnvironmentObject private var updater: Updater
+
+    var body: some View {
+        switch updater.state {
+        case .idle:
+            EmptyView()
+        case .available(let release):
+            banner(systemImage: "arrow.down.circle.fill", title: "JottaFS \(release.version) is available.") {
+                if let page = release.pageURL {
+                    Button("What’s New") { NSWorkspace.shared.open(page) }
+                        .buttonStyle(.link)
+                }
+                Spacer()
+                Button("Later", action: updater.dismiss)
+                Button("Update", action: updater.install)
+                    .buttonStyle(.borderedProminent)
+            }
+        case .downloading(let release, let progress):
+            banner(systemImage: "arrow.down.circle.fill", title: "Downloading JottaFS \(release.version)…") {
+                ProgressView(value: progress)
+                Button("Cancel", action: updater.dismiss)
+            }
+        case .installing(let release):
+            banner(systemImage: "arrow.down.circle.fill", title: "Installing JottaFS \(release.version)…") {
+                ProgressView()
+                    .controlSize(.small)
+                Text("JottaFS opens again when it’s done.")
+                    .foregroundStyle(.secondary)
+            }
+        case .failed(let release, let reason):
+            banner(systemImage: "exclamationmark.circle.fill", title: "JottaFS \(release.version) couldn’t be installed.") {
+                Text(reason)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Later", action: updater.dismiss)
+                Button("Try Again", action: updater.install)
+            }
+        }
+    }
+
+    private func banner<Content: View>(
+        systemImage: String,
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.title2)
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title).font(.headline)
+                HStack(spacing: 10) {
+                    content()
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
     }
 }
 

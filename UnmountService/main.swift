@@ -24,6 +24,12 @@ private let busyMessage = "Jottacloud is in use. Close any windows or terminals 
 private let diskArbitrationQueue = DispatchQueue(label: "no.alrek.jottafs.unmount.diskarbitration")
 
 final class UnmountService: NSObject, JottaFSUnmountServiceProtocol {
+    func installUpdate(diskImagePath: String, reply: @escaping (String?) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            reply(UpdateInstaller.install(diskImagePath: diskImagePath))
+        }
+    }
+
     func unmountJottaFSVolume(reply: @escaping (String?) -> Void) {
         let mountPoint: URL?
         do {

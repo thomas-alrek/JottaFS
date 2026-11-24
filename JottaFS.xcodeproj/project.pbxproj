@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000001 /* JottaFSApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* JottaFSApp.swift */; };
+		A1000000000000000000003E /* Updater.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003E /* Updater.swift */; };
 		A1000000000000000000003A /* MountSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003A /* MountSupport.swift */; };
 		A10000000000000000000039 /* LoopbackCallbackServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000039 /* LoopbackCallbackServer.swift */; };
 		A10000000000000000000038 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000038 /* AppModel.swift */; };
@@ -25,6 +26,7 @@
 		A10000000000000000000016 /* JottaVolume.icns in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* JottaVolume.icns */; };
 		A1000000000000000000003B /* JottaFS.icns in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003B /* JottaFS.icns */; };
 		A10000000000000000000017 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* main.swift */; };
+		A1000000000000000000003D /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003D /* UpdateInstaller.swift */; };
 		A10000000000000000000018 /* UnmountServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* UnmountServiceProtocol.swift */; };
 		A10000000000000000000019 /* UnmountServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* UnmountServiceProtocol.swift */; };
 		A10000000000000000000020 /* JottaFSUnmountService.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* JottaFSUnmountService.xpc */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -150,6 +152,7 @@
 
 /* Begin PBXFileReference section */
 		A20000000000000000000001 /* JottaFSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottaFSApp.swift; sourceTree = "<group>"; };
+		A2000000000000000000003E /* Updater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Updater.swift; sourceTree = "<group>"; };
 		A2000000000000000000003A /* MountSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MountSupport.swift; sourceTree = "<group>"; };
 		A20000000000000000000039 /* LoopbackCallbackServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackCallbackServer.swift; sourceTree = "<group>"; };
 		A20000000000000000000038 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -168,6 +171,7 @@
 		A20000000000000000000014 /* JottaVolume.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = JottaVolume.icns; sourceTree = "<group>"; };
 		A2000000000000000000003B /* JottaFS.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = JottaFS.icns; sourceTree = "<group>"; };
 		A20000000000000000000015 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A2000000000000000000003D /* UpdateInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateInstaller.swift; sourceTree = "<group>"; };
 		A20000000000000000000016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000017 /* UnmountServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnmountServiceProtocol.swift; sourceTree = "<group>"; };
 		A20000000000000000000018 /* JottaFSUnmountService.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = JottaFSUnmountService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -243,6 +247,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000001 /* JottaFSApp.swift */,
+				A2000000000000000000003E /* Updater.swift */,
 				A2000000000000000000003A /* MountSupport.swift */,
 				A20000000000000000000039 /* LoopbackCallbackServer.swift */,
 				A20000000000000000000038 /* AppModel.swift */,
@@ -312,6 +317,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000015 /* main.swift */,
+				A2000000000000000000003D /* UpdateInstaller.swift */,
 				A20000000000000000000016 /* Info.plist */,
 			);
 			path = UnmountService;
@@ -523,6 +529,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000001 /* JottaFSApp.swift in Sources */,
+				A1000000000000000000003E /* Updater.swift in Sources */,
 				A1000000000000000000003A /* MountSupport.swift in Sources */,
 				A10000000000000000000039 /* LoopbackCallbackServer.swift in Sources */,
 				A10000000000000000000038 /* AppModel.swift in Sources */,
@@ -562,6 +569,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000017 /* main.swift in Sources */,
+				A1000000000000000000003D /* UpdateInstaller.swift in Sources */,
 				A10000000000000000000018 /* UnmountServiceProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

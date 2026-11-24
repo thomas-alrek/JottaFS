@@ -62,6 +62,8 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   log in. No window opens.
 - **Custom disk name.** In **Advanced**, you can give a location a different
   name in Finder.
+- **Updates.** JottaFS tells you when a new version is available. Click
+  **Update** to install it. JottaFS opens again with the new version.
 - **Fast folders.** JottaFS keeps folder lists for a short time. Large folders
   open quickly.
 
@@ -162,6 +164,17 @@ Jottacloud.
 Select **Mount automatically when I log in**. When you log in, JottaFS mounts
 the last location that you mounted. Then JottaFS closes. No window opens. If
 the mount fails, JottaFS opens its window and shows the problem.
+
+### Update JottaFS
+
+JottaFS checks for a new version when it opens and one time each day. When
+there is a new version, JottaFS shows it at the top of the window.
+
+1. Click **Update**. JottaFS downloads the new version.
+2. JottaFS installs the new version and opens again.
+
+If JottaFS cannot connect to GitHub, it tries again later. It does not show an
+error.
 
 ### Sign out
 

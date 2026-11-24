@@ -63,6 +63,32 @@ builds; the release build sets the real version.
 2. Drag JottaFS to Applications, open it, sign in and mount a location.
 3. Check **JottaFS → About JottaFS** for the version and the copyright.
 
+## How installed apps update
+
+The app checks `https://api.github.com/repos/thomas-alrek/JottaFS/releases/latest`
+at launch and once a day (`HostApp/Updater.swift`; never in Debug builds).
+When the release tag (`v<version>`) is newer than the running version and the
+release has a `JottaFS-*.dmg` asset, the app offers the update. Network
+errors, timeouts (10 s) and other answers are only logged.
+
+**Update** downloads the DMG into the app's container. The unsandboxed
+helper service (`UnmountService/UpdateInstaller.swift`) then:
+
+1. accepts only a regular `.dmg` in the app's container;
+2. checks the DMG and the `JottaFS.app` inside it: Developer ID, the same
+   team as the helper, bundle identifier `no.alrek.jottafs`, and a version
+   newer than the installed one;
+3. copies the app next to the installed one, removes the download
+   quarantine, checks it again, and swaps it in atomically
+   (`FileManager.replaceItemAt`). The location is the app that contains the
+   helper, never a path from the request.
+
+The app then opens the new version and quits. A mounted volume stays
+mounted; the new extension is used from the next mount.
+
+So that installed apps can update, every release must be published with
+`make publish` (the tag and the DMG asset are what the app looks for).
+
 ## Publish
 
 ```sh
