@@ -40,6 +40,24 @@ location as a read-write volume.
   `JottaFS.xcodeproj` with Xcode to build and validate the signed app and
   FSKit extension.
 
+## Releases
+
+- Follow [docs/releasing.md](docs/releasing.md) (the `release` skill in
+  `.claude/skills/release` walks through it). Build with `make release`
+  and publish with `make publish` / `scripts/publish-release.sh`.
+- Every notarized release published on GitHub must update the Homebrew
+  casks in the same release commit: `Casks/jottafs.rb` gets the new version
+  and the DMG's SHA-256, and `Casks/jottafs@<version>.rb` is added so the
+  version stays installable. `scripts/publish-release.sh` does this through
+  `scripts/update-cask.sh`; never publish a release by other means without
+  running `scripts/update-cask.sh <version> <sha256>` and committing
+  `Casks/`. Check the casks with
+  `HOMEBREW_DEVELOPER=1 brew style Casks/*.rb` (the variable keeps
+  Homebrew's developer mode from being switched on permanently).
+- Write `docs/release-notes/<version>.md` before building; the build copies
+  it into the changelog of the GitHub release.
+- Do not tag, push or publish a release until the owner asks for it.
+
 ## API notes
 
 - Standard Jottacloud login tokens are single-use, base64url-encoded JSON.

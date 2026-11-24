@@ -102,8 +102,11 @@ make publish
 ```
 
 `scripts/publish-release.sh` shows the release and asks for confirmation.
-Then it sets the version and the DMG's SHA-256 in the Homebrew cask
-(`Casks/jottafs.rb`), commits it with `VERSION`, tags the commit
+Then it runs `scripts/update-cask.sh`, which sets the version and the DMG's
+SHA-256 in the Homebrew cask (`Casks/jottafs.rb`) and adds a pinned cask
+for the version (`Casks/jottafs@<version>.rb`, installed with
+`brew install --cask jottafs@<version>`). It commits the casks with
+`VERSION`, tags the commit
 `v<version>`, pushes the branch and the tag, and creates the GitHub release
 with the changelog and the DMG.
 
