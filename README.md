@@ -11,9 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/macOS-27%2B-000000?logo=apple&logoColor=white" alt="macOS 27 or later">
   <img src="https://img.shields.io/badge/Swift-6.1-F05138?logo=swift&logoColor=white" alt="Swift 6.1">
-  <img src="https://img.shields.io/badge/FSKit-file%20system%20extension-8A5CF6" alt="FSKit file system extension">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
-  <img src="https://img.shields.io/badge/status-experimental-orange" alt="Status: experimental">
 </p>
 
 JottaFS is a macOS app and file system extension. It connects to your
