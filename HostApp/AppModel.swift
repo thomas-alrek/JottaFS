@@ -4,6 +4,7 @@ import FinderSync
 import OSLog
 import FSKit
 import JottaFSCore
+import Network
 import ServiceManagement
 import SwiftUI
 
@@ -489,6 +490,7 @@ final class AppModel: ObservableObject {
     /// Mounts `location` from its own mount anchor; other mounted locations
     /// stay mounted.
     private func mount(_ location: JottacloudRemoteVolume) async -> Bool {
+        lastMountError = nil
         guard extensionEnabled != false else {
             alert = Self.extensionOffAlert
             return false
@@ -516,6 +518,7 @@ final class AppModel: ObservableObject {
                 )
             }
         } catch {
+            lastMountError = error
             await refreshSystemState()
             if mounts[location.id] == nil {
                 alert = extensionEnabled == false
@@ -525,6 +528,48 @@ final class AppModel: ObservableObject {
             }
         }
         return true
+    }
+
+    /// The error of the last failed mount, if any.
+    private var lastMountError: Error?
+
+    /// True for errors that can go away once the network is up (no
+    /// connection yet, DNS not ready, a timeout).
+    private static func isNetworkError(_ error: Error?) -> Bool {
+        guard let error = error as NSError?, error.domain == NSURLErrorDomain else {
+            return false
+        }
+        let codes: [URLError.Code] = [
+            .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost,
+            .timedOut, .dnsLookupFailed, .dataNotAllowed, .secureConnectionFailed,
+        ]
+        return codes.contains(URLError.Code(rawValue: error.code))
+    }
+
+    /// Waits until the Mac has a usable network path, or until `deadline`.
+    /// Returns whether the network is up.
+    private static func waitForNetwork(until deadline: Date) async -> Bool {
+        let monitor = NWPathMonitor()
+        let queue = DispatchQueue(label: "no.alrek.jottafs.network")
+        let ready = AsyncStream<Bool> { continuation in
+            monitor.pathUpdateHandler = { path in
+                if path.status == .satisfied {
+                    continuation.yield(true)
+                    continuation.finish()
+                }
+            }
+            monitor.start(queue: queue)
+            let seconds = max(0, deadline.timeIntervalSinceNow)
+            queue.asyncAfter(deadline: .now() + seconds) {
+                continuation.yield(false)
+                continuation.finish()
+            }
+        }
+        defer { monitor.cancel() }
+        for await isUp in ready {
+            return isUp
+        }
+        return false
     }
 
     /// Unmounts the selected location (Finder's Eject does the same).
@@ -696,11 +741,37 @@ final class AppModel: ObservableObject {
         }
         locations = wanted
         loadCustomNames()
+        // At login the network is often not up yet (Wi-Fi still joining, DNS
+        // not ready). Wait for it, and retry mounts that fail because of the
+        // network, for up to `loginNetworkWait`; only then show a problem.
+        let deadline = Date().addingTimeInterval(Self.loginNetworkWait)
+        if await !Self.waitForNetwork(until: deadline) {
+            loginLogger.info("No network at login yet; trying to mount anyway.")
+        }
+        var pending = wanted.filter { !isMounted($0) }
         var failed = false
-        for location in wanted where !isMounted(location) {
-            if await !mount(location) {
-                failed = true
+        var pause: Duration = .seconds(2)
+        while !pending.isEmpty {
+            var retry: [JottacloudRemoteVolume] = []
+            for location in pending where !isMounted(location) {
+                guard await !mount(location) else {
+                    continue
+                }
+                if Self.isNetworkError(lastMountError), Date() < deadline {
+                    retry.append(location)
+                } else {
+                    failed = true
+                }
             }
+            pending = retry
+            guard !pending.isEmpty else {
+                break
+            }
+            loginLogger.info("Mount at login failed on the network; retrying.")
+            alert = nil
+            try? await Task.sleep(for: pause)
+            pause = min(pause * 2, .seconds(30))
+            _ = await Self.waitForNetwork(until: deadline)
         }
         guard !failed else {
             // Show the problem as a normal app, with Dock icon and menu.
@@ -711,6 +782,10 @@ final class AppModel: ObservableObject {
         }
         NSApp.terminate(nil)
     }
+
+    /// How long a launch at login waits for the network before it shows a
+    /// mount that failed because of it.
+    private static let loginNetworkWait: TimeInterval = 180
 
     /// Reads the locations to mount at login. Before 1.1 there was one
     /// switch, for the location saved in the credentials.
@@ -922,6 +997,7 @@ final class AuthenticationPresenter: NSObject, ASWebAuthenticationPresentationCo
 }
 
 private let signInLogger = Logger(subsystem: "no.alrek.jottafs", category: "SignIn")
+private let loginLogger = Logger(subsystem: "no.alrek.jottafs", category: "Login")
 
 /// Lets a session's completion handler recognise its own session.
 private final class SessionReference: @unchecked Sendable {
