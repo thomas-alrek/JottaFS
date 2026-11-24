@@ -144,22 +144,33 @@ public enum JottaFSStorage {
         try saveSettings(settings, to: directory)
     }
 
-    /// The download cache: `<app group>/Library/Caches/BlockCache`, shared by
-    /// the extension (which fills it) and the app (which can clear it).
+    /// The download cache: `<app group>/Library/Caches/BlockCache`, with one
+    /// folder per mounted location, shared by the extension (which fills it)
+    /// and the app (which shows its size and can clear it).
     public static func blockCacheDirectoryURL() -> URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: applicationGroupIdentifier)?
             .appendingPathComponent("Library/Caches/BlockCache", isDirectory: true)
             .standardizedFileURL
     }
 
-    /// Bytes of downloaded data in the cache.
+    /// Bytes of downloaded data in the cache (all locations' folders).
     public static func blockCacheSize() -> UInt64 {
         guard let directory = blockCacheDirectoryURL(),
-              let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])
+              let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey])?.allObjects as? [URL]
         else {
             return 0
         }
-        return files.reduce(0) { $0 + UInt64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        return files.reduce(0) { total, url in
+            // Only data blocks (`<md5>-<index>`); not the boot marker, files
+            // being written (`.<uuid>.tmp`) or Finder's `.DS_Store`.
+            guard !url.lastPathComponent.hasPrefix("."),
+                  let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true
+            else {
+                return total
+            }
+            return total + UInt64(values.fileSize ?? 0)
+        }
     }
 
     /// Deletes all cached downloads (files that are being read are downloaded

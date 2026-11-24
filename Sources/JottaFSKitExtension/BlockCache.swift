@@ -12,8 +12,11 @@ import OSLog
 /// and the same content is shared between files and mounted volumes.
 ///
 /// The cache lives in the app group's `Library/Caches/BlockCache`, so the
-/// app can show its size and clear it (Settings), and is emptied after every
-/// restart of the Mac (it records the boot time). It holds at most `limit` bytes: the size
+/// app can show its size and clear it (Settings), with one folder per
+/// mounted location (`BlockCache/<location key>/`). A location's folder is
+/// emptied when the location is mounted and deleted when it is unmounted, and
+/// the whole cache is emptied after every restart of the Mac (it records the
+/// boot time). All locations together hold at most `limit` bytes: the size
 /// set in the app's Settings (`JottaFSStorage.blockCacheLimitMB`, 1024 MB by
 /// default; 0 turns the cache off). Before a
 /// block is added, the oldest blocks (by last use) are deleted until the new
@@ -22,8 +25,6 @@ import OSLog
 /// (at the first write, then again when this process's estimate reaches the
 /// limit or is older than `rescanInterval`).
 final class BlockCache: @unchecked Sendable {
-    static let shared = BlockCache()
-
     private static let rescanInterval: TimeInterval = 30
 
     /// The size limit in bytes, read from the shared settings at most once
@@ -38,28 +39,68 @@ final class BlockCache: @unchecked Sendable {
     private var cachedLimit: UInt64 = 0
     private var limitRead = Date.distantPast
 
+    /// The whole cache (all locations, and the boot marker).
+    private let root: URL?
+    /// This location's blocks.
     private let directory: URL?
     private let lock = NSLock()
     /// Bytes in the cache as last measured, plus what this process added.
     private var estimatedSize: UInt64?
     private var lastScan = Date.distantPast
+    /// Diagnostics: blocks stored by this process.
+    private var storedBlocks = 0
     private let logger = Logger.extension("BlockCache")
 
-    private init() {
-        guard let directory = JottaFSStorage.blockCacheDirectoryURL() else {
+    /// The cache of one mounted location (`key`: `MountTarget.storageKey`).
+    /// Starts empty: blocks left from an earlier mount (for example after the
+    /// extension stopped without unmounting) are deleted.
+    init(key: String) {
+        guard let root = JottaFSStorage.blockCacheDirectoryURL() else {
+            self.root = nil
             self.directory = nil
             return
         }
+        let directory = root.appendingPathComponent(key, isDirectory: true)
         // Test builds of 1.0.2 kept the cache in the extension's temporary
         // directory.
         try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("BlockCache", isDirectory: true))
         do {
-            Self.removeIfFromAnEarlierBoot(directory)
+            Self.removeIfFromAnEarlierBoot(root)
+            try Self.prepare(root: root)
+            // Blocks directly in the root are from versions up to 1.0.5,
+            // which had one folder for all locations.
+            for url in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isRegularFileKey])) ?? []
+            where url.lastPathComponent != Self.bootMarkerName
+                && (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+                try? FileManager.default.removeItem(at: url)
+            }
+            try? FileManager.default.removeItem(at: directory)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try Data(Self.bootTime.utf8).write(to: directory.appendingPathComponent(Self.bootMarkerName))
+            self.root = root
             self.directory = directory
         } catch {
+            self.root = nil
             self.directory = nil
+        }
+    }
+
+    /// Deletes this location's blocks (when it is unmounted).
+    func removeAll() {
+        guard let directory else {
+            return
+        }
+        lock.withLock {
+            try? FileManager.default.removeItem(at: directory)
+            estimatedSize = nil
+        }
+    }
+
+    /// Creates the root and its boot marker.
+    private static func prepare(root: URL) throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let marker = root.appendingPathComponent(bootMarkerName)
+        if !FileManager.default.fileExists(atPath: marker.path) {
+            try Data(bootTime.utf8).write(to: marker)
         }
     }
 
@@ -80,14 +121,14 @@ final class BlockCache: @unchecked Sendable {
     /// Deletes a cache left from before the last restart. Another process of
     /// this boot may already have checked (and written the marker); then the
     /// cache is kept.
-    private static func removeIfFromAnEarlierBoot(_ directory: URL) {
-        let marker = directory.appendingPathComponent(bootMarkerName)
-        guard FileManager.default.fileExists(atPath: directory.path) else {
+    private static func removeIfFromAnEarlierBoot(_ root: URL) {
+        let marker = root.appendingPathComponent(bootMarkerName)
+        guard FileManager.default.fileExists(atPath: root.path) else {
             return
         }
         let recorded = (try? String(contentsOf: marker, encoding: .utf8)) ?? ""
         if recorded != bootTime {
-            try? FileManager.default.removeItem(at: directory)
+            try? FileManager.default.removeItem(at: root)
         }
     }
 
@@ -106,7 +147,7 @@ final class BlockCache: @unchecked Sendable {
 
     /// Stores a downloaded block, deleting the oldest blocks first so it fits.
     func store(_ data: Data, md5: String, index: UInt64) {
-        guard let directory, let url = url(md5: md5, index: index), !data.isEmpty else {
+        guard let root, let directory, let url = url(md5: md5, index: index), !data.isEmpty else {
             return
         }
         lock.withLock {
@@ -114,16 +155,16 @@ final class BlockCache: @unchecked Sendable {
             guard UInt64(data.count) <= limit else {
                 // Off (or smaller than one block): empty it once.
                 if estimatedSize != 0 {
-                    makeRoom(for: 0, in: directory, limit: 0)
+                    makeRoom(for: 0, in: root, limit: 0)
                 }
                 return
             }
-            makeRoom(for: UInt64(data.count), in: directory, limit: limit)
-            // The app may have cleared the cache (deleting the directory).
+            makeRoom(for: UInt64(data.count), in: root, limit: limit)
+            // The app may have cleared the cache (deleting the root).
             if !FileManager.default.fileExists(atPath: directory.path) {
+                try? Self.prepare(root: root)
                 try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                try? Data(Self.bootTime.utf8).write(to: directory.appendingPathComponent(Self.bootMarkerName))
-                estimatedSize = 0
+                estimatedSize = nil
             }
             // Written to a temporary name and renamed, so a reader (in this or
             // another process) never sees a partial block.
@@ -134,6 +175,10 @@ final class BlockCache: @unchecked Sendable {
                     throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
                 }
                 estimatedSize = (estimatedSize ?? 0) + UInt64(data.count)
+                storedBlocks += 1
+                if storedBlocks == 1 || storedBlocks % 64 == 0 {
+                    logger.debug("Cached \(self.storedBlocks, privacy: .public) blocks so far (about \((self.estimatedSize ?? 0) >> 20, privacy: .public) MB in the cache).")
+                }
             } catch {
                 try? FileManager.default.removeItem(at: temporary)
                 logger.error("A block could not be cached.")
@@ -151,15 +196,16 @@ final class BlockCache: @unchecked Sendable {
         return directory.appendingPathComponent("\(md5.lowercased())-\(index)", isDirectory: false)
     }
 
-    /// Deletes the least recently used blocks until `needed` more bytes fit
-    /// under the limit. Call with `lock` held.
-    private func makeRoom(for needed: UInt64, in directory: URL, limit: UInt64) {
+    /// Deletes the least recently used blocks of any location until
+    /// `needed` more bytes fit under the limit. Call with `lock` held.
+    private func makeRoom(for needed: UInt64, in root: URL, limit: UInt64) {
         if let estimatedSize, estimatedSize + needed <= limit,
            Date().timeIntervalSince(lastScan) < Self.rescanInterval {
             return
         }
         let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
-        let entries = ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys)) ?? [])
+        let files = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys)?.allObjects as? [URL]) ?? []
+        let entries = files
             .compactMap { url -> (url: URL, size: UInt64, used: Date)? in
                 guard url.lastPathComponent != Self.bootMarkerName,
                       let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true

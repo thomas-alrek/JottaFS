@@ -94,7 +94,8 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   asks, or use **JottaFS → Settings**.
 - **Download cache.** JottaFS keeps recently downloaded file data on your Mac
   (1 GB by default). Files that you open again open immediately. Change the
-  size in **JottaFS → Settings**.
+  size in **JottaFS → Settings**. JottaFS deletes the data of a disk when you
+  unmount it, and all of it when you restart your Mac.
 
 ## Requirements
 

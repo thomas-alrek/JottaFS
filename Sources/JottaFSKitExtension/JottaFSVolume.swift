@@ -18,7 +18,9 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     let staging: StagingArea
     let trash: TrashStore
     /// Larger, prefetched reads while a file is read sequentially.
-    let readAhead = ReadAhead()
+    let readAhead: ReadAhead
+    /// This location's downloaded blocks; deleted when it is unmounted.
+    let blockCache: BlockCache
     private let statistics: FSStatFSResult
     private let capabilities: FSVolume.SupportedCapabilities
     private let volumeIconData: Data
@@ -76,6 +78,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         self.itemStore = ItemStore(rootRole: target.rootRole)
         self.volumeName = target.volumeName
         self.staging = try StagingArea(key: target.storageKey)
+        self.blockCache = BlockCache(key: target.storageKey)
+        self.readAhead = ReadAhead(cache: blockCache)
         self.trash = try TrashStore(client: client, locationPrefix: target.trashPrefix, key: target.storageKey)
         self.directoryCache = DirectoryCache(client: client, trash: trash)
         self.statistics = FSStatFSResult(fileSystemTypeName: "jottacloud")
@@ -123,6 +127,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         try? await flushAll()
         await trash.stop()
         await readAhead.removeAll()
+        blockCache.removeAll()
         await directoryCache.clear()
     }
 
@@ -133,6 +138,9 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     /// an upload that a writer is still waiting for in close(2).
     func unmount() async {
         try? await flushAll()
+        // The location's downloaded blocks are not kept after an unmount.
+        await readAhead.removeAll()
+        blockCache.removeAll()
     }
 
     /// Uploads dirty files. Failures are logged (by `flushAll`) and not

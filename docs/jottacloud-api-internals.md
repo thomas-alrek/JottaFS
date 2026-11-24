@@ -243,8 +243,10 @@ connection are twice as fast. Parallel requests do not raise the download
 limit, so JottaFS's read-ahead helps only by hiding request latency. Faster
 reads have to come from not downloading: JottaFS keeps downloaded 8 MiB blocks
 in a disk cache keyed by the listing's MD5 and the block index
-(`BlockCache.swift`, in the app group's `Library/Caches/BlockCache`; 1024 MB
-by default, set and cleared in the app's Settings, emptied after a restart), and downloads files of at most 4 MiB whole on the first
+(`BlockCache.swift`, in the app group's `Library/Caches/BlockCache`, one
+folder per mounted location; 1024 MB in total by default, set and cleared in
+the app's Settings; a location's folder is deleted when it is unmounted, and
+the whole cache after a restart), and downloads files of at most 4 MiB whole on the first
 read.
 
 ### Public share links (checked 2026-11-24)

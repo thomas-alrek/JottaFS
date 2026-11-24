@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 /// Sequential read-ahead for remote files.
 ///
@@ -41,8 +42,9 @@ actor ReadAhead {
     static let smallFileLimit: UInt64 = 4 * 1024 * 1024
 
     private let cache: BlockCache?
+    private static let logger = Logger.extension("ReadAhead")
 
-    init(cache: BlockCache? = .shared) {
+    init(cache: BlockCache?) {
         self.cache = cache
     }
 
@@ -55,6 +57,9 @@ actor ReadAhead {
         var lastUse = Date()
         /// For the memory estimate (a small file is one short block).
         var fileSize: UInt64 = 0
+        /// Diagnostics: block mode reached, and breaks in the sequence.
+        var reportedBlockMode = false
+        var resets = 0
         /// Unique per cache entry, so results of requests started before an
         /// invalidation are dropped.
         let generation: Int
@@ -83,6 +88,10 @@ actor ReadAhead {
             file.sequentialBytes += end - offset
             file.nextOffset = max(file.nextOffset, end)
         } else {
+            if file.resets < 3, file.nextOffset > 0 {
+                Self.logger.debug("Read out of sequence: expected \(file.nextOffset, privacy: .public), got \(offset, privacy: .public) (\(length, privacy: .public) bytes, file \(fileSize, privacy: .public) bytes).")
+            }
+            file.resets += 1
             file.blocks.values.forEach { $0.cancel() }
             file.blocks = [:]
             file.sequentialBytes = end - offset
@@ -98,6 +107,11 @@ actor ReadAhead {
                 return try await fetch(offset, Int(end - offset))
             }
             return try await readCachingAware(md5: md5, offset: offset, end: end, fileSize: fileSize, fetch: fetch)
+        }
+
+        if !file.reportedBlockMode {
+            files[id]?.reportedBlockMode = true
+            Self.logger.debug("Reading in blocks: file \(fileSize, privacy: .public) bytes, MD5 \(md5 == nil ? "unknown (no disk cache)" : "known", privacy: .public).")
         }
 
         // Start the blocks this read needs and the ones ahead of it, then
