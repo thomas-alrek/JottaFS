@@ -26,9 +26,30 @@ Developer ID, not for the Mac App Store.
 
 ## Extension model
 
-FSKit is available from macOS 15.4. JottaFS uses the result-based
-`FSVolume.Handler` API introduced in macOS 27, so its minimum is macOS 27
-(Apple silicon only).
+FSKit is available from macOS 15.4, but JottaFS needs macOS 27 (and so
+Apple silicon only). Checked 2026-11-24 by building for macOS 26.0:
+
+- **Mounting.** `FSClient.mountSingleVolume(resource:bundleID:options:)`,
+  which the app uses to mount a location, exists only from macOS 27 (FSKit
+  "V3"). On macOS 26 a path-backed FSKit volume can only be mounted with
+  `mount -F -t jottacloud …`, which mounts outside `/Volumes`, where Finder
+  does not show it in the sidebar (see "Volume renaming" below). There is no
+  clean way for the app to mount on 26.
+- **The callback API.** Every callback of the extension uses the
+  result-based `FSVolume.Handler` API of macOS 27 (`FSContext`,
+  `FSLookupItemResult`, `FSReadFileResult`, `FSWriteFileResult` and the other
+  `…Result` types); building for 26.0 fails with about 90 errors, all in the
+  extension. macOS 26 has only the older completion-handler callbacks, so
+  supporting it would mean a second implementation of the whole callback
+  layer.
+- **Smaller items.** `FSClient.openFileSystemExtensionsSettings()` needs 27,
+  and `FSVolume.MountOptions` needs 26.4.
+
+FSKit versions: V1 is macOS 15.4, V2 is 26.0, V2.4 is 26.4 and V3 is 27.0
+(`FSKitDefines.h`). Revisit if Apple makes the mount API available on an
+earlier system; the app's own code (SwiftUI, AppKit, ServiceManagement,
+Finder Sync) was not checked for 26 because the build stopped at the
+extension.
 
 The extension is an `FSUnaryFileSystem`: one resource becomes one volume.
 Its `Info.plist` declares the `com.apple.fskit.fsmodule` extension point,

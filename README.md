@@ -99,7 +99,9 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
 
 ## Requirements
 
-- A Mac with macOS 27 or later.
+- A Mac with Apple silicon and macOS 27 or later. Earlier versions of macOS
+  do not have the FSKit functions that JottaFS uses to mount a disk (see
+  [FSKit notes](docs/fskit-internals.md#extension-model)).
 - A Jottacloud account.
 - To build JottaFS: Xcode with the macOS 27 SDK, and an Apple Developer team.
   The FSKit extension must have a signature.
