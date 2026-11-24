@@ -4,6 +4,33 @@ import JottaFSCore
 struct DirectorySnapshot: Sendable {
     let entries: [JottacloudDirectoryEntry]
     let verifier: UInt64
+    /// Name indexes so a lookup in a folder with thousands of entries is one
+    /// dictionary access instead of a scan (Finder looks up every entry).
+    private let exactIndex: [String: Int]
+    private let foldedIndex: [String: Int]
+
+    init(entries: [JottacloudDirectoryEntry], verifier: UInt64) {
+        self.entries = entries
+        self.verifier = verifier
+        var exact: [String: Int] = [:]
+        var folded: [String: Int] = [:]
+        exact.reserveCapacity(entries.count)
+        folded.reserveCapacity(entries.count)
+        for (index, entry) in entries.enumerated() {
+            exact[entry.entry.name] = exact[entry.entry.name] ?? index
+            folded[entry.entry.name.lowercased()] = folded[entry.entry.name.lowercased()] ?? index
+        }
+        exactIndex = exact
+        foldedIndex = folded
+    }
+
+    /// Exact match first, then case-insensitive (Jottacloud is case-insensitive).
+    func entry(named name: String) -> JottacloudDirectoryEntry? {
+        if let index = exactIndex[name] ?? foldedIndex[name.lowercased()] {
+            return entries[index]
+        }
+        return nil
+    }
 }
 
 actor DirectoryCache {
@@ -14,9 +41,17 @@ actor DirectoryCache {
 
     private let client: JottacloudClient
     private let volumes: [JottacloudRemoteVolume]
-    private let lifetime: TimeInterval = 5
-    private let maximumDirectories = 128
-    private let maximumEntries = 2_048
+    /// A listing younger than this is served without contacting Jottacloud.
+    private let freshLifetime: TimeInterval = 15
+    /// An older listing up to this age is still served immediately while one
+    /// background request refreshes it (stale-while-revalidate). Finder and
+    /// Quick Look ask for the same folders many times per second; refetching
+    /// each time made large folders very slow.
+    private let staleLifetime: TimeInterval = 300
+    private let maximumDirectories = 512
+    /// Folders with more entries are not cached (memory bound).
+    private let maximumEntries = 20_000
+    private var refreshing: Set<String> = []
     private var nextVerifier: UInt64 = 0
     private var cache: [String: Cached] = [:]
     private var requests: [String: Task<DirectorySnapshot, Error>] = [:]
@@ -89,9 +124,33 @@ actor DirectoryCache {
         path: String,
         role: JottacloudItemRole
     ) async throws -> DirectorySnapshot {
-        if let cached = cache[path], Date().timeIntervalSince(cached.loadedAt) < lifetime {
-            return cached.snapshot
+        if let cached = cache[path] {
+            let age = Date().timeIntervalSince(cached.loadedAt)
+            if age < freshLifetime {
+                return cached.snapshot
+            }
+            if age < staleLifetime {
+                if requests[path] == nil, refreshing.insert(path).inserted {
+                    Task {
+                        _ = try? await self.load(path: path, role: role)
+                        self.finishRefresh(path)
+                    }
+                }
+                return cached.snapshot
+            }
         }
+        return try await load(path: path, role: role)
+    }
+
+    private func finishRefresh(_ path: String) {
+        refreshing.remove(path)
+    }
+
+    /// Fetches a listing (sharing an in-flight request) and caches it.
+    private func load(
+        path: String,
+        role: JottacloudItemRole
+    ) async throws -> DirectorySnapshot {
         if let request = requests[path] {
             return try await request.value
         }
@@ -190,6 +249,7 @@ actor DirectoryCache {
 
     func clear() {
         cache.removeAll()
+        refreshing.removeAll()
         requests.values.forEach { $0.cancel() }
         requests.removeAll()
     }

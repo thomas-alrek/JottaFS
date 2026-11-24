@@ -75,8 +75,13 @@ up as it is written.
   An existing file (necessarily inside the scope) is downloaded in full into
   staging first, unless it is being truncated to zero. `write` and `truncate`
   change only the staging file; reads of a dirty file come from staging.
-- **Upload.** When the last open handle closes (FSKit `OpenCloseHandler`), and
-  on `synchronize`, a dirty file is uploaded: compute MD5 over the staging
+- **Upload.** When the last open handle closes (FSKit `OpenCloseHandler`), a
+  dirty file is uploaded in the background, so close(2) and Finder's copy
+  return once the data is staged locally (changed 2026-11-24; close used to
+  block for the whole upload, which left Finder's copy dialog at 0 bytes).
+  Deleting a file waits for its running upload first, so the upload cannot
+  recreate it; renames flush first. On `synchronize`, dirty files are also
+  uploaded: compute MD5 over the staging
   file, allocate, stream the staging file to `upload_url`, verify. The staging
   file is removed after a verified upload.
 - **Failure.** If the upload fails, the staging file is kept and the item

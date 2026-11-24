@@ -133,13 +133,41 @@ final class StagingArea: @unchecked Sendable {
     /// Runs `upload` unless an upload of this file is already running, in
     /// which case it waits for that one first.
     func serializeUpload(_ id: UInt64, _ upload: @escaping @Sendable () async throws -> Void) async throws {
+        while true {
+            // Check for a running upload and register ours in one step.
+            let (running, task): (Task<Void, Error>?, Task<Void, Error>?) = lock.withLock {
+                if let running = uploading[id] {
+                    return (running, nil)
+                }
+                let task = Task { try await upload() }
+                uploading[id] = task
+                return (nil, task)
+            }
+            if let running {
+                _ = try? await running.value
+                continue
+            }
+            guard let task else {
+                return
+            }
+            defer {
+                lock.withLock {
+                    if uploading[id] == task {
+                        uploading.removeValue(forKey: id)
+                    }
+                }
+            }
+            try await task.value
+            return
+        }
+    }
+
+    /// Waits until no upload of this file is running (used before deleting
+    /// it, so a background upload cannot recreate a just-deleted file).
+    func waitForUpload(_ id: UInt64) async {
         while let running = lock.withLock({ uploading[id] }) {
             _ = try? await running.value
         }
-        let task = Task { try await upload() }
-        lock.withLock { uploading[id] = task }
-        defer { _ = lock.withLock { uploading.removeValue(forKey: id) } }
-        try await task.value
     }
 
     /// Discards a staged file (after delete, or when a clean item is reclaimed).

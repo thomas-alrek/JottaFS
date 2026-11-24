@@ -106,6 +106,50 @@ and delete; and confirm writes outside the scope fail.
   (`is-admin`/`on-console`) in the user's login session. Unsandboxed XPC
   services are fine for Developer ID distribution, not the Mac App Store.
 
+## Experiments in progress (built, not yet verified)
+
+- **Upload progress in Finder.** Findings: an `NSProgress` (`kind = .file`,
+  `fileOperationKind = .uploading`, `fileURL` on the volume) published by the
+  sandboxed extension shows a bar, but its updates never reach Finder (74
+  byte updates arrived during a 147 MB upload; the bar jumped 0 → 100). The
+  same updates from an unsandboxed process advance the bar both in
+  `~/Downloads` and on the JottaCloud volume, with or without a run loop on
+  the updating thread, from sandboxed processes with or without access to
+  the file, and while the file is still being closed during an upload. So
+  the block is specific to the FSKit extension process. `SMAppService`
+  refuses unsandboxed agents for a sandboxed app ("target executable must be
+  sandboxed because the app is sandboxed"), so the agent is sandboxed with a
+  `mach-register` temporary exception for its service name. Built (not yet
+  verified): `JottaFSProgressAgent`, a sandboxed launch agent (`ProgressAgent/`,
+  `Contents/Helpers`, plist in `Contents/Library/LaunchAgents`, registered
+  by the app with `SMAppService.agent`, started on demand by launchd via the
+  Mach service `no.alrek.jottafs.progress`). The extension sends
+  begin/update/end over XPC (`ProgressService.swift`; needs the
+  `mach-lookup` temporary exception, Developer ID only) and falls back to a
+  local publish if the agent is unavailable. Further findings: the agent
+  receives and applies every update (logged), yet Finder's bar stays at 0;
+  the same agent binary run from the shell (`--selftest`, temporary) moves
+  the bar on a closed file. Every bar that moved belonged to a file that was
+  already closed; every stuck bar was published while the writer was still
+  in close(2) waiting for the upload. Uploads therefore run in the
+  background after close returns; verified 2026-11-24 that the icon bar then
+  follows the upload (e.g. 776 MB in 43 s, 301 updates via the agent).
+  Open issue: Finder's copy dialog and "done" sound now finish when the data
+  is staged, before the upload; the owner finds that misleading. The
+  official client also hashes the whole file before allocating (see the API
+  notes), so the dialog cannot follow the upload byte by byte. The agent
+  accepts only
+  `no.alrek.jottafs.extension` signed by its own team and only publishes
+  for paths on the mounted volume. Upload phase timings and progress counts
+  are logged (`Upload phases`, `Upload progress`).
+- **Listing speed.** Finder and Quick Look re-request the same folders many
+  times per second (about 1,480 listing requests in two minutes were logged),
+  and folders over 2,048 entries were never cached, so a 2,258-entry folder
+  was refetched (0.7–0.8 s) on every request. The directory cache now keeps
+  up to 512 folders of up to 20,000 entries, treats listings as fresh for
+  15 s, and serves older ones (up to 5 min) immediately while refreshing in
+  the background.
+
 ## Deferred
 
 - **Format name.** Foundation and Finder look up

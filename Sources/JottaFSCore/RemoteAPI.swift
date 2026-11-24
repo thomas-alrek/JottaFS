@@ -1134,7 +1134,9 @@ extension JottacloudClient {
         size: UInt64,
         md5: String,
         created: Date,
-        modified: Date
+        modified: Date,
+        progress: (@Sendable (_ bytesSent: Int64) -> Void)? = nil,
+        phase: (@Sendable (_ name: String) -> Void)? = nil
     ) async throws -> RemoteEntry {
         let allocation = AllocateRequest(
             device: volume.device,
@@ -1165,6 +1167,7 @@ extension JottacloudClient {
             throw JottacloudError.unexpectedAllocateResponse(keys: object.map { $0.keys.sorted() } ?? ["not a JSON object"])
         }
 
+        phase?("allocated (state \(allocated.state ?? "none"), resume \(allocated.resumePosition ?? 0))")
         if allocated.state != "COMPLETED" {
             guard let uploadURLString = allocated.uploadURL else {
                 throw JottacloudError.unexpectedAllocateResponse(keys: ["missing upload_url"])
@@ -1181,7 +1184,11 @@ extension JottacloudClient {
                     try? FileManager.default.removeItem(at: bodyFile)
                 }
             }
-            let uploadResponse = try await authorizedSend(bodyFile: bodyFile) { token in
+            let alreadySent = Int64(resume)
+            let delegate = progress.map { report in
+                UploadProgressDelegate { sent in report(alreadySent + sent) }
+            }
+            let uploadResponse = try await authorizedSend(bodyFile: bodyFile, delegate: delegate) { token in
                 var request = Self.mutationRequest(
                     url: uploadURL,
                     accessToken: token,
@@ -1194,6 +1201,7 @@ extension JottacloudClient {
                 return request
             }
             try Self.checkSuccess(uploadResponse.statusCode)
+            phase?("transferred (HTTP \(uploadResponse.statusCode))")
         }
 
         // The listing can lag slightly behind the upload; poll briefly.
@@ -1201,6 +1209,7 @@ extension JottacloudClient {
             if let revision = try await fileRevision(volume: volume, path: path),
                revision.entry.size == size,
                revision.md5 == nil || revision.md5 == md5 {
+                phase?("verified after \(attempt + 1) check(s)")
                 return revision.entry
             }
             try await Task.sleep(for: .milliseconds(250 * (attempt + 1)))
@@ -1221,25 +1230,27 @@ extension JottacloudClient {
     /// 401 like `authorizedGet`.
     private func authorizedSend(
         bodyFile: URL? = nil,
+        delegate: URLSessionTaskDelegate? = nil,
         _ build: @Sendable (String) -> URLRequest
     ) async throws -> (data: Data, statusCode: Int) {
         let initialToken = try await validAccessToken()
-        var response = try await send(build(initialToken), bodyFile: bodyFile)
+        var response = try await send(build(initialToken), bodyFile: bodyFile, delegate: delegate)
         if response.statusCode == 401 {
             let latestToken = try await refreshAfterRejection(initialToken)
-            response = try await send(build(latestToken), bodyFile: bodyFile)
+            response = try await send(build(latestToken), bodyFile: bodyFile, delegate: delegate)
         }
         return response
     }
 
     private func send(
         _ request: URLRequest,
-        bodyFile: URL?
+        bodyFile: URL?,
+        delegate: URLSessionTaskDelegate? = nil
     ) async throws -> (data: Data, statusCode: Int) {
         guard let bodyFile else {
             return try await Self.perform(http, request: request)
         }
-        let (data, response) = try await http.upload(for: request, fromFile: bodyFile)
+        let (data, response) = try await http.upload(for: request, fromFile: bodyFile, delegate: delegate)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw JottacloudError.httpStatus(-1)
         }
@@ -1322,5 +1333,24 @@ extension JottacloudClient {
             try writer.write(contentsOf: chunk)
         }
         return (tail, true)
+    }
+}
+
+/// Reports bytes sent for one upload task.
+private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let report: @Sendable (Int64) -> Void
+
+    init(report: @escaping @Sendable (Int64) -> Void) {
+        self.report = report
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didSendBodyData bytesSent: Int64,
+        totalBytesSent: Int64,
+        totalBytesExpectedToSend: Int64
+    ) {
+        report(totalBytesSent)
     }
 }

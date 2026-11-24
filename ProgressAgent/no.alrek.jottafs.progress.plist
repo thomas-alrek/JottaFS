@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>no.alrek.jottafs.progress</string>
+    <!-- Relative to the app bundle; registered with SMAppService.agent. -->
+    <key>BundleProgram</key>
+    <string>Contents/Helpers/JottaFSProgressAgent</string>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>no.alrek.jottafs</string>
+    </array>
+    <!-- Started on demand when the extension connects. -->
+    <key>MachServices</key>
+    <dict>
+        <key>no.alrek.jottafs.progress</key>
+        <true/>
+    </dict>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>

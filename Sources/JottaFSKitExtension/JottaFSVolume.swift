@@ -131,11 +131,17 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             path: parent.path,
             role: parent.role
         )
-        let entries = try entries(in: snapshot, for: parent)
-        // Case-insensitive like Jottacloud; prefer an exact match.
-        guard let entry = entries.first(where: { $0.entry.name == name })
-            ?? entries.first(where: { JottaFSWriteScope.sameName($0.entry.name, name) })
-        else {
+        // Case-insensitive like Jottacloud; prefer an exact match. The root
+        // also resolves the virtual volume icon, so it uses the full list.
+        let found: JottacloudDirectoryEntry?
+        if case .root = parent.role {
+            let entries = try entries(in: snapshot, for: parent)
+            found = entries.first(where: { $0.entry.name == name })
+                ?? entries.first(where: { JottaFSWriteScope.sameName($0.entry.name, name) })
+        } else {
+            found = snapshot.entry(named: name)
+        }
+        guard let entry = found else {
             throw POSIXError(.ENOENT)
         }
         let item = try itemStore.child(of: parent, entry: entry)

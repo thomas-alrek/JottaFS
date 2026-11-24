@@ -12,5 +12,10 @@
     <true/>
     <key>com.apple.security.network.client</key>
     <true/>
+    <!-- Upload progress goes to JottaFSProgressAgent (Developer ID only). -->
+    <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+    <array>
+        <string>no.alrek.jottafs.progress</string>
+    </array>
 </dict>
 </plist>

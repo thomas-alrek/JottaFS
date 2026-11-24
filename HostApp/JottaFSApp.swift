@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import FSKit
 import JottaFSCore
+import ServiceManagement
 import SwiftUI
 
 private enum AppError: Error, LocalizedError {
@@ -35,6 +36,7 @@ private struct JottaFSView: View {
     @State private var errorMessage: String?
     @State private var statusMessage: String?
     @State private var isBusy = false
+    @State private var progressAgentNote: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -105,6 +107,15 @@ private struct JottaFSView: View {
                 Text(statusMessage)
                     .foregroundStyle(.secondary)
             }
+            if let progressAgentNote {
+                HStack {
+                    Text(progressAgentNote)
+                        .foregroundStyle(.secondary)
+                    Button("Open Login Items") {
+                        SMAppService.openSystemSettingsLoginItems()
+                    }
+                }
+            }
             if let errorMessage {
                 Text(errorMessage)
                     .foregroundStyle(.red)
@@ -116,6 +127,7 @@ private struct JottaFSView: View {
         .onAppear {
             prepareStorage()
             refreshMountState()
+            registerProgressAgent()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -245,6 +257,24 @@ private struct JottaFSView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Registers JottaFSProgressAgent, which shows upload progress on file
+    /// icons in Finder (the sandboxed extension cannot). launchd starts it on
+    /// demand; registering an already registered agent is harmless.
+    private func registerProgressAgent() {
+        let agent = SMAppService.agent(plistName: JottaFSProgressService.launchAgentPlistName)
+        do {
+            if agent.status != .enabled {
+                try agent.register()
+            }
+        } catch {
+            progressAgentNote = "Upload progress in Finder is unavailable (\(error.localizedDescription))."
+            return
+        }
+        progressAgentNote = agent.status == .requiresApproval
+            ? "Allow JottaFS in Login Items to show upload progress in Finder."
+            : nil
     }
 
     private func refreshMountState() {

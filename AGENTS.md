@@ -18,9 +18,14 @@ for one write-scope folder (see below).
 - File mutations follow the reviewed design in
   [docs/write-support-design.md](docs/write-support-design.md) and are
   confined to `JottaFSWriteScope` (`Jotta/Archive/JottaFS-Test`). The account
-  holds the owner's personal data: never widen the scope, add permanent
-  deletes, or test writes outside that folder without an explicit, separate
-  decision.
+  holds the owner's personal data, and the rule is about that data during
+  development: never modify, move, delete (soft or permanent) or otherwise
+  touch files the project did not create, and never widen the scope without
+  an explicit, separate decision. Permanent deletion is a normal feature
+  (for example emptying the Trash) as long as it only affects items created
+  through the scope; never use whole-account operations such as
+  `files/v1/purge_trash`, which would also remove the owner's own trashed
+  files.
 - Make network I/O asynchronous and bounded. Use ranged downloads, short
   bounded directory caches, and avoid buffering whole files.
 - FSKit callbacks can run concurrently. Protect shared item, directory, and

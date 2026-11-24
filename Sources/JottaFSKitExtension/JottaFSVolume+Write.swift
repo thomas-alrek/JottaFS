@@ -316,14 +316,27 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         let id = item.identifier
         let staging = staging
         let client = client
+        // Path as seen through the mount, for Finder's upload progress.
+        let volumePath = item.path
+        let mountedURL = URL(fileURLWithPath: "/Volumes/\(JottaFSStorage.volumeName)", isDirectory: true)
+            .appendingPathComponent(item.path)
+        let uploaded = UploadFlag()
         try await staging.serializeUpload(id) {
             guard let staged = staging.file(id), staged.dirty else {
                 return
             }
+            let clock = PhaseClock()
             let snapshot = try staging.snapshot(staged)
             defer { try? FileManager.default.removeItem(at: snapshot) }
             let size = try JottaFSStagingFile.size(of: snapshot)
+            clock.mark("snapshot of \(size) bytes")
+            let progress = UploadProgress(volumePath: volumePath, fileURL: mountedURL, totalBytes: size)
+            defer {
+                progress.finish()
+                writeLogger.info("Upload progress: \(progress.summary, privacy: .public)")
+            }
             let md5 = try JottaFSStagingFile.md5(of: snapshot)
+            clock.mark("md5")
             _ = try await client.upload(
                 volume: location.volume,
                 path: location.path,
@@ -331,9 +344,16 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
                 size: size,
                 md5: md5,
                 created: staged.created,
-                modified: staged.modified
+                modified: staged.modified,
+                progress: { sent in progress.update(bytesSent: sent) },
+                phase: { name in clock.mark(name) }
             )
             staging.markUploaded(id, generation: staged.generation)
+            uploaded.set()
+            writeLogger.info("Upload phases: \(clock.summary, privacy: .public)")
+        }
+        guard uploaded.isSet else {
+            return
         }
         writeLogger.info("Uploaded a file in write scope.")
         if let parent = itemStore.item(identifier: item.parentIdentifier) {
@@ -375,16 +395,23 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         _ = try writableLocation(of: item)
     }
 
+    /// Uploads in the background once the last writer closes, so close(2)
+    /// (and Finder's copy) returns as soon as the data is staged locally.
+    /// Finder then shows the upload as progress on the file's icon. Failures
+    /// keep the data staged and are retried on the next close or sync.
     func closeItem(_ item: FSItem, modes: FSVolume.OpenModes, context: FSContext) async throws {
-        guard !modes.contains(.write), let item = item as? JottacloudItem else {
+        guard !modes.contains(.write),
+              let item = item as? JottacloudItem,
+              staging.file(item.identifier)?.dirty == true
+        else {
             return
         }
-        do {
-            try await flush(item)
-        } catch {
-            // close(2) results are ignored by most apps; keep the data staged
-            // and retry on the next close or sync (see the design document).
-            writeLogger.error("Upload on close failed (\(self.describe(error), privacy: .public)); the file stays staged for retry.")
+        Task.detached { [self] in
+            do {
+                try await self.flush(item)
+            } catch {
+                writeLogger.error("Background upload failed (\(self.describe(error), privacy: .public)); the file stays staged for retry.")
+            }
         }
     }
 
@@ -402,6 +429,13 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             guard contents.entries.isEmpty else {
                 throw POSIXError(.ENOTEMPTY)
             }
+        }
+        // Stop pending uploads of this file: discard its staged data first
+        // (an upload that has not started then finds nothing to send), and
+        // wait for one already running to finish before trashing.
+        if !isDirectory {
+            staging.discard(item.identifier)
+            await staging.waitForUpload(item.identifier)
         }
         do {
             try await client.trash(volume: location.volume, path: location.path, isDirectory: isDirectory)
@@ -512,5 +546,151 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             throw POSIXError(.EIO)
         }
         return result
+    }
+}
+
+/// Shows upload progress on the file's icon in Finder. Finder ignores progress
+/// updates published from inside the extension's sandbox (only the publish
+/// and unpublish arrive), so updates go to `JottaFSProgressAgent`, which
+/// publishes them unsandboxed. If the agent is unavailable, the extension
+/// publishes locally, which still shows a bar that completes at the end.
+final class UploadProgress: @unchecked Sendable {
+    private let identifier = UUID().uuidString
+    private let fileURL: URL
+    private let total: Int64
+    private let lock = NSLock()
+    private var remote: JottaFSProgressServiceProtocol?
+    private var local: Progress?
+    private var lastSent = Date.distantPast
+    private var updates = 0
+    private var lastBytes: Int64 = 0
+    private var finished = false
+
+    init(volumePath: String, fileURL: URL, totalBytes: UInt64) {
+        self.fileURL = fileURL
+        total = max(Int64(clamping: totalBytes), 1)
+        let proxy = ProgressAgentClient.shared.proxy { [weak self] in self?.fallBackToLocal() }
+        lock.withLock { remote = proxy }
+        proxy?.beginUpload(identifier: identifier, path: volumePath, totalBytes: total)
+        if proxy == nil {
+            fallBackToLocal()
+        }
+    }
+
+    func update(bytesSent: Int64) {
+        let value = min(max(bytesSent, 0), total)
+        let target: (JottaFSProgressServiceProtocol?, Progress?)? = lock.withLock {
+            updates += 1
+            lastBytes = value
+            // At most ten updates per second.
+            guard Date().timeIntervalSince(lastSent) >= 0.1 || value == total else {
+                return nil
+            }
+            lastSent = Date()
+            return (remote, local)
+        }
+        guard let target else {
+            return
+        }
+        target.0?.updateUpload(identifier: identifier, bytesSent: value)
+        target.1?.completedUnitCount = value
+    }
+
+    func finish() {
+        let target: (JottaFSProgressServiceProtocol?, Progress?) = lock.withLock {
+            finished = true
+            return (remote, local)
+        }
+        target.0?.endUpload(identifier: identifier)
+        if let local = target.1 {
+            local.completedUnitCount = total
+            local.unpublish()
+        }
+    }
+
+    private func fallBackToLocal() {
+        lock.withLock {
+            guard local == nil, !finished else {
+                return
+            }
+            remote = nil
+            let progress = Progress(totalUnitCount: total)
+            progress.kind = .file
+            progress.fileOperationKind = .uploading
+            progress.fileURL = fileURL
+            progress.isCancellable = false
+            progress.isPausable = false
+            progress.completedUnitCount = lastBytes
+            progress.publish()
+            local = progress
+        }
+    }
+
+    /// Diagnostic: how many byte updates arrived and where they went.
+    var summary: String {
+        lock.withLock {
+            let route = local == nil ? "agent" : "local fallback"
+            return "\(updates) updates via \(route), last \(lastBytes) of \(total) bytes"
+        }
+    }
+}
+
+/// Connection to `JottaFSProgressAgent` (launchd starts it on demand).
+final class ProgressAgentClient: @unchecked Sendable {
+    static let shared = ProgressAgentClient()
+    private let lock = NSLock()
+    private var connection: NSXPCConnection?
+
+    /// A proxy whose failures call `onError`; nil if no connection exists.
+    func proxy(onError: @escaping @Sendable () -> Void) -> JottaFSProgressServiceProtocol? {
+        let connection = lock.withLock { () -> NSXPCConnection in
+            if let existing = self.connection {
+                return existing
+            }
+            let created = NSXPCConnection(machServiceName: JottaFSProgressService.machServiceName, options: [])
+            created.remoteObjectInterface = NSXPCInterface(with: JottaFSProgressServiceProtocol.self)
+            created.invalidationHandler = { [weak self] in
+                self?.lock.withLock { self?.connection = nil }
+            }
+            created.resume()
+            self.connection = created
+            return created
+        }
+        return connection.remoteObjectProxyWithErrorHandler { error in
+            writeLogger.error("Progress agent unavailable (\((error as NSError).code, privacy: .public)); publishing locally.")
+            onError()
+        } as? JottaFSProgressServiceProtocol
+    }
+}
+
+/// Diagnostic timing of upload phases (durations only, no names or paths).
+final class PhaseClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var last = Date()
+    private var phases: [String] = []
+
+    func mark(_ name: String) {
+        lock.withLock {
+            let now = Date()
+            phases.append(String(format: "%@ %.2fs", name, now.timeIntervalSince(last)))
+            last = now
+        }
+    }
+
+    var summary: String {
+        lock.withLock { phases.joined(separator: "; ") }
+    }
+}
+
+final class UploadFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    func set() {
+        lock.withLock { value = true }
+    }
+
+    var isSet: Bool {
+        lock.withLock { value }
     }
 }

@@ -27,6 +27,9 @@ macOS requires the signed, installed, and enabled filesystem extension.
 - Create, write, rename, and delete (to the Jottacloud trash) only inside
   `Jotta/Archive/JottaFS-Test`; files are staged locally and uploaded on
   close.
+- Upload progress on file icons in Finder, through the small sandboxed
+  `JottaFSProgressAgent` launch agent that the app registers on launch
+  (allow it under **System Settings → General → Login Items** if asked).
 - OAuth login-token exchange and serialized rotating refresh-token persistence.
 - One mount contains every discovered device and mountpoint, organized as
   `/<device>/<mountpoint>/...`.

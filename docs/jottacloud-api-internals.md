@@ -59,6 +59,29 @@ its root element, as in rclone's Jottacloud backend. This is unconfirmed
 against current documentation; the client treats missing or non-numeric values
 as unknown and still reports a non-zero volume size.
 
+## Upload: no streaming variant (checked 2026-11-24)
+
+Static analysis of the official desktop daemon (`jottad` 26.11.12, Go 1.22,
+module `git.jotta.us/jotta/desktop/client`) found no upload path that avoids
+the whole-file MD5 up front:
+
+- It uses `/files/v2/allocate` (JSON) and the gRPC
+  `no.jotta.openapi.file.v2.FileService/Allocate`. `AllocateRequest` fields:
+  `path`, `md5`, `size`, `created_at_millis`, `modified_at_millis`,
+  `conflict_handler`, optional `valid_for_millis`. `AllocateResponse`: `name`,
+  `path`, `state`, `upload_id`, `upload_url`, `bytes`, `resume_position`,
+  plus typed errors (file system, retry-after, invalid path).
+- Its uploader is a pipeline `(*Uploader).checksum` → `allocate` → `upload`
+  (`md5.ChecksumFile`, a configurable checksum rate, "Size changed before
+  upload"), and the only ranged sending is resume (`bytes=%d-%d`).
+
+So the official client, like rclone and JottaFS, hashes the complete file
+before allocating, and identical content is deduplicated at allocation
+(`state` `COMPLETED`). Upload progress can therefore only start after a file
+is fully written; Finder's copy dialog (which counts bytes written) cannot
+follow the upload. These are observations from strings and type metadata in
+the shipped binary, not from decompiled control flow or network traffic.
+
 ## File reads
 
 Download a file with `?mode=bin` and a `Range: bytes=start-end` header. The
