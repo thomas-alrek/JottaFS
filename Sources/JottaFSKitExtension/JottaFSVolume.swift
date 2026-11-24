@@ -58,6 +58,12 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         false
     }
 
+    /// No size limit of its own (64 bits): a staged write is limited only by
+    /// the Mac's free disk space (`ENOSPC`).
+    var maximumFileSizeInBits: Int {
+        64
+    }
+
     init(
         client: JottacloudClient,
         target: MountTarget,
