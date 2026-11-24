@@ -13,6 +13,13 @@ import Foundation
 /// the start of a file (thumbnails, previews), still go straight to
 /// Jottacloud.
 ///
+/// A file of at most `smallFileLimit` is downloaded whole by its first read
+/// (one request instead of several, each waiting 70–100 ms for its first
+/// byte).
+///
+/// Blocks of files with a known MD5 are kept on disk in `BlockCache`, and
+/// any read whose blocks are all there is served from the disk.
+///
 /// Memory is bounded: the blocks around the reader (at most six per file)
 /// and `memoryLimit` in total; least recently used files are dropped first.
 /// Callers invalidate a file when its contents may change (writes, uploads,
@@ -30,6 +37,14 @@ actor ReadAhead {
     /// Reads this close to the expected position still count as sequential
     /// (FSKit can deliver concurrent reads slightly out of order).
     private static let sequentialSlack: UInt64 = 8 * 1024 * 1024
+    /// Files up to this size are downloaded whole by the first read.
+    static let smallFileLimit: UInt64 = 4 * 1024 * 1024
+
+    private let cache: BlockCache?
+
+    init(cache: BlockCache? = .shared) {
+        self.cache = cache
+    }
 
     private struct File {
         /// Downloads (running or done) by block index.
@@ -38,6 +53,8 @@ actor ReadAhead {
         /// Bytes read in order so far.
         var sequentialBytes: UInt64 = 0
         var lastUse = Date()
+        /// For the memory estimate (a small file is one short block).
+        var fileSize: UInt64 = 0
         /// Unique per cache entry, so results of requests started before an
         /// invalidation are dropped.
         let generation: Int
@@ -51,12 +68,14 @@ actor ReadAhead {
         offset: UInt64,
         length: Int,
         fileSize: UInt64,
+        md5: String? = nil,
         fetch: @escaping Fetch
     ) async throws -> Data {
         guard length > 0, offset < fileSize else {
             return Data()
         }
         let end = min(offset + UInt64(length), fileSize)
+        let md5 = cache == nil ? nil : md5
         var file = files[id] ?? newFile()
         let sequential = offset + Self.sequentialSlack >= file.nextOffset
             && offset <= file.nextOffset + Self.sequentialSlack
@@ -70,9 +89,15 @@ actor ReadAhead {
             file.nextOffset = end
         }
         file.lastUse = Date()
+        file.fileSize = fileSize
         files[id] = file
-        guard file.sequentialBytes > Self.sequentialThreshold else {
-            return try await fetch(offset, Int(end - offset))
+        guard file.sequentialBytes > Self.sequentialThreshold || fileSize <= Self.smallFileLimit else {
+            // A random read, or the start of a file: cached blocks from the
+            // disk, only the rest downloaded (just the bytes asked for).
+            guard let md5 else {
+                return try await fetch(offset, Int(end - offset))
+            }
+            return try await readCachingAware(md5: md5, offset: offset, end: end, fileSize: fileSize, fetch: fetch)
         }
 
         // Start the blocks this read needs and the ones ahead of it, then
@@ -84,7 +109,7 @@ actor ReadAhead {
         let ahead = min(last + UInt64(Self.parallelBlocks), lastBlock)
         var tasks: [UInt64: Task<Data, Error>] = [:]
         for index in first...ahead {
-            tasks[index] = task(for: index, of: id, fileSize: fileSize, fetch: fetch)
+            tasks[index] = task(for: index, of: id, fileSize: fileSize, md5: md5, fetch: fetch)
         }
         trim(id, keepingFrom: first > 0 ? first - 1 : 0)
         enforceMemoryLimit(keeping: id)
@@ -133,14 +158,60 @@ actor ReadAhead {
         return File(generation: nextGeneration)
     }
 
-    /// The download of one block, started if needed.
-    private func task(for index: UInt64, of id: UInt64, fileSize: UInt64, fetch: @escaping Fetch) -> Task<Data, Error> {
+    /// Bytes `offset..<end`: the parts in cached blocks from the disk, the
+    /// rest downloaded, with neighbouring missing parts in one request.
+    private func readCachingAware(
+        md5: String,
+        offset: UInt64,
+        end: UInt64,
+        fileSize: UInt64,
+        fetch: Fetch
+    ) async throws -> Data {
+        let block = UInt64(Self.blockSize)
+        var result = Data()
+        result.reserveCapacity(Int(end - offset))
+        /// Start of a missing part not yet downloaded.
+        var missingFrom: UInt64?
+        for index in (offset / block)...((end - 1) / block) {
+            let blockStart = index * block
+            let from = max(offset, blockStart)
+            let to = min(end, blockStart + block)
+            let length = Int(min(block, fileSize - blockStart))
+            guard let data = cache?.block(md5: md5, index: index, length: length) else {
+                missingFrom = missingFrom ?? from
+                continue
+            }
+            if let start = missingFrom {
+                result.append(try await fetch(start, Int(from - start)))
+                missingFrom = nil
+            }
+            result.append(data[data.startIndex + Int(from - blockStart) ..< data.startIndex + Int(to - blockStart)])
+        }
+        if let start = missingFrom {
+            result.append(try await fetch(start, Int(end - start)))
+        }
+        return result
+    }
+
+    /// The download of one block (from the disk cache if it is there),
+    /// started if needed.
+    private func task(for index: UInt64, of id: UInt64, fileSize: UInt64, md5: String?, fetch: @escaping Fetch) -> Task<Data, Error> {
         if let existing = files[id]?.blocks[index] {
             return existing
         }
         let offset = index * UInt64(Self.blockSize)
         let length = Int(min(UInt64(Self.blockSize), fileSize - offset))
-        let task = Task { try await fetch(offset, length) }
+        let cache = cache
+        let task = Task {
+            if let md5, let cached = cache?.block(md5: md5, index: index, length: length) {
+                return cached
+            }
+            let data = try await fetch(offset, length)
+            if let md5, data.count == length {
+                cache?.store(data, md5: md5, index: index)
+            }
+            return data
+        }
         files[id]?.blocks[index] = task
         return task
     }
@@ -163,7 +234,7 @@ actor ReadAhead {
     }
 
     private func enforceMemoryLimit(keeping id: UInt64) {
-        func bytes(_ file: File) -> Int { file.blocks.count * Self.blockSize }
+        func bytes(_ file: File) -> Int { file.blocks.count * Int(min(UInt64(Self.blockSize), max(file.fileSize, 1))) }
         var total = files.values.reduce(0) { $0 + bytes($1) }
         while total > Self.memoryLimit,
               let oldest = files.filter({ $0.key != id }).min(by: { $0.value.lastUse < $1.value.lastUse }) {

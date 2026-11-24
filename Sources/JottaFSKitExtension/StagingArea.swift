@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import JottaFSCore
 
@@ -26,6 +27,11 @@ final class StagingArea: @unchecked Sendable {
     private var files: [UInt64: StagedFile] = [:]
     private var loading: [UInt64: Task<StagedFile, Error>] = [:]
     private var uploading: [UInt64: Task<Void, Error>] = [:]
+    /// The MD5 of each staged file's first `bytes` bytes, kept up to date by
+    /// writes that continue exactly where the hashed part ends, so an upload
+    /// hashes only the rest (a whole copy written in order needs no extra
+    /// pass). Missing when a write or truncation changed the hashed part.
+    private var digests: [UInt64: (hasher: Insecure.MD5, bytes: UInt64)] = [:]
 
     /// `key` names this volume's own folder: each mounted location has one,
     /// and may run in its own extension process.
@@ -119,6 +125,8 @@ final class StagingArea: @unchecked Sendable {
                     return current
                 }
                 files[id] = staged
+                // Any contents downloaded by `populate` are hashed at upload.
+                digests[id] = (Insecure.MD5(), 0)
                 return staged
             }
         } catch {
@@ -127,16 +135,49 @@ final class StagingArea: @unchecked Sendable {
         }
     }
 
-    /// Records a modification: new size, dirty, next generation.
-    /// Records a write that ended at `endOffset`. Concurrent writes can
-    /// finish in any order, so the size only grows here (truncation uses
-    /// `markModified(_:size:)`).
-    func markWritten(_ id: UInt64, endingAt endOffset: UInt64) {
-        lock.withLock {
+    /// Writes to the staged file and records it: size, dirty, next
+    /// generation, and the running MD5. File and records change together
+    /// under the lock, so a snapshot always matches its MD5 state. Concurrent
+    /// writes can finish in any order, so the size only grows here. Returns
+    /// the new size.
+    @discardableResult
+    func write(_ contents: Data, to id: UInt64, at offset: UInt64) throws -> UInt64 {
+        try lock.withLock {
             guard var staged = files[id] else {
-                return
+                throw POSIXError(.EBADF)
             }
-            staged.size = max(staged.size, endOffset)
+            try JottaFSStagingFile.write(contents, to: staged.url, at: offset)
+            if var digest = digests[id] {
+                if offset == digest.bytes {
+                    digest.hasher.update(data: contents)
+                    digest.bytes += UInt64(contents.count)
+                    digests[id] = digest
+                } else if offset < digest.bytes {
+                    digests.removeValue(forKey: id)
+                }
+                // A write after the hashed part leaves it as it is.
+            }
+            let end = offset + UInt64(contents.count)
+            staged.size = max(staged.size, end)
+            staged.dirty = true
+            staged.generation &+= 1
+            staged.modified = Date()
+            files[id] = staged
+            return staged.size
+        }
+    }
+
+    /// Truncates (or extends) the staged file and records it.
+    func truncate(_ id: UInt64, to size: UInt64) throws {
+        try lock.withLock {
+            guard var staged = files[id] else {
+                throw POSIXError(.EBADF)
+            }
+            try JottaFSStagingFile.truncate(staged.url, to: size)
+            if let digest = digests[id], digest.bytes > size {
+                digests.removeValue(forKey: id)
+            }
+            staged.size = size
             staged.dirty = true
             staged.generation &+= 1
             staged.modified = Date()
@@ -144,7 +185,8 @@ final class StagingArea: @unchecked Sendable {
         }
     }
 
-    /// Records a change that sets the size (create, truncate).
+    /// Records a change that sets the size without changing the file (a
+    /// created, empty file).
     func markModified(_ id: UInt64, size: UInt64, modified: Date = Date()) {
         lock.withLock {
             guard var staged = files[id] else {
@@ -215,17 +257,38 @@ final class StagingArea: @unchecked Sendable {
 
     /// Discards a staged file (after delete, or when a clean item is reclaimed).
     func discard(_ id: UInt64) {
-        let url = lock.withLock { files.removeValue(forKey: id)?.url }
+        let url = lock.withLock {
+            digests.removeValue(forKey: id)
+            return files.removeValue(forKey: id)?.url
+        }
         if let url {
             try? FileManager.default.removeItem(at: url)
         }
     }
 
     /// A private copy of the staged file to upload, so writes during the
-    /// upload do not change the bytes being sent.
-    func snapshot(_ staged: StagedFile) throws -> URL {
+    /// upload do not change the bytes being sent (an APFS clone), and its
+    /// MD5. Taken under the lock, so no write is half done; the MD5 hashes
+    /// only what the running digest has not.
+    func snapshot(_ id: UInt64) throws -> (url: URL, md5: String, hashedWhileWriting: UInt64) {
         let copy = directory.appendingPathComponent("upload-\(UUID().uuidString)")
-        try FileManager.default.copyItem(at: staged.url, to: copy)
-        return copy
+        let digest = try lock.withLock {
+            guard let staged = files[id] else {
+                throw POSIXError(.EBADF)
+            }
+            try FileManager.default.copyItem(at: staged.url, to: copy)
+            return digests[id]
+        }
+        do {
+            let size = try JottaFSStagingFile.size(of: copy)
+            if let digest, digest.bytes <= size {
+                let md5 = try JottaFSStagingFile.md5(of: copy, continuing: digest.hasher, from: digest.bytes)
+                return (copy, md5, digest.bytes)
+            }
+            return (copy, try JottaFSStagingFile.md5(of: copy), 0)
+        } catch {
+            try? FileManager.default.removeItem(at: copy)
+            throw error
+        }
     }
 }

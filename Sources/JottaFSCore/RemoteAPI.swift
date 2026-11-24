@@ -74,12 +74,16 @@ public struct RemoteEntry: Sendable, Equatable {
     public let kind: Kind
     public let size: UInt64
     public let modified: Date?
+    /// MD5 of a file's current revision (lower-case hex), when known. Keys the
+    /// extension's block cache.
+    public let md5: String?
 
-    public init(name: String, kind: Kind, size: UInt64, modified: Date?) {
+    public init(name: String, kind: Kind, size: UInt64, modified: Date?, md5: String? = nil) {
         self.name = name
         self.kind = kind
         self.size = size
         self.modified = modified
+        self.md5 = md5
     }
 }
 
@@ -520,7 +524,7 @@ public actor JottacloudClient {
         return customer
     }
 
-    private func authorizedGet(
+    func authorizedGet(
         url: URL,
         range: String? = nil
     ) async throws -> (data: Data, statusCode: Int) {
@@ -659,7 +663,7 @@ public actor JottacloudClient {
         return response
     }
 
-    private func jfsURL(
+    func jfsURL(
         volume: JottacloudRemoteVolume,
         path: String
     ) throws -> URL {
@@ -787,7 +791,7 @@ public actor JottacloudClient {
         return (data, http.statusCode)
     }
 
-    private static func checkSuccess(_ statusCode: Int) throws {
+    static func checkSuccess(_ statusCode: Int) throws {
         guard (200..<300).contains(statusCode) else {
             throw JottacloudError.httpStatus(statusCode)
         }
@@ -1183,7 +1187,8 @@ private final class DirectoryXMLParser: NSObject, XMLParserDelegate {
                 name: entry.name,
                 kind: .file,
                 size: revision.size,
-                modified: revision.modified
+                modified: revision.modified,
+                md5: revision.md5
             )
             entries.append(remoteEntry)
             fileRevisions.append(RemoteFileRevision(entry: remoteEntry, md5: revision.md5))

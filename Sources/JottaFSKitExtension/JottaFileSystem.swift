@@ -69,7 +69,9 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             return .notRecognized
         }
         return .usable(
-            name: JottaFSStorage.volumeName(device: location.device, mountpoint: location.mountpoint),
+            name: JottaFSStorage.availableVolumeName(
+                JottaFSStorage.volumeName(device: location.device, mountpoint: location.mountpoint)
+            ),
             containerID: Self.containerIdentifier(anchorName: anchorName)
         )
     }
@@ -155,7 +157,14 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 logger.error("No service path for the backup device; the Trash is unavailable.")
             }
         }
-        return MountTarget(volume: volume, deviceServicePath: deviceServicePath, anchorName: anchorName)
+        return MountTarget(
+            volume: volume,
+            deviceServicePath: deviceServicePath,
+            anchorName: anchorName,
+            volumeName: JottaFSStorage.availableVolumeName(
+                JottaFSStorage.volumeName(device: volume.device, mountpoint: volume.mountpoint)
+            )
+        )
     }
 
     func unloadResource(

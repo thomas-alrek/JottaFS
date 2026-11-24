@@ -369,7 +369,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
                 item.identifier,
                 offset: UInt64(offset),
                 length: length,
-                fileSize: fileSize
+                fileSize: fileSize,
+                md5: item.entry.md5
             ) { blockOffset, blockLength in
                 try await client.readRange(
                     volume: volume,

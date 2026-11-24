@@ -234,11 +234,10 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             throw POSIXError(.EFBIG)
         }
         do {
-            let staged = try await stage(item, keepContents: true)
+            _ = try await stage(item, keepContents: true)
             await readAhead.invalidate(item.identifier)
-            _ = try JottaFSStagingFile.write(contents, to: staged.url, at: UInt64(offset))
-            staging.markWritten(item.identifier, endingAt: end)
-            updateEntry(item, size: staging.file(item.identifier)?.size ?? end, modified: Date())
+            let size = try staging.write(contents, to: item.identifier, at: UInt64(offset))
+            updateEntry(item, size: size, modified: Date())
         } catch {
             throw posixError(error)
         }
@@ -322,9 +321,8 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             }
             do {
                 await readAhead.invalidate(item.identifier)
-                let staged = try await stage(item, keepContents: newSize > 0)
-                try JottaFSStagingFile.truncate(staged.url, to: newSize)
-                staging.markModified(item.identifier, size: newSize)
+                _ = try await stage(item, keepContents: newSize > 0)
+                try staging.truncate(item.identifier, to: newSize)
                 updateEntry(item, size: newSize, modified: Date())
             } catch {
                 throw posixError(error)
@@ -382,17 +380,15 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
                 return
             }
             let clock = PhaseClock()
-            let snapshot = try staging.snapshot(staged)
+            let (snapshot, md5, hashedWhileWriting) = try staging.snapshot(id)
             defer { try? FileManager.default.removeItem(at: snapshot) }
             let size = try JottaFSStagingFile.size(of: snapshot)
-            clock.mark("snapshot of \(size) bytes")
+            clock.mark("snapshot of \(size) bytes and md5 (\(size - min(size, hashedWhileWriting)) bytes hashed now)")
             let progress = UploadProgress(anchorName: anchorName, volumePath: volumePath, fileURL: mountedURL, totalBytes: size)
             defer {
                 progress.finish()
                 writeLogger.info("Upload progress: \(progress.summary, privacy: .public)")
             }
-            let md5 = try JottaFSStagingFile.md5(of: snapshot)
-            clock.mark("md5")
             do {
                 _ = try await client.upload(
                     volume: location.volume,

@@ -24,9 +24,9 @@ struct MountTarget: Sendable {
         .mountpoint(volume)
     }
 
-    var volumeName: String {
-        JottaFSStorage.volumeName(device: volume.device, mountpoint: volume.mountpoint)
-    }
+    /// The name in Finder: the user's name for the location, or its own
+    /// name, numbered if another mounted volume already has it.
+    let volumeName: String
 
     /// The service path of `path` in the mounted location, or nil.
     func servicePath(volume: JottacloudRemoteVolume, path: String) -> String? {
@@ -292,11 +292,13 @@ final class ItemStore {
             item.path = newPath
             item.parentIdentifier = newParent.identifier
             item.role = .remote(location.volume, path: location.path)
+            // Same content: keep the MD5 (and so the cached blocks).
             item.entry = RemoteEntry(
                 name: name,
                 kind: item.entry.kind,
                 size: item.entry.size,
-                modified: item.entry.modified
+                modified: item.entry.modified,
+                md5: item.entry.md5
             )
             itemsByPath[Self.key(newPath)] = item
 

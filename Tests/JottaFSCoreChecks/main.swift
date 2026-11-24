@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 @testable import JottaFSCore
 
@@ -23,6 +24,8 @@ enum RemoteAPIChecks {
         try doesNotListTheListedFolderItself()
         try storesCredentialsAsBinaryPropertyList()
         try namesOneMountAnchorPerLocation()
+        try continuesAnMD5FromAnOffset()
+        try readsShareLinks()
         print("All Jottacloud API checks passed.")
     }
 
@@ -518,6 +521,55 @@ extension RemoteAPIChecks {
         precondition(JottaFSStorage.isValidAnchorName(""))
         precondition(!JottaFSStorage.isValidAnchorName("../credentials"))
         precondition(!JottaFSStorage.isValidAnchorName(archive.uppercased()))
+    }
+}
+
+extension RemoteAPIChecks {
+    /// The MD5 of a file whose first part was hashed while it was written
+    /// equals the MD5 of the whole file.
+    fileprivate static func continuesAnMD5FromAnOffset() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("jottafs-md5-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let data = Data((0..<3_000_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })
+        try data.write(to: url)
+        let whole = try JottaFSStagingFile.md5(of: url)
+        for split in [0, 1, 1_048_576, 2_999_999, 3_000_000] {
+            var hasher = Insecure.MD5()
+            hasher.update(data: data.prefix(split))
+            let continued = try JottaFSStagingFile.md5(of: url, continuing: hasher, from: UInt64(split))
+            precondition(continued == whole)
+        }
+    }
+}
+
+extension RemoteAPIChecks {
+    fileprivate static func readsShareLinks() throws {
+        let file = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <file name="a.bin" uuid="x"><path>/u/Jotta/Archive/T</path>
+        <publicURI>13f86255648645d197b10a8fddcd9d13</publicURI>
+        <publicSharePath>/s/32013f86255648645d197b10a8fddcd9d13</publicSharePath>
+        <currentRevision><number>1</number><state>COMPLETED</state></currentRevision></file>
+        """.utf8)
+        let shared = try ShareLinkParser.parse(file)
+        precondition(shared.own?.absoluteString == "https://www.jottacloud.com/s/32013f86255648645d197b10a8fddcd9d13")
+        precondition(shared.children.isEmpty)
+
+        let folder = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <folder name="T"><path>/u/Jotta/Archive</path>
+        <folders><folder name="Sub"><publicSharePath>/s/320aa</publicSharePath></folder></folders>
+        <files><file name="a.bin"><currentRevision><state>COMPLETED</state></currentRevision></file>
+        <file name="b.bin"><publicSharePath>/s/320bb</publicSharePath></file></files></folder>
+        """.utf8)
+        let listing = try ShareLinkParser.parse(folder)
+        precondition(listing.own == nil)
+        precondition(listing.children.mapValues(\.absoluteString) == [
+            "Sub": "https://www.jottacloud.com/s/320aa",
+            "b.bin": "https://www.jottacloud.com/s/320bb",
+        ])
+        precondition(JottacloudClient.shareLink(forPath: "https://evil.example/s/1") == nil)
+        precondition(JottacloudClient.shareLink(forPath: "/s/../x") == nil)
     }
 }
 

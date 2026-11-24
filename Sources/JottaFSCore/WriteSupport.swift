@@ -66,11 +66,13 @@ public enum JottaFSStagingFile {
         return (attributes[.size] as? NSNumber)?.uint64Value ?? 0
     }
 
-    /// Lowercase hex MD5 of a file, computed in chunks.
-    public static func md5(of url: URL) throws -> String {
+    /// Lowercase hex MD5 of a file, computed in chunks. With `hasher` (the
+    /// MD5 state of the file's first `offset` bytes), only the rest is read.
+    public static func md5(of url: URL, continuing hasher: Insecure.MD5 = Insecure.MD5(), from offset: UInt64 = 0) throws -> String {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-        var hasher = Insecure.MD5()
+        var hasher = hasher
+        try handle.seek(toOffset: offset)
         while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
             hasher.update(data: chunk)
         }

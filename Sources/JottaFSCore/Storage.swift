@@ -33,6 +33,49 @@ public enum JottaFSStorage {
         return defaultVolumeName(mountpoint: mountpoint)
     }
 
+    /// `name`, or "name (2)", "name (3)" … if a mounted volume (of any kind)
+    /// already uses it, so two mounted locations with the same name (such as
+    /// "Desktop" from two computer backups) can be told apart in Finder. The
+    /// result is not saved: the next mount checks again, and a name the user
+    /// sets in the app still wins.
+    public static func availableVolumeName(_ name: String) -> String {
+        let taken = mountedVolumeNames()
+        guard taken.contains(name.lowercased()) else {
+            return name
+        }
+        for number in 2...999 {
+            let suffix = " (\(number))"
+            var base = name
+            // A mount point name has at most 255 bytes.
+            while base.utf8.count + suffix.utf8.count > 255 {
+                base.removeLast()
+            }
+            let candidate = base + suffix
+            if !taken.contains(candidate.lowercased()) {
+                return candidate
+            }
+        }
+        return name
+    }
+
+    /// Lower-cased names of the volumes mounted under `/Volumes`.
+    private static func mountedVolumeNames() -> Set<String> {
+        var mounts: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&mounts, MNT_NOWAIT)
+        guard count > 0, let mounts else {
+            return []
+        }
+        var names: Set<String> = []
+        for index in 0..<Int(count) {
+            var mount = mounts[index]
+            let path = cString(&mount.f_mntonname)
+            if path.hasPrefix("/Volumes/") {
+                names.insert((path as NSString).lastPathComponent.lowercased())
+            }
+        }
+        return names
+    }
+
     /// The location's own name, made usable as a mount point name.
     public static func defaultVolumeName(mountpoint: String) -> String {
         // `/` and `:` cannot appear in a mount point name.
@@ -74,6 +117,64 @@ public enum JottaFSStorage {
             names.removeValue(forKey: key)
         }
         settings[volumeNamesKey] = names
+        try saveSettings(settings, to: directory)
+    }
+
+    // MARK: Download cache size (Settings.plist, shared with the extension)
+
+    static let blockCacheLimitKey = "BlockCacheLimitMB"
+    /// The default size of the download cache: 1024 MB.
+    public static let defaultBlockCacheLimitMB = 1024
+
+    /// The most the extension keeps of downloaded file data on disk, in MB
+    /// (1 MB = 1 048 576 bytes); 0 turns the cache off.
+    public static func blockCacheLimitMB() -> Int {
+        guard let value = loadSettings()[blockCacheLimitKey] as? Int, value >= 0 else {
+            return defaultBlockCacheLimitMB
+        }
+        return value
+    }
+
+    public static func setBlockCacheLimitMB(_ megabytes: Int) throws {
+        guard let directory = credentialsDirectoryURL() else {
+            throw JottaFSStorageError.applicationGroupUnavailable
+        }
+        var settings = loadSettings()
+        settings[blockCacheLimitKey] = max(0, megabytes)
+        try saveSettings(settings, to: directory)
+    }
+
+    /// The download cache: `<app group>/Library/Caches/BlockCache`, shared by
+    /// the extension (which fills it) and the app (which can clear it).
+    public static func blockCacheDirectoryURL() -> URL? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: applicationGroupIdentifier)?
+            .appendingPathComponent("Library/Caches/BlockCache", isDirectory: true)
+            .standardizedFileURL
+    }
+
+    /// Bytes of downloaded data in the cache.
+    public static func blockCacheSize() -> UInt64 {
+        guard let directory = blockCacheDirectoryURL(),
+              let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey])
+        else {
+            return 0
+        }
+        return files.reduce(0) { $0 + UInt64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+    }
+
+    /// Deletes all cached downloads (files that are being read are downloaded
+    /// again as needed).
+    public static func clearBlockCache() throws {
+        guard let directory = blockCacheDirectoryURL() else {
+            throw JottaFSStorageError.applicationGroupUnavailable
+        }
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            return
+        }
+        try FileManager.default.removeItem(at: directory)
+    }
+
+    private static func saveSettings(_ settings: [String: Any], to directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let data = try PropertyListSerialization.data(fromPropertyList: settings, format: .xml, options: 0)
         try data.write(to: directory.appendingPathComponent(settingsFileName, isDirectory: false), options: .atomic)
