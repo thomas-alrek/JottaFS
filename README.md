@@ -21,6 +21,14 @@ Jottacloud account and shows one Jottacloud location in Finder as a disk.
 You can open, copy, change, move and delete files on this disk. JottaFS sends
 the changes to Jottacloud.
 
+<p align="center">
+  <a href="https://github.com/thomas-alrek/JottaFS/releases/latest">
+    <img src="https://img.shields.io/github/v/release/thomas-alrek/JottaFS?label=Download&logo=apple&logoColor=white&color=8A5CF6&style=for-the-badge" alt="Download the latest version of JottaFS">
+  </a>
+  <br>
+  <a href="https://github.com/thomas-alrek/JottaFS/releases/latest">Download the latest version (.dmg)</a>
+</p>
+
 JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
 
 > [!IMPORTANT]
