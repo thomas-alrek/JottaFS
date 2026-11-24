@@ -5,196 +5,167 @@ Updated 2026-11-24.
 ## Goal
 
 Mount a Jottacloud account as a native FSKit volume that is visible in Finder
-and usable from the CLI. File reads must use bounded HTTP range requests so
-callers can seek without downloading each whole file first. Write support is a
-later stretch goal; mutations remain disabled until separately designed and
-tested.
+and usable from the CLI. File reads use bounded HTTP range requests so callers
+can seek without downloading whole files. Write support is a later stretch
+goal; mutations stay disabled until separately designed and tested.
 
 ## Current state
 
-- The project is a Swift macOS host app plus an FSKit extension. The extension
-  exposes discovered devices and mountpoints read-only under
-  `/<device>/<mountpoint>/`.
-- The host app stores OAuth credentials as a private property list in the
-  `group.no.alrek.jottafs` app-group container. Do not print, commit, or
-  pass credentials through source, logs, command-line arguments, or fixtures.
-- The renamed app (`no.alrek.jottafs`) mounts and reads correctly from the CLI
-  (verified 2026-11-24 at `/Volumes/Jottacloud`, see below). The volume name is
-  now `JottaFSStorage.volumeName = "JottaCloud"`; verified mounting at
-  `/Volumes/JottaCloud` with byte-identical reads.
-- Finder visibility is still unresolved: the mount has no `nobrowse` option
-  and Foundation reports it as mounted/browsable, but Finder has omitted it.
-- Unmount: `fskitd` mounts the volume as root (`statfs.f_owner == 0`), so a
-  user-level `umount`/`unmount(2)` fails with EPERM, and the old Finder `eject`
-  AppleScript failed. `sudo umount` works. DiskArbitration *does* track the
-  volume, as a network volume with no BSD device (`DAVolumeNetwork = 1`,
-  `DAVolumeKind = jottacloud`, mount flags lack `MNT_LOCAL`), which is why
-  `diskutil` cannot find it. `DADiskUnmount` from an unsandboxed user process
-  unmounted it without a password. `FileManager.unmountVolume` from the
-  sandboxed app failed with Foundation error 769 after logging that its
-  `com.apple.unmountassistant.process.start` notification was blocked by the
-  sandbox. `DADiskUnmount` from the sandboxed app itself is refused with
-  `0xf8da0009` (`kDAReturnNotPermitted`); there is no entitlement for it.
-  The app therefore stays sandboxed and delegates to an embedded, unsandboxed
-  XPC service, `JottaFSUnmountService` (`no.alrek.jottafs.unmount`, sources in
-  `UnmountService/`, shared protocol in `Shared/`). The service takes no path
-  argument: it looks up the `jottacloud` mount from `jottafs://mount` itself and
-  calls `DADiskUnmount`, and it only accepts connections from
-  `no.alrek.jottafs` signed by its own team. Unsandboxed XPC services are fine
-  for Developer ID distribution but not the Mac App Store. The app then checks
-  the mount table. DiskArbitration authorizes the unmount via authd's
-  `system.volume.network.unmount` right (`is-root`, `is-admin`, `on-console`,
-  or `authenticate-admin-30`). In its default new security session the service
-  failed with "session owner -3 invalid" and then -60007 (interaction not
-  allowed), so its `Info.plist` sets `XPCService.JoinExistingSession = true`.
-  Verified 2026-11-24: mount and unmount from the app both work end to end.
-- Finder visibility: Finder hides the volume everywhere, even inside
-  `/Volumes`, although Foundation reports it browsable and not hidden and
-  Finder's `CFVolumeObserver` sees the DiskArbitration disk. DiskArbitration
-  classifies it as a network volume; `ShowMountedServersOnDesktop` is already
-  `1`, so that preference is not the cause. The volume declared
-  `doesNotSupportVolumeSizes = true`, so `df` showed 0 blocks and Foundation
-  reported nil capacities. It now reports sizes from the account's
-  `<capacity>`/`<usage>` (`JottacloudStorage.volumeSizes`, never zero).
-  Verified that `df` then shows a size (3.2 TiB), but Finder still hid it.
-- Next finding: `getattrlist(2)` failed with EINVAL for `ATTR_CMN_CRTIME`,
-  `CHGTIME`, `ACCTIME`, `BKUPTIME` on files, and also `MODTIME` on the root and
-  virtual device/mountpoint folders, because only `modifyTime` was set and only
-  when the listing had one. `attributes(for:)` now sets all six times, falling
-  back to the mount time. Verified: the volume now appears on the Desktop and
-  under Go → Computer; it is still missing from the sidebar (check Finder →
-  Settings → Sidebar → Connected servers, since it is a non-local volume).
-- Volume icon: macOS only honours `.VolumeIcon.icns` at the root together with
-  `kHasCustomIcon` (0x0400) in the root's `com.apple.FinderInfo`. The icon was
-  served as `@JottaVolume.icns` without FinderInfo. It is now
-  `.VolumeIcon.icns`, and the volume implements `FSVolume.XattrHandler` in
-  "limited" mode, exposing only the root's FinderInfo. Verified: the custom
-  icon shows. The icon file is now omitted from directory enumeration but
-  still resolved by `lookupItem`; verified that Finder still shows the icon and
-  `ls -a` no longer lists it.
-- Sidebar (fixed 2026-11-24): mounted from the generic `jottafs://mount`
-  resource, the volume was non-local; Finder logged "Unexpected volume format:
-  jottacloud", probed NetFS (server volume without a server) and gave it no
-  Locations entry. FSKit's only mount option is read-only, but the resource
-  type decides locality (Xcode's DeviceFS, mounted from a `file://` path, is
-  `local`). The app now mounts an `FSPathURLResource` for the empty
-  `<group>/JottaCloudMount` directory (`JottaFSStorage.mountAnchorDirectoryURL`,
-  deliberately not the credentials directory); the extension declares
-  `FSSupportsPathURLs` and accepts that path or the old `jottafs://mount`; the
-  app's mount check and the unmount service match either source. Verified: the
-  mount is `local`, DiskArbitration reports `DAVolumeNetwork = 0`, the volume
-  appears in the Finder sidebar, and reads are byte-identical. Unmount now
-  goes through a non-network authorization right (the external/removable
-  rules are the same is-admin/on-console rule); verified that the app's
-  Unmount still works.
-- Format shows as "Unknown (jottacloud)". Open, deferred. Classic lookup is
+Working and verified on macOS 27.3 (2026-11-24):
+
+- The sandboxed host app (`no.alrek.jottafs`) mounts the account read-only at
+  `/Volumes/JottaCloud`, exposing devices and mountpoints as
+  `/<device>/<mountpoint>/`, and unmounts it again.
+- Reads are correct: small files are byte-identical to known copies, an
+  11.5 MB PNG reads with valid chunk CRCs, and seek reads (including across
+  the 1 MiB request boundary) match a full read.
+- Finder shows the volume on the Desktop, under Go → Computer and in the
+  sidebar, with the custom volume icon and a size from the account's
+  capacity/usage.
+- OAuth credentials live as a private property list in the
+  `group.no.alrek.jottafs` app-group container. Do not print, commit, or pass
+  credentials through source, logs, command-line arguments, or fixtures.
+
+Known cosmetic gap: Get Info shows the format as "Unknown (jottacloud)". This
+is deferred, low priority (see below).
+
+Write support works from the shell inside the write scope; Finder and
+TextEdit checks remain (see "Write support" below).
+
+## Write support (built and shell-tested 2026-11-24)
+
+Design and decisions: [docs/write-support-design.md](docs/write-support-design.md).
+The account holds the owner's personal data, so writes are confined to
+`Jotta/Archive/JottaFS-Test` (`JottaFSWriteScope`); outside it every mutation
+fails with `EPERM` before any request and items report no write bits. Deletes
+go to the Jottacloud trash only. Files are staged in the extension's Caches
+container (`StagingArea`) and uploaded on close/sync through
+`files/v1/allocate` + `upload_url`, then verified by size and MD5. `.DS_Store`
+and `._*` are refused; the volume is case-insensitive, case-preserving.
+
+First live round (2026-11-24): the scope guard held (creating in
+`Jotta/Archive` → EPERM, in `Jotta/Sync` → EACCES, moving a folder out of the
+scope → EPERM); `mkdir` and folder rename (`mkDir`, `mvDir`) worked. Uploads
+failed: `files/v1/allocate` answered 202, then the client gave up before
+sending data (most likely the `upload_url` host was not on `jottacloud.com`;
+`jotta.cloud` is now trusted too, and failures are logged with a safe cause).
+`rmdir` of an empty folder failed with ENOTEMPTY because the listing parser
+treated the listed folder's own root `<folder>` element as a child; fixed.
+Left in the scope from that round: empty folders `sub-b`, `sub-c`, and an
+incomplete `hello.txt` allocation.
+
+Second live round (2026-11-24, after the fixes): all passed from the shell,
+only inside the scope. Small, zero-byte and 12 MB uploads (each verified by
+Jottacloud's size and MD5; 12 MB took 1.3 s), append, overwrite, truncate,
+file rename, case-only rename, moving a file into a subfolder, folder rename,
+file delete and `rmdir` (to trash), and refusal of `.DS_Store`/`._*`. After
+the 60 s overlay expired the server listing matched, `big.bin` read back
+byte-identical, no upload failures were logged, and read-only listings of
+`Jotta` and `Jotta/Archive` (excluding `JottaFS-Test`) were unchanged from
+before the tests. Still to check by hand: TextEdit save, Finder copy-in,
+rename and delete, and that deleted items appear in the Jottacloud trash on
+the website.
+
+Live test plan (only inside the scope; compare a read-only listing of
+`Jotta/Archive` and `Jotta` before and after): `mkdir` the scope folder;
+create/write/read back/append a small file; zero-byte file; overwrite;
+truncate; >10 MB file with byte-for-byte read-back; rename file and folder;
+delete and check the Jottacloud trash; TextEdit save; Finder copy-in, rename
+and delete; and confirm writes outside the scope fail.
+
+## How it fits together
+
+- **Mount resource.** The app mounts an `FSPathURLResource` for the empty
+  `<group>/JottaCloudMount` directory (`JottaFSStorage.mountAnchorDirectoryURL`),
+  deliberately separate from the credentials directory. The extension declares
+  `FSSupportsPathURLs` only and accepts exactly that directory. A path resource
+  makes the mount `local`; the earlier generic `jottafs://mount` resource was
+  non-local, so Finder treated it as a server volume without a server and left
+  it out of the sidebar. A mismatch between the resource kind/scheme and the
+  extension's declaration makes `fskitd` fail with `EPROGUNAVAIL`
+  ("RPC prog. not avail").
+- **Reads.** `readRange` clamps each request to the listed file size and sends
+  no request at or after EOF: Jottacloud answers 416 (not a truncated 206) for
+  a range that extends past the end, which previously made reads zero-filled.
+- **Attributes Finder needs.** Every item sets all six times (falling back to
+  the mount time for virtual items); `getattrlist(2)` fails with EINVAL for any
+  time FSKit cannot supply, and Finder then hides the volume. The volume
+  reports a non-zero size (`JottacloudStorage.volumeSizes`).
+- **Icon.** The root resolves `.VolumeIcon.icns` by name but never lists it,
+  and a limited `FSVolume.XattrHandler` exposes only the root's
+  `com.apple.FinderInfo` with `kHasCustomIcon`.
+- **Unmount.** `fskitd` mounts as root, so `unmount(2)` from the user fails
+  with EPERM; DiskArbitration refuses sandboxed callers
+  (`kDAReturnNotPermitted`), and `FileManager.unmountVolume` fails under the
+  sandbox. The app therefore asks the embedded, unsandboxed XPC service
+  `JottaFSUnmountService` (`no.alrek.jottafs.unmount`, `UnmountService/`,
+  protocol in `Shared/`) to call `DADiskUnmount`. The service takes no path: it
+  finds the `jottacloud` mount from the anchor directory itself, and only
+  accepts `no.alrek.jottafs` signed by its own team. It sets
+  `XPCService.JoinExistingSession` so authd can grant the volume-unmount right
+  (`is-admin`/`on-console`) in the user's login session. Unsandboxed XPC
+  services are fine for Developer ID distribution, not the Mac App Store.
+
+## Deferred
+
+- **Format name.** Foundation and Finder look up
   `/Library/Filesystems/<f_fstypename>.fs` → `FSPersonalities` entry whose
-  `FSSubType` matches `f_fssubtype` → `FSName` (as macFUSE does). Adding
-  `FSSubType = 0` to the extension's own `FSPersonalities` (plus
-  `fileSystemSubType = 0`) was tested 2026-11-24: `f_fssubtype` is 0, but
-  Foundation and Finder still report "Unknown (jottacloud)", so FSKit
-  extension personalities are not consulted for the format name. Both settings
-  are kept, since they are harmless and match a future bundle. Remaining
-  option: a `jottacloud.fs` bundle in `/Library/Filesystems` with an
-  `FSPersonalities` entry (`FSName`, `FSSubType = 0`), which needs an admin
-  install.
-  Still EINVAL
-  (probably fine, unsupported by design): `ATTR_CMN_EXTENDED_SECURITY`/`UUID`/
-  `GRPUUID`, `ATTR_DIR_ENTRYCOUNT`, `ATTR_VOL_OBJCOUNT`/`FILECOUNT`/`DIRCOUNT`/
-  `MAXOBJCOUNT`/`QUOTA_SIZE`/`RESERVED_SIZE`.
-- `RemoteAPI.swift` still has the privacy-limited diagnostic log line in
-  `readRange` (HTTP status and response headers only, subsystem
-  `no.alrek.jottafs.extension`, category `JFSRead`).
+  `FSSubType` matches `f_fssubtype` → `FSName` (as macFUSE does). An
+  `FSSubType` in the FSKit extension's own personality was tested and is not
+  consulted, so it was removed again. The remaining option is a
+  `jottacloud.fs` bundle with `FSName = Jottacloud`, `FSSubType = 0` (the
+  volume's default subtype), which needs an admin install.
+- Still EINVAL from `getattrlist(2)`, apparently harmless:
+  `ATTR_CMN_EXTENDED_SECURITY`/`UUID`/`GRPUUID`, `ATTR_DIR_ENTRYCOUNT`,
+  `ATTR_VOL_OBJCOUNT`/`FILECOUNT`/`DIRCOUNT`/`MAXOBJCOUNT`/`QUOTA_SIZE`/
+  `RESERVED_SIZE`.
 
-## Fixed 2026-11-24
+## Development workflow
 
-### Mount error "RPC prog. not avail"
-
-`fskitd` returned `EPROGUNAVAIL` (errno 74) because the host app mounts
-`jottafs://mount`, while the extension declared only the old `jottacloudfs`
-scheme in `FSSupportedSchemes`. The system log showed "Extension doesn't support
-given resource scheme". `FSKitExtension/Info.plist` now declares `jottafs`.
-
-### Zero/garbage file reads
-
-`index.html`/`styles.css` read as all zeros. The extension log showed a single
-request answered with `status=416 content-type=text/xml`: the kernel asked for
-more bytes than the file holds and `readRange` sent a range ending past EOF.
-Jottacloud answers that with 416 rather than a truncated 206; the client
-treated 416 as EOF and returned 0 bytes, so the kernel zero-filled the known
-file size. `readRange` now takes the listed `fileSize`, clamps the range to it,
-and skips the request entirely at/after EOF (`JottacloudClient.byteRange`,
-covered in `jottafs-checks`). The earlier `18 18 18 ff` prefix was most likely
-the same short read exposing uninitialised buffer contents.
-
-Verified on a fresh mount:
-- `bergenhardstyle2025/src/index.html` is byte-identical to the user's copy
-  (`~/Downloads/_index.html`); `styles.css`, the PNG icon and the JPEG decode
-  correctly; a mid-file `dd` read returns the right text.
-- `hard-alliance/public/cover-generator/artwork.png` (11.5 MB, 3000×3000) read
-  in full has valid CRCs on every chunk and decompresses to the exact expected
-  size; 64-byte seek reads at offsets 123, 1048570 (across the 1 MiB request
-  boundary) and 2000003 match the full read.
-
-## Debugging notes
-
+- Checks: `swift build --target JottaFSKitExtension` and
+  `swift run jottafs-checks`. The signed app:
+  `xcodebuild -project JottaFS.xcodeproj -scheme JottaFS -configuration Debug -sdk macosx build`.
+- A shell cannot mount; `FSClient.mountSingleVolume` needs the host app's
+  `com.apple.developer.fskit.mount` entitlement. Mount and unmount from the app.
+- After rebuilding the extension: unmount, make sure no `JottaFSKitExtension`
+  process remains, `pluginkit -a <appex>`, then quit System Settings (⌘Q),
+  reopen File System Extensions and turn JottaFS off and on. A rebuilt
+  extension can come up disabled ("Operation not permitted"; `fskitd` logs
+  "Attempt to start disabled extension"); `pluginkit -e use` and the `+` in
+  `pluginkit -m` do not control FSKit's enablement. A long-running System
+  Settings shows a stale list, so JottaFS can appear to be missing.
+- If JottaFS is still missing from File System Extensions after quitting
+  System Settings: each extension rebuild re-registers it as a new module
+  (`fskit_agent` logs "Removed 1 identifiers / Added 1 identifiers"), and the
+  pane's list comes from the per-user `fskit_agent`, which only offers the new
+  module after it restarts. The agent is SIP-protected (`launchctl kickstart`
+  fails with "Operation not permitted while System Integrity Protection is
+  engaged"; `killall` has no effect) and there is no CLI for FSKit
+  enablement. Logging out and back in was tried and is not enough; only a
+  full reboot refreshes the list. Rebuilds that do not touch the extension's
+  sources may avoid this, but that has not been checked, so batch extension
+  changes between test rounds.
 - Inspect logs with `/usr/bin/log`; the user's shell profile defines a `log`
-  function that shadows it. Example:
-  `/usr/bin/log stream --style compact --info --predicate 'process == "JottaFSKitExtension"'`.
-- After rebuilding, the mounted volume keeps the old extension process. Unmount
-  (with no shell inside the volume), make sure no `JottaFSKitExtension`
-  process remains, `pluginkit -a <appex>` the new build, then mount from the
-  app. Re-registering a rebuilt extension can leave it disabled; the mount then
-  fails with "Operation not permitted" and `fskitd` logs "Attempt to start
-  disabled extension". `pluginkit -e use` and the `+` in `pluginkit -m` do NOT
-  control this; FSKit has its own enablement. Re-enable JottaFS in System
-  Settings → General → Login Items & Extensions → File System Extensions
-  (turn it off and on if it already shows as on). If JottaFS is missing from
-  that list after a rebuild, quit System Settings completely (⌘Q) and reopen
-  it; a long-running System Settings shows a stale list. A shell cannot mount; `FSClient.mountSingleVolume` needs the host app's
-  `com.apple.developer.fskit.mount` entitlement.
-
-## Direct API probe
-
-`Scripts/jottafs-read-probe.swift` targets one device, mountpoint, and file,
-samples non-zero offsets, and reconstructs the file with 256-byte range reads.
-It never prints credentials. The plain command-line process cannot read the
-app-group credentials file; do not bypass that with `sudo`, permission changes,
-or copied credentials. Now that reads work through the mount, the probe is
-optional.
+  function that shadows it.
 
 ## Signing and installation
 
 - `project.pbxproj` uses `DEVELOPMENT_TEAM = PLY3DSPA3F` for all targets, and
-  the working DerivedData build is signed with that team's Apple Development
-  certificate. Earlier notes said to switch to the Apriil team (`VH5235J98K`),
-  which still has no Xcode account or profiles; decide which team to keep
-  before distributing.
+  the working build is signed with that team's Apple Development certificate.
+  Earlier notes proposed the Apriil team (`VH5235J98K`), which has no Xcode
+  account or profiles; decide which team to keep before distributing.
 - Bundle IDs: `no.alrek.jottafs`, `no.alrek.jottafs.extension`,
-  `no.alrek.jottafs.core`. App group: `group.no.alrek.jottafs`. Credentials
-  from the old `group.com.jottacloudfs.mac` group are not migrated.
-- The app runs from Xcode's DerivedData. The old `com.jottacloudfs.mac`
-  extension is still registered from `~/Applications/JottacloudFS.app`
-  (disabled in System Settings, same `jottacloud` short name). A backup exists
-  at `~/Applications/JottacloudFS.previous-20261124`. Removing the old app
-  from `~/Applications` would remove the stale registration.
-
-## Verification run 2026-11-24
-
-- `swift build --target JottaFSKitExtension` — passed.
-- `swift run jottafs-checks` — passed (includes the new range-clamp check).
-- `xcodebuild -project JottaFS.xcodeproj -scheme JottaFS -configuration Debug
-  -sdk macosx build` (signed) — passed; mounted and read as above.
+  `no.alrek.jottafs.core`, `no.alrek.jottafs.unmount`. App group:
+  `group.no.alrek.jottafs`. Credentials from the old
+  `group.com.jottacloudfs.mac` group are not migrated.
+- The app currently runs from Xcode's DerivedData. Old `JottacloudFS` copies
+  were moved to the Trash on 2026-11-24; the backup
+  `~/Applications/JottacloudFS.previous-20261124` remains.
 
 ## Remaining work, in order
 
-1. Decide whether to drop the generic `jottafs://mount` resource support now
-   that the app mounts the path resource.
-2. Format name "Unknown (jottacloud)" (low priority): needs a
-   `/Library/Filesystems/jottacloud.fs` bundle and an admin install.
-3. Decide whether to keep or remove the `JFSRead` diagnostic log line.
-4. Settle the signing team and a single installed app path; remove the stale
-   `JottacloudFS.app` copies (old DerivedData build and `~/Applications`).
-5. Only after read-only mounting is reliable, design and review write behavior
-   (upload, overwrite, metadata, atomicity, conflicts, and failure recovery)
-   before enabling any mutations.
+1. Finish the live write checks by hand: TextEdit save, Finder copy-in,
+   rename and delete, and the Jottacloud trash on the website.
+2. Settle the signing team and a single installed app path (outside
+   DerivedData).
+3. Optional: the `jottacloud.fs` format-name bundle (see Deferred).

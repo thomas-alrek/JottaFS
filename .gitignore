@@ -1,6 +1,5 @@
 /.build/
 /.swiftpm/
-/target/
 .DS_Store
 **/xcuserdata/
 /DerivedData/

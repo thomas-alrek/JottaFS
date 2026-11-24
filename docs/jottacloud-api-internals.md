@@ -79,8 +79,12 @@ used 1 MiB) and return short reads at end of file.
 - OAuth discovery and token requests do not follow redirects.
 - Directory metadata is cached briefly and with entry/count bounds. FSKit and
   the kernel also cache metadata; keep the driver's own cache conservative.
-- Remote mutations remain disabled. Return read-only errors for all write,
-  create, remove, and rename operations.
+- Remote mutations are confined to `Jotta/Archive/JottaFS-Test` (see
+  [the write-support design](write-support-design.md)). The write endpoints
+  used are rclone's: `files/v1/allocate` + `upload_url` for uploads,
+  `?mkDir=true`, `?dl=true`/`?dlDir=true` (trash), and `?mv=`/`?mvDir=` with
+  a full `/<user>/<device>/<mountpoint>/...` destination. They are
+  unverified against an account until the live write tests have run.
 - Unit tests should use synthetic tokens and XML fixtures. A live account and
   actual mount are required to validate undocumented server behavior.
 

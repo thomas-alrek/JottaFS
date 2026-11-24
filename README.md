@@ -1,8 +1,9 @@
 # JottaFS
 
-A native Swift filesystem project for browsing Jottacloud on macOS. Its
-filesystem code is read-only and exposes all account devices and mountpoints
-under one mounted root.
+A native Swift filesystem project for browsing Jottacloud on macOS. It exposes
+all account devices and mountpoints under one mounted root. The volume is
+read-only except for one write-scope folder, `Jotta/Archive/JottaFS-Test`
+(see [the write-support design](docs/write-support-design.md)).
 
 ## Status
 
@@ -22,7 +23,10 @@ macOS requires the signed, installed, and enabled filesystem extension.
   macOS 27).
 - Swift 6.1+ and the macOS 27 SDK for local builds; full Xcode is required for
   packaging, signing, registering, and testing the FSKit extension.
-- Read-only browsing, metadata, and ranged downloads.
+- Browsing, metadata, and ranged downloads everywhere.
+- Create, write, rename, and delete (to the Jottacloud trash) only inside
+  `Jotta/Archive/JottaFS-Test`; files are staged locally and uploaded on
+  close.
 - OAuth login-token exchange and serialized rotating refresh-token persistence.
 - One mount contains every discovered device and mountpoint, organized as
   `/<device>/<mountpoint>/...`.
@@ -71,10 +75,9 @@ control Finder when macOS prompts or in **System Settings → Privacy & Security
 `JottaFSUnmountService` (DiskArbitration); close open files or Finder windows
 on the volume if macOS reports it is busy.
 
-Sidebar visibility
-is controlled by Finder; check **Finder → Settings →
-Sidebar → Locations → Connected servers**, or drag the mounted volume into
-**Favorites** to pin it there.
+The volume is mounted as a local volume, so Finder lists it in the sidebar
+under **Locations** (with **Finder → Settings → Sidebar → Locations** enabled
+for disks).
 
 The host app requires the `com.apple.developer.fskit.mount` entitlement. Both
 targets require the `group.no.alrek.jottafs` app group for credentials access
@@ -86,8 +89,10 @@ The host app, extension, and core framework bundle IDs are
 `no.alrek.jottafs`, `no.alrek.jottafs.extension`, and
 `no.alrek.jottafs.core`, respectively.
 
-The app and extension share credentials through the app group; the FSKit mount
-resource itself is a non-secret `jottafs://mount` identifier.
+The app and extension share credentials through the app group. The FSKit mount
+resource is an empty, non-secret `JottaCloudMount` directory in the app-group
+container, passed as an `FSPathURLResource`; it is separate from the
+credentials directory and holds no data.
 
 Do not use `mount -t jottacloud`: that command expects a legacy
 `/Library/Filesystems/jottacloud.fs` helper, which this project does not

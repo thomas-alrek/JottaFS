@@ -30,16 +30,10 @@
                 <true/>
                 <key>FSName</key>
                 <string>Jottacloud</string>
-                <key>FSSubType</key>
-                <integer>0</integer>
             </dict>
         </dict>
         <key>FSSupportsGenericURLResources</key>
-        <true/>
-        <key>FSSupportedSchemes</key>
-        <array>
-            <string>jottafs</string>
-        </array>
+        <false/>
         <key>FSSupportsBlockResources</key>
         <false/>
         <key>FSSupportsPathURLs</key>

@@ -14,14 +14,10 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     )
     private var activeResourceURL: URL?
 
-    /// The resources this file system mounts: the original generic
-    /// `jottafs://mount` URL, or the empty mount-anchor directory as a path
-    /// resource (which makes the mount local). Returns its URL, or nil.
+    /// The only resource this file system mounts: the empty mount-anchor
+    /// directory as a path resource (which makes the mount local). Returns its
+    /// URL, or nil.
     private static func acceptedResourceURL(_ resource: FSResource) -> URL? {
-        if let resource = resource as? FSGenericURLResource,
-           resource.url == JottaFSStorage.filesystemResourceURL {
-            return resource.url
-        }
         if let resource = resource as? FSPathURLResource,
            JottaFSStorage.isMountAnchorDirectory(resource.url) {
             return resource.url

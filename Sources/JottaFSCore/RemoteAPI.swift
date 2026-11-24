@@ -1,5 +1,4 @@
 import Foundation
-import OSLog
 
 public enum JottacloudError: Error, LocalizedError {
     case invalidLoginToken
@@ -11,6 +10,9 @@ public enum JottacloudError: Error, LocalizedError {
     case httpStatus(Int)
     case invalidRangeResponse
     case tokenRefreshDisabled
+    case untrustedUploadURL(host: String)
+    case uploadNotVerified
+    case unexpectedAllocateResponse(keys: [String])
 
     public var errorDescription: String? {
         switch self {
@@ -31,7 +33,13 @@ public enum JottacloudError: Error, LocalizedError {
         case .invalidRangeResponse:
             "Jottacloud returned an unexpected response to a ranged read."
         case .tokenRefreshDisabled:
-            "The saved access token is expired or rejected; token refresh is disabled for this read probe."
+            "The saved access token is expired or rejected, and token refresh is disabled."
+        case .untrustedUploadURL(let host):
+            "Jottacloud returned an upload URL on an untrusted host (\(host))."
+        case .uploadNotVerified:
+            "Jottacloud did not confirm the uploaded file's size and checksum."
+        case .unexpectedAllocateResponse(let keys):
+            "Unexpected upload allocation response (keys: \(keys.joined(separator: ", ")))."
         }
     }
 }
@@ -73,12 +81,20 @@ public struct JottacloudStorage: Sendable, Equatable {
         self.usage = usage
     }
 
-    /// Byte totals to report for the read-only volume. Never reports a zero
-    /// total: Finder hides volumes without a size. With a known quota the
-    /// volume is the quota; otherwise it is reported as full at its usage.
+    /// Free space reported for an unlimited (or unknown) quota. The kernel
+    /// refuses writes with ENOSPC on a volume reporting no free space.
+    public static let unlimitedFreeBytes: UInt64 = 1 << 40
+
+    /// Byte totals to report for the volume. Never reports a zero total:
+    /// Finder hides volumes without a size. With a known quota the volume is
+    /// the quota; with an unlimited or unknown quota it is the usage plus a
+    /// nominal `unlimitedFreeBytes`; over quota it is reported full.
     public func volumeSizes(blockSize: UInt64) -> (total: UInt64, used: UInt64, free: UInt64) {
         let used = usage ?? 0
-        if let capacity, capacity >= used, capacity > 0 {
+        guard let capacity else {
+            return (used + Self.unlimitedFreeBytes, used, Self.unlimitedFreeBytes)
+        }
+        if capacity >= used, capacity > 0 {
             return (capacity, used, capacity - used)
         }
         let total = max(used, blockSize)
@@ -140,10 +156,6 @@ public actor JottacloudClient {
 
     private let http: URLSession
     private let authHTTP: URLSession
-    private let logger = Logger(
-        subsystem: "no.alrek.jottafs.extension",
-        category: "JFSRead"
-    )
     private let allowsTokenRefresh: Bool
     private var credentials: JottacloudCredentials
     private let persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)?
@@ -230,10 +242,6 @@ public actor JottacloudClient {
         self.credentials = credentials
     }
 
-    public func listRemoteVolumes() async throws -> [JottacloudRemoteVolume] {
-        try await listAccount().volumes
-    }
-
     /// Lists devices/mountpoints and reads the account's storage figures from
     /// the same account document.
     public func listAccount() async throws -> (
@@ -308,13 +316,6 @@ public actor JottacloudClient {
             throw JottacloudError.httpStatus(-1)
         }
         let statusCode = httpResponse.statusCode
-        let contentRange = httpResponse.value(forHTTPHeaderField: "Content-Range") ?? "(none)"
-        let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "(none)"
-        let contentEncoding = httpResponse.value(forHTTPHeaderField: "Content-Encoding") ?? "(none)"
-        let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") ?? "(none)"
-        logger.info(
-            "Range response status=\(statusCode, privacy: .public) content-range=\(contentRange, privacy: .public) content-type=\(contentType, privacy: .public) content-encoding=\(contentEncoding, privacy: .public) content-length=\(contentLength, privacy: .public)"
-        )
         if statusCode == 416 {
             return Data()
         }
@@ -718,6 +719,18 @@ func parseDirectory(_ data: Data) throws -> [RemoteEntry] {
     return parser.entries
 }
 
+/// Parses a single-file metadata response (`GET` on a file's JFS path).
+/// Returns nil unless the current revision is `COMPLETED`.
+func parseFileRevision(_ data: Data) throws -> RemoteFileRevision? {
+    let parser = DirectoryXMLParser(acceptsRootFile: true)
+    let xmlParser = XMLParser(data: data)
+    xmlParser.delegate = parser
+    guard xmlParser.parse() else {
+        throw JottacloudError.invalidXML
+    }
+    return parser.fileRevisions.first
+}
+
 func parseDriveDeviceNames(_ data: Data) throws -> [String] {
     try parseJottacloudLocations(data, collecting: .devices)
 }
@@ -898,9 +911,32 @@ private final class JottacloudLocationParser: NSObject, XMLParserDelegate {
 
 private final class DirectoryXMLParser: NSObject, XMLParserDelegate {
     private(set) var entries: [RemoteEntry] = []
+    private(set) var fileRevisions: [RemoteFileRevision] = []
     private var currentEntry: PendingEntry?
     private var currentRevision: PendingRevision?
     private var text = ""
+    private var elements: [String] = []
+    /// A listing's root element (`<folder name=…>` for the listed folder
+    /// itself) is not a child: only `<folder>`/`<file>` directly inside a
+    /// `<folders>`/`<files>` list are. Single-file metadata responses have a
+    /// root `<file>`, which `acceptsRootFile` allows.
+    private let acceptsRootFile: Bool
+
+    init(acceptsRootFile: Bool = false) {
+        self.acceptsRootFile = acceptsRootFile
+    }
+
+    private func isEntryElement(_ name: String) -> Bool {
+        let parent = elements.last
+        switch name {
+        case "folder":
+            return parent == "folders"
+        case "file":
+            return parent == "files" || (acceptsRootFile && parent == nil)
+        default:
+            return false
+        }
+    }
 
     func parser(
         _ parser: XMLParser,
@@ -910,21 +946,19 @@ private final class DirectoryXMLParser: NSObject, XMLParserDelegate {
         attributes attributeDict: [String: String] = [:]
     ) {
         text = ""
-        if elementName == "folder", let name = attributeDict["name"] {
+        if currentEntry == nil, isEntryElement(elementName), let name = attributeDict["name"] {
             currentEntry = PendingEntry(
                 name: name,
-                kind: .directory,
-                deleted: attributeDict["deleted"] != nil
+                kind: elementName == "folder" ? .directory : .file,
+                deleted: attributeDict["deleted"] != nil,
+                depth: elements.count
             )
-        } else if elementName == "file", let name = attributeDict["name"] {
-            currentEntry = PendingEntry(
-                name: name,
-                kind: .file,
-                deleted: attributeDict["deleted"] != nil
-            )
-        } else if elementName == "currentRevision" {
+        } else if elementName == "currentRevision",
+                  let entry = currentEntry,
+                  entry.depth == elements.count - 1 {
             currentRevision = PendingRevision()
         }
+        elements.append(elementName)
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
@@ -937,46 +971,61 @@ private final class DirectoryXMLParser: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        if !elements.isEmpty {
+            elements.removeLast()
+        }
         let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if elementName == "state" {
+        text = ""
+        guard let entry = currentEntry else {
+            return
+        }
+        switch elementName {
+        case "state":
             currentRevision?.state = value
-        } else if elementName == "size" {
+        case "size":
             currentRevision?.size = UInt64(value) ?? 0
-        } else if elementName == "modified" {
+        case "md5":
+            currentRevision?.md5 = value.lowercased()
+        case "modified":
             if currentRevision != nil {
                 currentRevision?.modified = parseTimestamp(value)
-            } else {
-                currentEntry?.modified = parseTimestamp(value)
+            } else if elements.count == entry.depth + 1 {
+                entry.modified = parseTimestamp(value)
             }
-        } else if elementName == "currentRevision" {
-            currentEntry?.revision = currentRevision
-            currentRevision = nil
-        } else if elementName == "folder" || elementName == "file" {
-            if let entry = currentEntry, !entry.deleted, validName(entry.name) {
-                if entry.kind == .directory {
-                    entries.append(
-                        RemoteEntry(
-                            name: entry.name,
-                            kind: .directory,
-                            size: 0,
-                            modified: entry.modified
-                        )
-                    )
-                } else if let revision = entry.revision,
-                          revision.state == "COMPLETED" {
-                    entries.append(
-                        RemoteEntry(
-                            name: entry.name,
-                            kind: .file,
-                            size: revision.size,
-                            modified: revision.modified
-                        )
-                    )
-                }
+        case "currentRevision":
+            if currentRevision != nil {
+                entry.revision = currentRevision
+                currentRevision = nil
             }
+        case "folder", "file":
+            guard elements.count == entry.depth else {
+                return
+            }
+            finish(entry)
             currentEntry = nil
+        default:
+            break
         }
-        text = ""
+    }
+
+    private func finish(_ entry: PendingEntry) {
+        guard !entry.deleted, validName(entry.name) else {
+            return
+        }
+        if entry.kind == .directory {
+            entries.append(
+                RemoteEntry(name: entry.name, kind: .directory, size: 0, modified: entry.modified)
+            )
+        } else if let revision = entry.revision, revision.state == "COMPLETED" {
+            let remoteEntry = RemoteEntry(
+                name: entry.name,
+                kind: .file,
+                size: revision.size,
+                modified: revision.modified
+            )
+            entries.append(remoteEntry)
+            fileRevisions.append(RemoteFileRevision(entry: remoteEntry, md5: revision.md5))
+        }
     }
 }
 
@@ -984,19 +1033,24 @@ private final class PendingEntry {
     let name: String
     let kind: RemoteEntry.Kind
     let deleted: Bool
+    /// Number of ancestor elements, to tell this entry's own end tag and
+    /// direct children apart from nested elements.
+    let depth: Int
     var modified: Date?
     var revision: PendingRevision?
 
-    init(name: String, kind: RemoteEntry.Kind, deleted: Bool) {
+    init(name: String, kind: RemoteEntry.Kind, deleted: Bool, depth: Int) {
         self.name = name
         self.kind = kind
         self.deleted = deleted
+        self.depth = depth
     }
 }
 
 private final class PendingRevision {
     var state = ""
     var size: UInt64 = 0
+    var md5: String?
     var modified: Date?
 }
 
@@ -1012,4 +1066,261 @@ private func parseTimestamp(_ value: String) -> Date? {
     }
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.date(from: normalized)
+}
+
+// MARK: - Mutations
+//
+// Callers must enforce `JottaFSWriteScope` before calling these; the client
+// itself only performs the request. Deletes always go to the Jottacloud trash.
+extension JottacloudClient {
+    public func createFolder(volume: JottacloudRemoteVolume, path: String) async throws {
+        let url = try Self.jfsMutationURL(
+            try jfsURL(volume: volume, path: path),
+            trailingSlash: false,
+            query: ("mkDir", "true")
+        )
+        try await sendMutation(url: url)
+    }
+
+    /// Moves a file or folder to the Jottacloud trash (`dl=true` /
+    /// `dlDir=true`); never a permanent delete.
+    public func trash(
+        volume: JottacloudRemoteVolume,
+        path: String,
+        isDirectory: Bool
+    ) async throws {
+        let url = try Self.jfsMutationURL(
+            try jfsURL(volume: volume, path: path),
+            trailingSlash: isDirectory,
+            query: isDirectory ? ("dlDir", "true") : ("dl", "true")
+        )
+        try await sendMutation(url: url)
+    }
+
+    /// Renames or moves within one device/mountpoint.
+    public func move(
+        volume: JottacloudRemoteVolume,
+        from source: String,
+        to destination: String,
+        isDirectory: Bool
+    ) async throws {
+        let destinationPath = "/" + ([credentials.username, volume.device, volume.mountpoint] + [destination])
+            .joined(separator: "/")
+        let url = try Self.jfsMutationURL(
+            try jfsURL(volume: volume, path: source),
+            trailingSlash: isDirectory,
+            query: (isDirectory ? "mvDir" : "mv", destinationPath)
+        )
+        try await sendMutation(url: url)
+    }
+
+    /// The file's current completed revision, or nil if it does not exist (or
+    /// has no completed revision yet).
+    func fileRevision(volume: JottacloudRemoteVolume, path: String) async throws -> RemoteFileRevision? {
+        let response = try await authorizedGet(url: try jfsURL(volume: volume, path: path))
+        if response.statusCode == 404 {
+            return nil
+        }
+        try Self.checkSuccess(response.statusCode)
+        return try parseFileRevision(response.data)
+    }
+
+    /// Uploads a complete local file to `path`, replacing any existing file
+    /// (Jottacloud keeps the old one as a version), then verifies size and MD5.
+    public func upload(
+        volume: JottacloudRemoteVolume,
+        path: String,
+        from fileURL: URL,
+        size: UInt64,
+        md5: String,
+        created: Date,
+        modified: Date
+    ) async throws -> RemoteEntry {
+        let allocation = AllocateRequest(
+            device: volume.device,
+            mountpoint: volume.mountpoint,
+            path: path,
+            bytes: size,
+            md5: md5,
+            created: created,
+            modified: modified
+        )
+        let body = try JSONEncoder().encode(allocation)
+        let allocateURL = Self.apiRoot.appending(path: "files/v1/allocate")
+        let allocateResponse = try await authorizedSend { token in
+            Self.mutationRequest(
+                url: allocateURL,
+                accessToken: token,
+                contentType: "application/json",
+                body: body
+            )
+        }
+        try Self.checkSuccess(allocateResponse.statusCode)
+        let allocated: AllocateResponse
+        do {
+            allocated = try JSONDecoder().decode(AllocateResponse.self, from: allocateResponse.data)
+        } catch {
+            // Report only the field names, never values (they include tokens).
+            let object = try? JSONSerialization.jsonObject(with: allocateResponse.data) as? [String: Any]
+            throw JottacloudError.unexpectedAllocateResponse(keys: object.map { $0.keys.sorted() } ?? ["not a JSON object"])
+        }
+
+        if allocated.state != "COMPLETED" {
+            guard let uploadURLString = allocated.uploadURL else {
+                throw JottacloudError.unexpectedAllocateResponse(keys: ["missing upload_url"])
+            }
+            guard let uploadURL = Self.trustedUploadURL(uploadURLString) else {
+                throw JottacloudError.untrustedUploadURL(
+                    host: URL(string: uploadURLString)?.host ?? "unparseable"
+                )
+            }
+            let resume = min(allocated.resumePosition ?? 0, size)
+            let (bodyFile, temporary) = try Self.uploadBody(fileURL, from: resume)
+            defer {
+                if temporary {
+                    try? FileManager.default.removeItem(at: bodyFile)
+                }
+            }
+            let uploadResponse = try await authorizedSend(bodyFile: bodyFile) { token in
+                var request = Self.mutationRequest(
+                    url: uploadURL,
+                    accessToken: token,
+                    contentType: "application/octet-stream",
+                    body: nil
+                )
+                if resume > 0, size > 0 {
+                    request.setValue("bytes=\(resume)-\(size - 1)", forHTTPHeaderField: "Range")
+                }
+                return request
+            }
+            try Self.checkSuccess(uploadResponse.statusCode)
+        }
+
+        // The listing can lag slightly behind the upload; poll briefly.
+        for attempt in 0..<8 {
+            if let revision = try await fileRevision(volume: volume, path: path),
+               revision.entry.size == size,
+               revision.md5 == nil || revision.md5 == md5 {
+                return revision.entry
+            }
+            try await Task.sleep(for: .milliseconds(250 * (attempt + 1)))
+        }
+        throw JottacloudError.uploadNotVerified
+    }
+
+    // MARK: Helpers
+
+    private func sendMutation(url: URL) async throws {
+        let response = try await authorizedSend { token in
+            Self.mutationRequest(url: url, accessToken: token, contentType: nil, body: nil)
+        }
+        try Self.checkSuccess(response.statusCode)
+    }
+
+    /// Sends a request built for the current access token, refreshing once on
+    /// 401 like `authorizedGet`.
+    private func authorizedSend(
+        bodyFile: URL? = nil,
+        _ build: @Sendable (String) -> URLRequest
+    ) async throws -> (data: Data, statusCode: Int) {
+        let initialToken = try await validAccessToken()
+        var response = try await send(build(initialToken), bodyFile: bodyFile)
+        if response.statusCode == 401 {
+            let latestToken = try await refreshAfterRejection(initialToken)
+            response = try await send(build(latestToken), bodyFile: bodyFile)
+        }
+        return response
+    }
+
+    private func send(
+        _ request: URLRequest,
+        bodyFile: URL?
+    ) async throws -> (data: Data, statusCode: Int) {
+        guard let bodyFile else {
+            return try await Self.perform(http, request: request)
+        }
+        let (data, response) = try await http.upload(for: request, fromFile: bodyFile)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw JottacloudError.httpStatus(-1)
+        }
+        return (data, httpResponse.statusCode)
+    }
+
+    static func mutationRequest(
+        url: URL,
+        accessToken: String,
+        contentType: String?,
+        body: Data?
+    ) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("jottafs/0.1.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if let contentType {
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        }
+        request.httpBody = body
+        return request
+    }
+
+    /// Adds a trailing slash (folder operations) and one query parameter,
+    /// percent-encoding the value fully so `+`, `&` and spaces survive.
+    static func jfsMutationURL(
+        _ url: URL,
+        trailingSlash: Bool,
+        query: (name: String, value: String)
+    ) throws -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw JottacloudError.invalidXML
+        }
+        if trailingSlash, !components.percentEncodedPath.hasSuffix("/") {
+            components.percentEncodedPath += "/"
+        }
+        let allowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~/"
+        )
+        let value = query.value.addingPercentEncoding(withAllowedCharacters: allowed) ?? query.value
+        components.percentEncodedQuery = "\(query.name)=\(value)"
+        guard let result = components.url else {
+            throw JottacloudError.invalidXML
+        }
+        return result
+    }
+
+    /// Jottacloud's own domains; upload servers may be on `jotta.cloud`.
+    static let trustedUploadDomains = ["jottacloud.com", "jotta.cloud"]
+
+    /// Only send the bearer token to Jottacloud's own HTTPS hosts.
+    static func trustedUploadURL(_ value: String) -> URL? {
+        guard let url = URL(string: value),
+              url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              trustedUploadDomains.contains(where: { host == $0 || host.hasSuffix("." + $0) }),
+              url.user == nil,
+              url.password == nil
+        else {
+            return nil
+        }
+        return url
+    }
+
+    /// The file to send: the whole staging file, or (when resuming) a
+    /// temporary copy of its tail.
+    private static func uploadBody(_ fileURL: URL, from offset: UInt64) throws -> (URL, Bool) {
+        guard offset > 0 else {
+            return (fileURL, false)
+        }
+        let tail = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jottafs-upload-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: tail.path, contents: nil)
+        let reader = try FileHandle(forReadingFrom: fileURL)
+        defer { try? reader.close() }
+        let writer = try FileHandle(forWritingTo: tail)
+        defer { try? writer.close() }
+        try reader.seek(toOffset: offset)
+        while let chunk = try reader.read(upToCount: 1 << 20), !chunk.isEmpty {
+            try writer.write(contentsOf: chunk)
+        }
+        return (tail, true)
+    }
 }

@@ -34,13 +34,23 @@ macOS `mount -t` expects a legacy `/Library/Filesystems/<name>.fs` bundle with
 a `mount_<name>` helper; this project does not ship one. The host app instead
 uses `FSClient.mountSingleVolume(resource:bundleID:options:)`, which mounts
 under `/Volumes` and requires the host app's
-`com.apple.developer.fskit.mount` entitlement. The host app passes the fixed
-`jottafs://mount` URL as an `FSGenericURLResource`. The extension declares
-generic URL resource support and the matching `jottafs` scheme in its
-`EXAppExtensionAttributes`; if the two differ, `fskitd` rejects the mount with
-`EPROGUNAVAIL` ("RPC prog. not avail") before the extension is launched. It reads credentials from the shared app-group
-Application Support directory. This avoids treating the private credentials
-directory as a backing file-system path resource.
+`com.apple.developer.fskit.mount` entitlement. The host app passes an empty
+`<app group>/JottaCloudMount` directory as an `FSPathURLResource`, and the
+extension declares `FSSupportsPathURLs` and accepts only that directory. A path
+resource makes the mount local (`MNT_LOCAL`); a generic URL resource is mounted
+as a non-local volume that Finder treats as a server volume and leaves out of
+the sidebar. If the resource kind or URL scheme does not match what the
+extension declares, `fskitd` rejects the mount with `EPROGUNAVAIL` ("RPC prog.
+not avail") before the extension is launched. The extension reads credentials
+from the shared app-group Application Support directory, which is deliberately
+not the mount resource.
+
+Finder also requires every time attribute (modify, change, access, birth,
+added, backup) to be valid on the volume root: `getattrlist(2)` fails with
+EINVAL for any time FSKit cannot supply, and Finder then hides the volume
+entirely. The volume must also report a non-zero size. A custom icon needs
+`.VolumeIcon.icns` at the root plus `kHasCustomIcon` in the root's
+`com.apple.FinderInfo`, served through a limited `FSVolume.XattrHandler`.
 
 ## Volume callbacks and mapping
 
@@ -61,8 +71,10 @@ directory as a backing file-system path resource.
 - Jottacloud's listing API doesn't always provide timestamps. Report only
   known modification times; leave unavailable dates invalid rather than
   converting missing values to the Unix epoch.
-- A read-only filesystem still rejects write, create, remove, rename, link, and
-  attribute mutation requests explicitly with `EROFS`.
+- The volume is mounted read-write, but every mutation outside
+  `JottaFSWriteScope` fails with `EPERM` before any network request, and
+  only in-scope items report write permission bits. Links are not supported
+  (`ENOTSUP`). See [the write-support design](write-support-design.md).
 - FSKit passes URL-backed resources to `loadResource`. The Jottacloud resource
   lives in the shared app-group container, which the extension can access
   through its application-group entitlement. If another resource is
@@ -76,15 +88,15 @@ Preserve directory snapshots/cookies across repeated enumeration calls.
 
 FSKit launches the extension separately from the host app that prepares or
 mounts the volume. Do not pass a login token in command arguments or put one in
-the generic resource URL. The SwiftUI host app exchanges a personal login token
+the mount resource. The SwiftUI host app exchanges a personal login token
 for OAuth credentials and does not persist the login token. On mount, the
 extension discovers the account's devices and mountpoints using the shared
 OAuth client. Both targets have the `group.no.alrek.jottafs`
 application-group entitlement. The host app
 creates `Library/Application Support/JottaFS` within that shared
 container, sets its mode to 0700, and writes a binary `credentials.plist` with
-mode 0600. The generic FSKit resource is a fixed, non-secret identifier; the
-extension reads the plist and atomically persists rotating refresh tokens in
+mode 0600. The FSKit mount resource is the separate, empty `JottaCloudMount`
+directory; the extension reads the plist and atomically persists rotating refresh tokens in
 the shared container. Credentials from the previous app group are not migrated;
 the user signs in again and old credentials remain untouched. This is a local
 prototype boundary, not a Keychain-backed credential store. Do not share or

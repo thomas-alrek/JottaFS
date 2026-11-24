@@ -230,9 +230,11 @@ private struct JottaFSView: View {
             // A path resource makes the mount local, which Finder needs to
             // list the volume in its sidebar; a generic URL mount is treated
             // as a server volume without a server.
+            // Writable so the volume can be mounted read-write; the extension
+            // confines every change to JottaFSWriteScope.
             let resource = FSPathURLResource(
                 url: try JottaFSStorage.prepareMountAnchorDirectory(),
-                writable: false
+                writable: true
             )
             mountURL = try await FSClient.shared.mountSingleVolume(
                 resource: resource,
@@ -441,12 +443,9 @@ private func findJottacloudMount() throws -> URL? {
     return nil
 }
 
-/// The volume is mounted either from the generic `jottafs://mount` URL or from
-/// the mount-anchor directory (shown as a `file://` URL or a plain path).
+/// The volume is mounted from the mount-anchor directory, reported as a
+/// `file://` URL or a plain path.
 private func isJottaFSMountSource(_ source: String) -> Bool {
-    if source == JottaFSStorage.filesystemResourceURL.absoluteString {
-        return true
-    }
     let path = source.hasPrefix("file://")
         ? URL(string: source)?.path
         : source

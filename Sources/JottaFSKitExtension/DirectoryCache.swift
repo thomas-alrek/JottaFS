@@ -21,6 +21,17 @@ actor DirectoryCache {
     private var cache: [String: Cached] = [:]
     private var requests: [String: Task<DirectorySnapshot, Error>] = [:]
 
+    /// Local changes applied on top of fetched listings for a short while,
+    /// because Jottacloud's listings can lag behind uploads, moves and
+    /// deletes. Keyed by case-folded directory path, then case-folded name;
+    /// a nil entry means "removed".
+    private struct Overlay {
+        let entry: JottacloudDirectoryEntry?
+        let expires: Date
+    }
+    private let overlayLifetime: TimeInterval = 60
+    private var overlays: [String: [String: Overlay]] = [:]
+
     init(client: JottacloudClient, volumes: [JottacloudRemoteVolume]) {
         self.client = client
         var seenVolumeIDs = Set<String>()
@@ -28,6 +39,53 @@ actor DirectoryCache {
     }
 
     func list(
+        path: String,
+        role: JottacloudItemRole
+    ) async throws -> DirectorySnapshot {
+        applyOverlay(to: try await fetch(path: path, role: role), path: path)
+    }
+
+    /// Records a created, uploaded or moved-in item in `directoryPath`.
+    func recordPresent(_ entry: JottacloudDirectoryEntry, inDirectory directoryPath: String) {
+        record(name: entry.entry.name, entry: entry, inDirectory: directoryPath)
+    }
+
+    /// Records a removed or moved-out item in `directoryPath`.
+    func recordAbsent(name: String, inDirectory directoryPath: String) {
+        record(name: name, entry: nil, inDirectory: directoryPath)
+    }
+
+    /// Drops the cached listing so the next request fetches it again.
+    func invalidate(path: String) {
+        cache.removeValue(forKey: path)
+    }
+
+    private func record(name: String, entry: JottacloudDirectoryEntry?, inDirectory directoryPath: String) {
+        overlays[directoryPath.lowercased(), default: [:]][name.lowercased()] = Overlay(
+            entry: entry,
+            expires: Date().addingTimeInterval(overlayLifetime)
+        )
+        // New verifier on the next listing, so FSKit re-enumerates.
+        cache.removeValue(forKey: directoryPath)
+    }
+
+    private func applyOverlay(to snapshot: DirectorySnapshot, path: String) -> DirectorySnapshot {
+        let key = path.lowercased()
+        guard var overlay = overlays[key] else {
+            return snapshot
+        }
+        let now = Date()
+        overlay = overlay.filter { $0.value.expires > now }
+        overlays[key] = overlay.isEmpty ? nil : overlay
+        guard !overlay.isEmpty else {
+            return snapshot
+        }
+        var entries = snapshot.entries.filter { overlay[$0.entry.name.lowercased()] == nil }
+        entries += overlay.values.compactMap(\.entry)
+        return DirectorySnapshot(entries: entries, verifier: snapshot.verifier)
+    }
+
+    private func fetch(
         path: String,
         role: JottacloudItemRole
     ) async throws -> DirectorySnapshot {

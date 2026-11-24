@@ -19,7 +19,6 @@ public enum JottaFSStorageError: Error, LocalizedError {
 
 public enum JottaFSStorage {
     public static let applicationGroupIdentifier = "group.no.alrek.jottafs"
-    public static let filesystemResourceURL = URL(string: "jottafs://mount")!
     /// Volume name reported to FSKit; the system mounts at `/Volumes/<name>`.
     public static let volumeName = "JottaCloud"
     /// File system type (the extension's `FSShortName`).
@@ -27,8 +26,8 @@ public enum JottaFSStorage {
 
     /// Empty directory used as the `FSPathURLResource` the volume is mounted
     /// from. A path resource makes the mount local (like Xcode's DeviceFS),
-    /// which a generic `jottafs://` resource does not, and Finder lists only
-    /// local or NetFS-backed volumes in its sidebar. It holds no data and is
+    /// which a generic URL resource does not, and Finder lists only local or
+    /// NetFS-backed volumes in its sidebar. It holds no data and is
     /// deliberately not the credentials directory.
     public static func mountAnchorDirectoryURL() -> URL? {
         FileManager.default.containerURL(

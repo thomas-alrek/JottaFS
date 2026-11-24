@@ -9,9 +9,10 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     /// root, and only when the root's FinderInfo has `kHasCustomIcon` set
     /// (served by the `FSVolume.XattrHandler` extension below).
     static let volumeIconName = ".VolumeIcon.icns"
-    private let client: JottacloudClient
-    private let itemStore = ItemStore()
-    private let directoryCache: DirectoryCache
+    let client: JottacloudClient
+    let itemStore = ItemStore()
+    let directoryCache: DirectoryCache
+    let staging: StagingArea
     private let statistics: FSStatFSResult
     private let capabilities: FSVolume.SupportedCapabilities
     private let volumeIconData: Data
@@ -26,8 +27,10 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         statistics
     }
 
+    /// Read-write: mutations are confined to `JottaFSWriteScope` by the
+    /// extension (and by permission bits), everything else stays read-only.
     var requestedMountOptions: FSVolume.MountOptions {
-        .readOnly
+        []
     }
 
     var enableOpenUnlinkEmulation: Bool {
@@ -58,6 +61,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     ) throws {
         self.volumeIconData = try Self.loadVolumeIcon()
         self.client = client
+        self.staging = try StagingArea()
         self.directoryCache = DirectoryCache(client: client, volumes: remoteVolumes)
         self.statistics = FSStatFSResult(fileSystemTypeName: "jottacloud")
         self.capabilities = FSVolume.SupportedCapabilities()
@@ -66,7 +70,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         self.capabilities.doesNotSupportSettingFilePermissions = true
         self.capabilities.supportsFastStatFS = true
         self.capabilities.supportsHiddenFiles = true
-        self.capabilities.caseFormat = .sensitive
+        // Jottacloud names are case-insensitive.
+        self.capabilities.caseFormat = .insensitiveCasePreserving
         let identifier = FSVolume.Identifier(
             uuid: Self.stableVolumeIdentifier(for: accountIdentifier)
         )
@@ -76,20 +81,16 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         )
         let blockSize: UInt64 = 4_096
         let sizes = storage.volumeSizes(blockSize: blockSize)
-        // Matches FSSubType of the extension's FSPersonalities entry, which is
-        // where the volume's format name ("Jottacloud") may be looked up.
-        self.statistics.fileSystemSubType = 0
         self.statistics.blockSize = Int(blockSize)
         self.statistics.ioSize = Int(blockSize)
         self.statistics.totalBytes = sizes.total
         self.statistics.usedBytes = sizes.used
         self.statistics.freeBytes = sizes.free
-        // Read-only: nothing is available to this volume's callers.
-        self.statistics.availableBytes = 0
+        self.statistics.availableBytes = sizes.free
         self.statistics.totalBlocks = (sizes.total + blockSize - 1) / blockSize
         self.statistics.usedBlocks = (sizes.used + blockSize - 1) / blockSize
         self.statistics.freeBlocks = sizes.free / blockSize
-        self.statistics.availableBlocks = 0
+        self.statistics.availableBlocks = sizes.free / blockSize
     }
 
     func activateVolume(options: FSTaskOptions) async throws -> FSActivateResult {
@@ -100,6 +101,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     }
 
     func deactivateVolume(options: FSDeactivateOptions) async throws {
+        try? await flushAll()
         await directoryCache.clear()
     }
 
@@ -107,7 +109,12 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
 
     func unmount() async {}
 
-    func synchronize(flags: FSSyncFlags) async throws {}
+    /// Uploads dirty files. Failures are logged (by `flushAll`) and not
+    /// returned: macOS syncs before unmounting, and an upload that keeps
+    /// failing must not make the volume impossible to unmount.
+    func synchronize(flags: FSSyncFlags) async throws {
+        try? await flushAll()
+    }
 
     func lookupItem(
         named name: FSFileName,
@@ -125,7 +132,10 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             role: parent.role
         )
         let entries = try entries(in: snapshot, for: parent)
-        guard let entry = entries.first(where: { $0.entry.name == name }) else {
+        // Case-insensitive like Jottacloud; prefer an exact match.
+        guard let entry = entries.first(where: { $0.entry.name == name })
+            ?? entries.first(where: { JottaFSWriteScope.sameName($0.entry.name, name) })
+        else {
             throw POSIXError(.ENOENT)
         }
         let item = try itemStore.child(of: parent, entry: entry)
@@ -143,6 +153,15 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         guard let item = item as? JottacloudItem else {
             throw POSIXError(.EINVAL)
         }
+        if let staged = staging.file(item.identifier) {
+            if staged.dirty {
+                // Last chance to upload before the item is forgotten.
+                try? await flush(item)
+            }
+            if staging.file(item.identifier)?.dirty == false {
+                staging.discard(item.identifier)
+            }
+        }
         itemStore.reclaim(item)
     }
 
@@ -153,7 +172,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         attributes: FSItem.SetAttributesRequest,
         context: FSContext
     ) async throws -> FSCreateItemResult {
-        throw POSIXError(.EROFS)
+        try await create(named: name, type: type, in: directory)
     }
 
     func createSymbolicLink(
@@ -163,7 +182,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         linkContents: FSFileName,
         context: FSContext
     ) async throws -> FSCreateSymlinkResult {
-        throw POSIXError(.EROFS)
+        throw POSIXError(.ENOTSUP)
     }
 
     func createLink(
@@ -172,7 +191,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         in directory: FSItem,
         context: FSContext
     ) async throws -> FSCreateLinkResult {
-        throw POSIXError(.EROFS)
+        throw POSIXError(.ENOTSUP)
     }
 
     func renameItem(
@@ -184,7 +203,13 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         overItem: FSItem?,
         context: FSContext
     ) async throws -> FSRenameItemResult {
-        throw POSIXError(.EROFS)
+        try await rename(
+            item,
+            from: sourceDirectory,
+            to: destinationName,
+            in: destinationDirectory,
+            over: overItem
+        )
     }
 
     func removeItem(
@@ -193,7 +218,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         from directory: FSItem,
         context: FSContext
     ) async throws -> FSRemoveItemResult {
-        throw POSIXError(.EROFS)
+        try await remove(item, from: directory)
     }
 
     func attributes(
@@ -214,7 +239,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         on item: FSItem,
         context: FSContext
     ) async throws -> FSSetAttributesResult {
-        throw POSIXError(.EROFS)
+        try await applyAttributes(newAttributes, on: item)
     }
 
     func enumerateDirectory(
@@ -302,6 +327,9 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             throw POSIXError(.EINVAL)
         }
         let data: Data
+        if let staged = try stagedData(of: item, at: offset, length: length) {
+            data = staged
+        } else {
         switch item.role {
         case .remote(let volume, let remotePath):
             data = try await client.readRange(
@@ -321,6 +349,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         default:
             throw POSIXError(.EINVAL)
         }
+        }
         let bytesRead = buffer.withUnsafeMutableBytes { destination in
             data.copyBytes(to: destination)
         }
@@ -338,15 +367,23 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         to item: FSItem,
         at offset: off_t
     ) async throws -> FSWriteFileResult {
-        throw POSIXError(.EROFS)
+        try await writeData(contents, to: item, at: offset)
     }
 
-    private func attributes(for item: JottacloudItem) -> FSItem.Attributes {
+    func attributes(for item: JottacloudItem) -> FSItem.Attributes {
         let attributes = FSItem.Attributes()
         attributes.fileID = FSItem.Identifier(item.identifier)
         attributes.parentID = FSItem.Identifier(item.parentIdentifier)
         attributes.type = itemType(item.entry.kind)
-        attributes.mode = item.entry.kind == .directory ? 0o555 : 0o444
+        // Write bits only where writes are allowed: a second barrier, since
+        // the kernel then rejects writes elsewhere before they reach us.
+        let writable = grantsWritePermission(item)
+        switch (item.entry.kind, writable) {
+        case (.directory, true): attributes.mode = 0o755
+        case (.directory, false): attributes.mode = 0o555
+        case (.file, true): attributes.mode = 0o644
+        case (.file, false): attributes.mode = 0o444
+        }
         switch item.role {
         case .volumeIcon:
             attributes.flags = UInt32(UF_HIDDEN)
@@ -359,8 +396,9 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         attributes.linkCount = item.entry.kind == .directory ? 2 : 1
         attributes.uid = UInt32(getuid())
         attributes.gid = UInt32(getgid())
-        attributes.size = item.entry.size
-        attributes.allocSize = item.entry.size
+        let size = stagedSize(of: item) ?? item.entry.size
+        attributes.size = size
+        attributes.allocSize = size
         // Every time attribute must be valid: getattrlist(2) fails with EINVAL
         // for any requested time FSKit cannot supply, and Finder hides a
         // volume whose root it cannot stat that way. Jottacloud listings only

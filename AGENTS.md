@@ -1,8 +1,9 @@
 # Project guidance
 
 This is a native macOS Swift file system extension for browsing Jottacloud with
-Apple FSKit. It mounts one read-only account view, with each discovered device
-and mountpoint exposed under `/<device>/<mountpoint>/`.
+Apple FSKit. It mounts one account view, with each discovered device and
+mountpoint exposed under `/<device>/<mountpoint>/`. It is read-only except
+for one write-scope folder (see below).
 
 ## Engineering principles
 
@@ -14,8 +15,12 @@ and mountpoint exposed under `/<device>/<mountpoint>/`.
   fixtures. The app stores credentials as a private property list under the
   shared app-group Application Support directory; document that boundary and
   serialize refresh-token rotation.
-- Keep all file mutations disabled until upload, delete, rename, and metadata
-  behavior have a separately reviewed design and tests.
+- File mutations follow the reviewed design in
+  [docs/write-support-design.md](docs/write-support-design.md) and are
+  confined to `JottaFSWriteScope` (`Jotta/Archive/JottaFS-Test`). The account
+  holds the owner's personal data: never widen the scope, add permanent
+  deletes, or test writes outside that folder without an explicit, separate
+  decision.
 - Make network I/O asynchronous and bounded. Use ranged downloads, short
   bounded directory caches, and avoid buffering whole files.
 - FSKit callbacks can run concurrently. Protect shared item, directory, and
