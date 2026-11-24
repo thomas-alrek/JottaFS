@@ -134,10 +134,19 @@ and delete; and confirm writes outside the scope fail.
   in close(2) waiting for the upload. Uploads therefore run in the
   background after close returns; verified 2026-11-24 that the icon bar then
   follows the upload (e.g. 776 MB in 43 s, 301 updates via the agent).
-  Open issue: Finder's copy dialog and "done" sound now finish when the data
-  is staged, before the upload; the owner finds that misleading. The
-  official client also hashes the whole file before allocating (see the API
-  notes), so the dialog cannot follow the upload byte by byte. The agent
+  The owner found that misleading (Finder's copy and "done" sound finished
+  before the upload). Investigation (official `jottad`, web app, live
+  experiments; see the API notes): no upload can start before the complete
+  MD5 is known, so Finder's dialog cannot follow the upload. Decision: close
+  waits for the upload again and reports failures to Finder. Verified with a
+  fresh 1 GiB file: the dialog counts the writes (to about 88 %), pauses
+  during the 66 s upload, and finishes with the "done" sound once the file
+  is confirmed on Jottacloud. Incident: switching the extension off and
+  unmounting during that wait unmounted the volume mid-upload and hung
+  Finder (recovered by force-stopping the extension). `unmount()` now waits
+  for pending and running uploads (built, not yet verified). Not yet used:
+  Jottacloud keeps interrupted uploads in 32 MiB blocks per MD5, so large
+  uploads could resume after a connection drop. The agent
   accepts only
   `no.alrek.jottafs.extension` signed by its own team and only publishes
   for paths on the mounted volume. Upload phase timings and progress counts

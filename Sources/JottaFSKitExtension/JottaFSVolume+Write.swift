@@ -395,10 +395,13 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         _ = try writableLocation(of: item)
     }
 
-    /// Uploads in the background once the last writer closes, so close(2)
-    /// (and Finder's copy) returns as soon as the data is staged locally.
-    /// Finder then shows the upload as progress on the file's icon. Failures
-    /// keep the data staged and are retried on the next close or sync.
+    /// Uploads when the last writer closes and only returns once the file is
+    /// on Jottacloud, so close(2) — and Finder's copy and its "done" sound —
+    /// complete only when the upload has. Jottacloud needs the whole file's
+    /// MD5 before an upload can start, so the upload cannot overlap the
+    /// writes (see docs/jottacloud-api-internals.md). A failed upload is
+    /// returned as an error from close (Finder reports the copy as failed);
+    /// the data stays staged and is retried on the next close or sync.
     func closeItem(_ item: FSItem, modes: FSVolume.OpenModes, context: FSContext) async throws {
         guard !modes.contains(.write),
               let item = item as? JottacloudItem,
@@ -406,12 +409,11 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         else {
             return
         }
-        Task.detached { [self] in
-            do {
-                try await self.flush(item)
-            } catch {
-                writeLogger.error("Background upload failed (\(self.describe(error), privacy: .public)); the file stays staged for retry.")
-            }
+        do {
+            try await flush(item)
+        } catch {
+            writeLogger.error("Upload on close failed (\(self.describe(error), privacy: .public)); the file stays staged for retry.")
+            throw posixError(error)
         }
     }
 

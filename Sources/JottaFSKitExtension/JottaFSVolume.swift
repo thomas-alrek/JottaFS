@@ -107,7 +107,12 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
 
     func mount(options: FSTaskOptions) async throws {}
 
-    func unmount() async {}
+    /// Finishes pending and running uploads before the volume goes away, so
+    /// an unmount (from the app, Finder or System Settings) cannot cut off
+    /// an upload that a writer is still waiting for in close(2).
+    func unmount() async {
+        try? await flushAll()
+    }
 
     /// Uploads dirty files. Failures are logged (by `flushAll`) and not
     /// returned: macOS syncs before unmounting, and an upload that keeps

@@ -75,8 +75,25 @@ the whole-file MD5 up front:
   (`md5.ChecksumFile`, a configurable checksum rate, "Size changed before
   upload"), and the only ranged sending is resume (`bytes=%d-%d`).
 
+The web app (`jotta-libs` bundle) does the same: it hashes the whole file
+with a WebAssembly MD5 (showing hashing progress), then calls
+`FileService.Allocate` with `md5` and `size`.
+
+Live experiments (2026-11-24, inside `JottaFS-Test`, `files/v1/allocate`):
+
+- Allocating with an empty MD5 fails with 400 "Upload without md5 no longer
+  supported. Use header JMd5."
+- Sending only part of the body as a complete request (with a `Range`
+  header) fails with 421 `CorruptUploadOpenApiException`; nothing is kept.
+- An interrupted upload (full `Content-Length` declared, connection
+  cancelled) is kept in 32 MiB blocks: after 48 MiB of 64 MiB, re-allocating
+  with the same MD5 returned HTTP 207 with `resume_pos` 33554432; after
+  4 MiB of 8 MiB it returned 0.
+- The kept blocks are tied to the MD5: the same interrupted upload under a
+  placeholder MD5, re-allocated with the real MD5, returned `resume_pos` 0.
+
 So the official client, like rclone and JottaFS, hashes the complete file
-before allocating, and identical content is deduplicated at allocation
+before allocating, and no upload can start before the complete MD5 is known, and identical content is deduplicated at allocation
 (`state` `COMPLETED`). Upload progress can therefore only start after a file
 is fully written; Finder's copy dialog (which counts bytes written) cannot
 follow the upload. These are observations from strings and type metadata in
