@@ -14,6 +14,7 @@ enum RemoteAPIChecks {
         try validatesNewNames()
         try stagesWritesInLocalFiles()
         try encodesUploadRequestsAndParsesResponses()
+        try classifiesTransientUploadFailures()
         try parsesCompleteListingsAndSkipsDeletedOrIncompleteItems()
         try parsesDevicesAndTheirMountpoints()
         try doesNotListTheListedFolderItself()
@@ -286,6 +287,22 @@ enum RemoteAPIChecks {
             "<file name=\"a\"><currentRevision><state>INCOMPLETE</state><size>5</size></currentRevision></file>".utf8
         ))
         precondition(incomplete == nil)
+    }
+
+    private static func classifiesTransientUploadFailures() throws {
+        for code in [URLError.Code.networkConnectionLost, .timedOut, .notConnectedToInternet, .cannotConnectToHost] {
+            precondition(JottacloudClient.isTransientUploadFailure(URLError(code)), "\(code)")
+        }
+        for status in [429, 500, 502, 503, 504] {
+            precondition(JottacloudClient.isTransientUploadFailure(JottacloudError.httpStatus(status)), "\(status)")
+        }
+        // Permanent: client errors, cancellation, verification and trust failures.
+        for status in [400, 401, 403, 404, 409, 421, 507] {
+            precondition(!JottacloudClient.isTransientUploadFailure(JottacloudError.httpStatus(status)), "\(status)")
+        }
+        precondition(!JottacloudClient.isTransientUploadFailure(URLError(.cancelled)))
+        precondition(!JottacloudClient.isTransientUploadFailure(JottacloudError.uploadNotVerified))
+        precondition(!JottacloudClient.isTransientUploadFailure(JottacloudError.untrustedUploadURL(host: "x")))
     }
 
     private static func parsesCompleteListingsAndSkipsDeletedOrIncompleteItems() throws {

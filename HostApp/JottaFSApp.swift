@@ -37,6 +37,7 @@ private struct JottaFSView: View {
     @State private var statusMessage: String?
     @State private var isBusy = false
     @State private var progressAgentNote: String?
+    @State private var probeLog: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -106,6 +107,20 @@ private struct JottaFSView: View {
             if let statusMessage {
                 Text(statusMessage)
                     .foregroundStyle(.secondary)
+            }
+            // TEMPORARY developer action for the trash investigation (read-only).
+            Button("Run trash probe") {
+                Task { await runTrashProbe() }
+            }
+            .disabled(isBusy || credentialsDirectory == nil)
+            if let probeLog {
+                ScrollView {
+                    Text(probeLog)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 260)
             }
             if let progressAgentNote {
                 HStack {
@@ -256,6 +271,113 @@ private struct JottaFSView: View {
             statusMessage = nil
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    /// TEMPORARY read-only probe of Jottacloud's trash API. Listings outside
+    /// the test folder are summarised without item names.
+    @MainActor
+    private func runTrashProbe() async {
+        guard let credentialsDirectory else {
+            return
+        }
+        isBusy = true
+        defer { isBusy = false }
+        var lines: [String] = []
+        func note(_ line: String) {
+            lines.append(line)
+            probeLog = lines.joined(separator: "\n")
+        }
+        func count(_ text: String, _ needle: String) -> Int {
+            text.components(separatedBy: needle).count - 1
+        }
+        func summary(_ status: Int, _ data: Data, redact: Bool) -> String {
+            let text = String(decoding: data, as: UTF8.self)
+            if !redact {
+                return "HTTP \(status) \(text.prefix(1500))"
+            }
+            var parts = ["HTTP \(status)", "bytes=\(data.count)"]
+            if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                parts.append("json keys=\(object.keys.sorted())")
+                for (key, value) in object {
+                    if let array = value as? [Any] {
+                        parts.append("\(key).count=\(array.count)")
+                        if let first = array.first as? [String: Any] {
+                            parts.append("\(key)[0] keys=\(first.keys.sorted())")
+                        }
+                    } else if let nested = value as? [String: Any] {
+                        parts.append("\(key) keys=\(nested.keys.sorted())")
+                        for (nestedKey, nestedValue) in nested {
+                            if let array = nestedValue as? [Any] {
+                                parts.append("\(key).\(nestedKey).count=\(array.count)")
+                                if let first = array.first as? [String: Any] {
+                                    parts.append("\(key).\(nestedKey)[0] keys=\(first.keys.sorted())")
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                let root = text.range(of: "<[A-Za-z]+", options: .regularExpression).map { String(text[$0]) } ?? "?"
+                parts.append("xml root=\(root) folders=\(count(text, "<folder ")) files=\(count(text, "<file "))")
+            }
+            parts.append("deletedMarkers=\(count(text, "deleted"))")
+            parts.append("JottaFS-Test occurrences=\(count(text, "JottaFS-Test"))")
+            return parts.joined(separator: " ")
+        }
+        do {
+            let credentials = try JottaFSStorage.loadCredentials(from: credentialsDirectory)
+            let client = JottacloudClient(credentials: credentials, allowsTokenRefresh: false)
+            let probes: [(String, JottacloudClient.ProbeTarget, Bool)] = [
+                ("P1 v2 list /trash", .apiJSON(endpoint: "files/v2/list_folder", body: ["path": "/trash"]), true),
+                ("P2 v2 list /archive/JottaFS-Test deleted", .apiJSON(endpoint: "files/v2/list_folder", body: ["path": "/archive/JottaFS-Test", "include_deleted": "true"]), false),
+                ("P3 v2 list /jfs/Jotta/Archive/JottaFS-Test deleted", .apiJSON(endpoint: "files/v2/list_folder", body: ["path": "/jfs/Jotta/Archive/JottaFS-Test", "include_deleted": "true"]), false),
+                ("P4 v2 list /Jotta/Archive/JottaFS-Test deleted", .apiJSON(endpoint: "files/v2/list_folder", body: ["path": "/Jotta/Archive/JottaFS-Test", "include_deleted": "true"]), false),
+                ("P5 jfs Jotta/Archive/JottaFS-Test", .jfs(segments: ["Jotta", "Archive", "JottaFS-Test"]), false),
+                ("P6 jfs Jotta/Trash", .jfs(segments: ["Jotta", "Trash"]), true),
+            ]
+            // Round 3 (read-only): list the account trash like the web app,
+            // FileService.GetPath("/trash"), showing only JottaFS-Test items.
+            do {
+                var cursor: String? = nil
+                var total = 0
+                var pages = 0
+                var mine: [String] = []
+                var types: [UInt64: Int] = [:]
+                repeat {
+                    let r = try await client.probeGetPath(path: "/trash", limit: 100, includeDeleted: true, cursor: cursor)
+                    pages += 1
+                    if pages == 1 {
+                        note("T1 GetPath /trash: HTTP \(r.status) \(r.grpc) item.path=\(r.item?.path ?? "nil") item.name=\(r.item?.name ?? "nil")")
+                    }
+                    total += r.children.count
+                    for c in r.children {
+                        types[c.type, default: 0] += 1
+                        if c.path.lowercased().contains("jottafs-test") {
+                            mine.append("\(c.path) name=\(c.name) type=\(c.type) size=\(c.size) deletedAt=\(c.deletedAtMillis)")
+                        }
+                    }
+                    cursor = r.cursor.isEmpty ? nil : r.cursor
+                } while cursor != nil && pages < 20
+                note("T1 total children=\(total) pages=\(pages) moreAfter20=\(cursor != nil) types=\(types)")
+                note("T1 JottaFS-Test items: \(mine)")
+            } catch { note("T1: error \(error.localizedDescription)") }
+            do {
+                let r = try await client.probeGetPath(path: "/archive/JottaFS-Test", limit: 100, includeDeleted: true, cursor: nil)
+                let rows = r.children.map { "\($0.path) type=\($0.type) deletedAt=\($0.deletedAtMillis)" }
+                note("T2 GetPath test folder: HTTP \(r.status) \(r.grpc) children=\(rows)")
+            } catch { note("T2: error \(error.localizedDescription)") }
+            let skipJFS = true
+            for (label, target, redact) in probes where !skipJFS {
+                do {
+                    let result = try await client.probe(target)
+                    note("\(label): \(summary(result.status, result.data, redact: redact))")
+                } catch {
+                    note("\(label): error \(error.localizedDescription)")
+                }
+            }
+        } catch {
+            note("probe error: \(error.localizedDescription)")
         }
     }
 

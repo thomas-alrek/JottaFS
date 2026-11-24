@@ -1149,59 +1149,32 @@ extension JottacloudClient {
         )
         let body = try JSONEncoder().encode(allocation)
         let allocateURL = Self.apiRoot.appending(path: "files/v1/allocate")
-        let allocateResponse = try await authorizedSend { token in
-            Self.mutationRequest(
-                url: allocateURL,
-                accessToken: token,
-                contentType: "application/json",
-                body: body
-            )
-        }
-        try Self.checkSuccess(allocateResponse.statusCode)
-        let allocated: AllocateResponse
-        do {
-            allocated = try JSONDecoder().decode(AllocateResponse.self, from: allocateResponse.data)
-        } catch {
-            // Report only the field names, never values (they include tokens).
-            let object = try? JSONSerialization.jsonObject(with: allocateResponse.data) as? [String: Any]
-            throw JottacloudError.unexpectedAllocateResponse(keys: object.map { $0.keys.sorted() } ?? ["not a JSON object"])
-        }
 
-        phase?("allocated (state \(allocated.state ?? "none"), resume \(allocated.resumePosition ?? 0))")
-        if allocated.state != "COMPLETED" {
-            guard let uploadURLString = allocated.uploadURL else {
-                throw JottacloudError.unexpectedAllocateResponse(keys: ["missing upload_url"])
-            }
-            guard let uploadURL = Self.trustedUploadURL(uploadURLString) else {
-                throw JottacloudError.untrustedUploadURL(
-                    host: URL(string: uploadURLString)?.host ?? "unparseable"
-                )
-            }
-            let resume = min(allocated.resumePosition ?? 0, size)
-            let (bodyFile, temporary) = try Self.uploadBody(fileURL, from: resume)
-            defer {
-                if temporary {
-                    try? FileManager.default.removeItem(at: bodyFile)
+        // Allocate and send; on a transient failure (dropped connection,
+        // timeout, 5xx/429) allocate again with the same MD5 and send only
+        // what Jottacloud has not kept (it keeps interrupted uploads in
+        // 32 MiB blocks, reported as resume_pos).
+        let maximumAttempts = 5
+        for attempt in 1...maximumAttempts {
+            do {
+                let allocated = try await allocateUpload(url: allocateURL, body: body)
+                phase?("allocated (state \(allocated.state ?? "none"), resume \(allocated.resumePosition ?? 0))")
+                if allocated.state == "COMPLETED" {
+                    break
                 }
-            }
-            let alreadySent = Int64(resume)
-            let delegate = progress.map { report in
-                UploadProgressDelegate { sent in report(alreadySent + sent) }
-            }
-            let uploadResponse = try await authorizedSend(bodyFile: bodyFile, delegate: delegate) { token in
-                var request = Self.mutationRequest(
-                    url: uploadURL,
-                    accessToken: token,
-                    contentType: "application/octet-stream",
-                    body: nil
+                try await sendUpload(
+                    allocated,
+                    from: fileURL,
+                    size: size,
+                    progress: progress
                 )
-                if resume > 0, size > 0 {
-                    request.setValue("bytes=\(resume)-\(size - 1)", forHTTPHeaderField: "Range")
-                }
-                return request
+                phase?("transferred")
+                break
+            } catch where attempt < maximumAttempts && Self.isTransientUploadFailure(error) {
+                let delay = 1 << attempt
+                phase?("transient failure on attempt \(attempt); retrying in \(delay)s")
+                try await Task.sleep(for: .seconds(delay))
             }
-            try Self.checkSuccess(uploadResponse.statusCode)
-            phase?("transferred (HTTP \(uploadResponse.statusCode))")
         }
 
         // The listing can lag slightly behind the upload; poll briefly.
@@ -1218,6 +1191,81 @@ extension JottacloudClient {
     }
 
     // MARK: Helpers
+
+    private func allocateUpload(url: URL, body: Data) async throws -> AllocateResponse {
+        let response = try await authorizedSend { token in
+            Self.mutationRequest(url: url, accessToken: token, contentType: "application/json", body: body)
+        }
+        try Self.checkSuccess(response.statusCode)
+        do {
+            return try JSONDecoder().decode(AllocateResponse.self, from: response.data)
+        } catch {
+            // Report only the field names, never values (they include tokens).
+            let object = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
+            throw JottacloudError.unexpectedAllocateResponse(keys: object.map { $0.keys.sorted() } ?? ["not a JSON object"])
+        }
+    }
+
+    /// Sends the file from the allocation's resume position to the end.
+    private func sendUpload(
+        _ allocated: AllocateResponse,
+        from fileURL: URL,
+        size: UInt64,
+        progress: (@Sendable (_ bytesSent: Int64) -> Void)?
+    ) async throws {
+        guard let uploadURLString = allocated.uploadURL else {
+            throw JottacloudError.unexpectedAllocateResponse(keys: ["missing upload_url"])
+        }
+        guard let uploadURL = Self.trustedUploadURL(uploadURLString) else {
+            throw JottacloudError.untrustedUploadURL(host: URL(string: uploadURLString)?.host ?? "unparseable")
+        }
+        let resume = min(allocated.resumePosition ?? 0, size)
+        let (bodyFile, temporary) = try Self.uploadBody(fileURL, from: resume)
+        defer {
+            if temporary {
+                try? FileManager.default.removeItem(at: bodyFile)
+            }
+        }
+        let alreadySent = Int64(resume)
+        progress?(alreadySent)
+        let delegate = progress.map { report in
+            UploadProgressDelegate { sent in report(alreadySent + sent) }
+        }
+        let response = try await authorizedSend(bodyFile: bodyFile, delegate: delegate) { token in
+            var request = Self.mutationRequest(
+                url: uploadURL,
+                accessToken: token,
+                contentType: "application/octet-stream",
+                body: nil
+            )
+            if resume > 0, size > 0 {
+                request.setValue("bytes=\(resume)-\(size - 1)", forHTTPHeaderField: "Range")
+            }
+            return request
+        }
+        try Self.checkSuccess(response.statusCode)
+    }
+
+    /// Failures worth retrying with a resumed upload: network interruptions
+    /// and server-side overload. Client errors (4xx) are permanent.
+    static func isTransientUploadFailure(_ error: Error) -> Bool {
+        if let error = error as? URLError {
+            switch error.code {
+            case .networkConnectionLost, .timedOut, .notConnectedToInternet,
+                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+                 .resourceUnavailable, .secureConnectionFailed, .dataNotAllowed,
+                 .internationalRoamingOff, .callIsActive, .backgroundSessionWasDisconnected:
+                return true
+            default:
+                return false
+            }
+        }
+        if case JottacloudError.httpStatus(let status) = error {
+            // 507 (quota full) and other 5xx are not worth retrying.
+            return [429, 500, 502, 503, 504].contains(status)
+        }
+        return false
+    }
 
     private func sendMutation(url: URL) async throws {
         let response = try await authorizedSend { token in
@@ -1352,5 +1400,348 @@ private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @u
         totalBytesExpectedToSend: Int64
     ) {
         report(totalBytesSent)
+    }
+}
+
+// MARK: - TEMPORARY read-only trash API probe (remove after the trash
+// investigation). Only listing endpoints are allowed.
+extension JottacloudClient {
+    public enum ProbeTarget: Sendable {
+        /// POST JSON to `https://api.jottacloud.com/<endpoint>`; endpoint must be a listing.
+        case apiJSON(endpoint: String, body: [String: String])
+        /// GET a JFS path below the account (`/jfs/<user>/<segments…>`).
+        case jfs(segments: [String])
+    }
+
+    public func probe(_ target: ProbeTarget) async throws -> (status: Int, data: Data) {
+        switch target {
+        case .apiJSON(let endpoint, let body):
+            guard ["files/v2/list_folder"].contains(endpoint) else {
+                throw POSIXError(.EPERM)
+            }
+            let url = Self.apiRoot.appending(path: endpoint)
+            var json: [String: Any] = [:]
+            for (key, value) in body {
+                switch value {
+                case "true": json[key] = true
+                case "false": json[key] = false
+                default: json[key] = value
+                }
+            }
+            let data = try JSONSerialization.data(withJSONObject: json)
+            let response = try await authorizedSend { token in
+                Self.mutationRequest(url: url, accessToken: token, contentType: "application/json", body: data)
+            }
+            return (response.statusCode, response.data)
+        case .jfs(let segments):
+            let url = try Self.makeJFSPathURL([credentials.username] + segments)
+            let response = try await authorizedGet(url: url)
+            return (response.statusCode, response.data)
+        }
+    }
+}
+
+// MARK: - TEMPORARY read-only gRPC-Web probe (trash investigation).
+extension JottacloudClient {
+    static let grpcWebRoot = URL(string: "https://grpc.jotta.cloud/")!
+
+    /// Calls `FileService/ListFolder` over gRPC-Web. Read-only by allowlist.
+    /// Returns the HTTP status, the grpc-status trailer and the strings
+    /// found in the response message (field-agnostic decoding).
+    public func probeListFolder(path: String, includeDeleted: Bool) async throws -> (status: Int, grpcStatus: String, strings: [String]) {
+        var message = Data()
+        Self.appendProtobufString(field: 1, path, to: &message)
+        if includeDeleted {
+            message.append(contentsOf: [0x10, 0x01]) // field 2, varint true
+        }
+        var frame = Data([0x00])
+        var length = UInt32(message.count).bigEndian
+        frame.append(Data(bytes: &length, count: 4))
+        frame.append(message)
+        let url = Self.grpcWebRoot.appending(path: "no.jotta.openapi.file.v2.FileService/ListFolder")
+        let response = try await authorizedSend { token in
+            var request = Self.mutationRequest(url: url, accessToken: token, contentType: "application/grpc-web+proto", body: frame)
+            request.setValue("1", forHTTPHeaderField: "X-Grpc-Web")
+            request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Accept")
+            return request
+        }
+        var strings: [String] = []
+        var grpcStatus = "?"
+        var offset = 0
+        let body = [UInt8](response.data)
+        while offset + 5 <= body.count {
+            let flag = body[offset]
+            let size = Int(UInt32(body[offset + 1]) << 24 | UInt32(body[offset + 2]) << 16 | UInt32(body[offset + 3]) << 8 | UInt32(body[offset + 4]))
+            let start = offset + 5
+            guard start + size <= body.count else { break }
+            let payload = Array(body[start..<start + size])
+            if flag & 0x80 != 0 {
+                let trailer = String(decoding: payload, as: UTF8.self)
+                grpcStatus = trailer.replacingOccurrences(of: "\r\n", with: "; ")
+            } else {
+                Self.collectProtobufStrings(payload, into: &strings, depth: 0)
+            }
+            offset = start + size
+        }
+        return (response.statusCode, grpcStatus, strings)
+    }
+
+    static func appendProtobufString(field: Int, _ value: String, to data: inout Data) {
+        let bytes = Array(value.utf8)
+        data.append(UInt8(field << 3 | 2))
+        var length = bytes.count
+        repeat {
+            var byte = UInt8(length & 0x7f)
+            length >>= 7
+            if length > 0 { byte |= 0x80 }
+            data.append(byte)
+        } while length > 0
+        data.append(contentsOf: bytes)
+    }
+
+    /// Walks protobuf wire format and collects printable UTF-8 strings.
+    static func collectProtobufStrings(_ bytes: [UInt8], into strings: inout [String], depth: Int) {
+        func varint(_ index: inout Int) -> UInt64? {
+            var result: UInt64 = 0
+            var shift: UInt64 = 0
+            while index < bytes.count, shift < 64 {
+                let byte = bytes[index]
+                index += 1
+                result |= UInt64(byte & 0x7f) << shift
+                if byte & 0x80 == 0 { return result }
+                shift += 7
+            }
+            return nil
+        }
+        var index = 0
+        while index < bytes.count {
+            guard let key = varint(&index) else { return }
+            switch key & 7 {
+            case 0:
+                guard varint(&index) != nil else { return }
+            case 1:
+                index += 8
+            case 5:
+                index += 4
+            case 2:
+                guard let length = varint(&index), index + Int(length) <= bytes.count else { return }
+                let slice = Array(bytes[index..<index + Int(length)])
+                index += Int(length)
+                var nested: [String] = []
+                if depth < 8, !slice.isEmpty, looksLikeMessage(slice) {
+                    collectProtobufStrings(slice, into: &nested, depth: depth + 1)
+                }
+                if !nested.isEmpty {
+                    strings.append(contentsOf: nested)
+                } else if let text = String(bytes: slice, encoding: .utf8),
+                          !text.isEmpty, text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
+                    strings.append(text)
+                }
+            default:
+                return
+            }
+        }
+    }
+
+    private static func looksLikeMessage(_ bytes: [UInt8]) -> Bool {
+        guard let first = bytes.first else { return false }
+        let wire = first & 7
+        let field = first >> 3
+        return field > 0 && field < 32 && [0, 1, 2, 5].contains(wire)
+            && String(bytes: bytes, encoding: .utf8).map { text in
+                !text.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
+            } ?? true
+    }
+}
+
+extension JottacloudClient {
+    /// TEMPORARY trash probe: calls a FileService method over gRPC-Web with
+    /// `path` (field 1) and an optional bool field 2, and returns the HTTP
+    /// status, grpc-status/message from headers or trailers, and strings.
+    /// Mutating methods are only allowed below /archive/JottaFS-Test/.
+    public func probeFileService(
+        method: String,
+        path: String,
+        boolField2: Bool?
+    ) async throws -> (status: Int, grpc: String, strings: [String]) {
+        let mutating = ["Restore", "DeletePermanently"]
+        guard method == "ListFolder" || mutating.contains(method) else {
+            throw POSIXError(.EPERM)
+        }
+        if mutating.contains(method) {
+            guard path.lowercased().hasPrefix("/archive/jottafs-test/"), !path.contains("/../") else {
+                throw POSIXError(.EPERM)
+            }
+        }
+        var message = Data()
+        Self.appendProtobufString(field: 1, path, to: &message)
+        if let boolField2 {
+            message.append(contentsOf: [0x10, boolField2 ? 0x01 : 0x00])
+        }
+        var frame = Data([0x00])
+        var length = UInt32(message.count).bigEndian
+        frame.append(Data(bytes: &length, count: 4))
+        frame.append(message)
+        let url = Self.grpcWebRoot.appending(path: "no.jotta.openapi.file.v2.FileService/\(method)")
+        let token = try await validAccessToken()
+        var request = Self.mutationRequest(url: url, accessToken: token, contentType: "application/grpc-web+proto", body: frame)
+        request.setValue("1", forHTTPHeaderField: "X-Grpc-Web")
+        request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Accept")
+        let (data, response) = try await http.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        var grpc = [
+            httpResponse?.value(forHTTPHeaderField: "grpc-status").map { "hdr grpc-status=\($0)" },
+            httpResponse?.value(forHTTPHeaderField: "grpc-message").map { "hdr grpc-message=\($0.removingPercentEncoding ?? $0)" },
+        ].compactMap { $0 }
+        var strings: [String] = []
+        let body = [UInt8](data)
+        var offset = 0
+        while offset + 5 <= body.count {
+            let flag = body[offset]
+            let size = Int(UInt32(body[offset + 1]) << 24 | UInt32(body[offset + 2]) << 16 | UInt32(body[offset + 3]) << 8 | UInt32(body[offset + 4]))
+            let start = offset + 5
+            guard start + size <= body.count else { break }
+            let payload = Array(body[start..<start + size])
+            if flag & 0x80 != 0 {
+                grpc.append("trailer " + String(decoding: payload, as: UTF8.self).replacingOccurrences(of: "\r\n", with: "; "))
+            } else {
+                Self.collectProtobufStrings(payload, into: &strings, depth: 0)
+            }
+            offset = start + size
+        }
+        return (httpResponse?.statusCode ?? -1, grpc.joined(separator: " "), strings)
+    }
+}
+
+extension JottacloudClient {
+    /// TEMPORARY trash probe (read-only): FileService.GetPath with children,
+    /// as the web app lists `/trash`. Returns each child's path, name, type,
+    /// size and deletedAtMillis, plus the paging cursor.
+    public struct ProbePathChild: Sendable {
+        public var path = ""
+        public var name = ""
+        public var type: UInt64 = 0
+        public var size: UInt64 = 0
+        public var deletedAtMillis: UInt64 = 0
+    }
+
+    public func probeGetPath(
+        path: String,
+        limit: UInt64,
+        includeDeleted: Bool,
+        cursor: String?
+    ) async throws -> (status: Int, grpc: String, item: ProbePathChild?, children: [ProbePathChild], cursor: String) {
+        var message = Data()
+        Self.appendProtobufString(field: 1, path, to: &message)
+        message.append(0x18) // field 3 limit, varint
+        Self.appendVarint(limit, to: &message)
+        message.append(contentsOf: [0x20, 0x01]) // field 4 includeChildren
+        if includeDeleted { message.append(contentsOf: [0x28, 0x01]) } // field 5
+        if let cursor { Self.appendProtobufString(field: 6, cursor, to: &message) }
+        var frame = Data([0x00])
+        var length = UInt32(message.count).bigEndian
+        frame.append(Data(bytes: &length, count: 4))
+        frame.append(message)
+        let url = Self.grpcWebRoot.appending(path: "no.jotta.openapi.file.v2.FileService/GetPath")
+        let token = try await validAccessToken()
+        var request = Self.mutationRequest(url: url, accessToken: token, contentType: "application/grpc-web+proto", body: frame)
+        request.setValue("1", forHTTPHeaderField: "X-Grpc-Web")
+        request.setValue("application/grpc-web+proto", forHTTPHeaderField: "Accept")
+        let (data, response) = try await http.data(for: request)
+        let httpResponse = response as? HTTPURLResponse
+        var grpc = [
+            httpResponse?.value(forHTTPHeaderField: "grpc-status").map { "hdr grpc-status=\($0)" },
+            httpResponse?.value(forHTTPHeaderField: "grpc-message").map { "hdr grpc-message=\($0.removingPercentEncoding ?? $0)" },
+        ].compactMap { $0 }
+        var item: ProbePathChild?
+        var children: [ProbePathChild] = []
+        var nextCursor = ""
+        let body = [UInt8](data)
+        var offset = 0
+        while offset + 5 <= body.count {
+            let flag = body[offset]
+            let size = Int(UInt32(body[offset + 1]) << 24 | UInt32(body[offset + 2]) << 16 | UInt32(body[offset + 3]) << 8 | UInt32(body[offset + 4]))
+            let start = offset + 5
+            guard start + size <= body.count else { break }
+            let payload = Array(body[start..<start + size])
+            if flag & 0x80 != 0 {
+                grpc.append("trailer " + String(decoding: payload, as: UTF8.self).replacingOccurrences(of: "\r\n", with: "; "))
+            } else {
+                for field in Self.protobufFields(payload) {
+                    if field.number == 1, let bytes = field.bytes {
+                        var parent = ProbePathChild()
+                        for f in Self.protobufFields(bytes) {
+                            if f.number == 13, let childBytes = f.bytes {
+                                children.append(Self.decodePathItem(childBytes))
+                            }
+                        }
+                        parent = Self.decodePathItem(bytes)
+                        item = parent
+                    } else if field.number == 2, let bytes = field.bytes {
+                        nextCursor = String(decoding: bytes, as: UTF8.self)
+                    }
+                }
+            }
+            offset = start + size
+        }
+        return (httpResponse?.statusCode ?? -1, grpc.joined(separator: " "), item, children, nextCursor)
+    }
+
+    static func decodePathItem(_ bytes: [UInt8]) -> ProbePathChild {
+        var item = ProbePathChild()
+        for f in protobufFields(bytes) {
+            switch f.number {
+            case 1: item.path = f.bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
+            case 2: item.name = f.bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
+            case 4: item.type = f.varint ?? 0
+            case 7: item.size = f.varint ?? 0
+            case 11: item.deletedAtMillis = f.varint ?? 0
+            default: break
+            }
+        }
+        return item
+    }
+
+    static func appendVarint(_ value: UInt64, to data: inout Data) {
+        var v = value
+        while v >= 0x80 {
+            data.append(UInt8(v & 0x7f) | 0x80)
+            v >>= 7
+        }
+        data.append(UInt8(v))
+    }
+
+    static func protobufFields(_ bytes: [UInt8]) -> [(number: UInt64, varint: UInt64?, bytes: [UInt8]?)] {
+        var result: [(number: UInt64, varint: UInt64?, bytes: [UInt8]?)] = []
+        var index = 0
+        func varint() -> UInt64? {
+            var value: UInt64 = 0
+            var shift: UInt64 = 0
+            while index < bytes.count, shift < 64 {
+                let byte = bytes[index]
+                index += 1
+                value |= UInt64(byte & 0x7f) << shift
+                if byte & 0x80 == 0 { return value }
+                shift += 7
+            }
+            return nil
+        }
+        while index < bytes.count {
+            guard let key = varint() else { break }
+            let number = key >> 3
+            switch key & 7 {
+            case 0:
+                guard let v = varint() else { return result }
+                result.append((number, v, nil))
+            case 1: index += 8
+            case 5: index += 4
+            case 2:
+                guard let length = varint(), index + Int(length) <= bytes.count else { return result }
+                result.append((number, nil, Array(bytes[index..<index + Int(length)])))
+                index += Int(length)
+            default: return result
+            }
+        }
+        return result
     }
 }
