@@ -89,8 +89,12 @@ app's `com.apple.developer.fskit.mount` entitlement and mounts under
   table (`JottaFSStorage.mountedVolumes()`, `mountPoint(anchorName:)`;
   `getmntinfo` with `MNT_NOWAIT`, which does not call into the volume).
 - **Names.** The volume is named after the location or the name set in
-  Advanced (`Settings.plist`, `VolumeNames`). If a mounted volume already has
-  the name, the extension uses "Name (2)", "Name (3)"… (not saved).
+  Advanced (`Settings.plist`, `VolumeNames`). For the built-in `Jotta`
+  locations (Archive, Sync, Shared, Photos) the extension uses the translated
+  names that the app saves in `Settings.plist` (`BuiltInLocationNames`, such
+  as "Arkiv" in Norwegian), so the disk has the name the app's list shows.
+  If a mounted volume already has the name, the extension uses "Name (2)",
+  "Name (3)"… (not saved).
 
 ## Unmounting
 
@@ -213,8 +217,10 @@ extension read it; every writer changes only its own fields under an `flock`,
 and each process reads the newest saved tokens before refreshing, so no one
 reuses a refresh token another process already rotated. No login token,
 access token or refresh token goes into a command-line argument, a mount
-resource or a log. Shared settings (volume names, cache size) are in
-`Settings.plist` next to the credentials.
+resource or a log. Shared settings (volume names, translated built-in names,
+cache size) are in `Settings.plist` next to the credentials, and a
+`SessionEnded` marker appears there when the sign-in has ended (see "Ended
+sign-ins and the refresh agent").
 
 ## Upload progress in Finder
 

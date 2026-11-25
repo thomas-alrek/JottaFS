@@ -15,9 +15,9 @@
 </p>
 
 JottaFS is a macOS app and file system extension. It connects to your
-Jottacloud account and shows one Jottacloud location in Finder as a disk.
-You can open, copy, change, move and delete files on this disk. JottaFS sends
-the changes to Jottacloud.
+Jottacloud account and shows your Jottacloud locations in Finder as disks.
+You can open, copy, change, move and delete files on these disks. JottaFS
+sends the changes to Jottacloud.
 
 <p align="center">
   <a href="https://github.com/thomas-alrek/JottaFS/releases/latest">
@@ -235,6 +235,22 @@ JottaFS opens its window and shows the problem.
 JottaFS uses a background item for this. If macOS asks, allow **JottaFS** in
 **System Settings → General → Login Items & Extensions**.
 
+### Settings
+
+Click the gear button in the lower-left corner of the JottaFS window, or
+choose **JottaFS → Settings**.
+
+- **Download cache:** set the size of the download cache, see how much of it
+  is in use, and click **Clear Cache** to delete it.
+- **File System:** the switch shows if the JottaFS file system extension is
+  on. Click it to open **File System Extensions** in System Settings.
+- **Finder:** the switch shows if the Finder extension is on. It adds
+  **Copy Jottacloud Link** to Finder. Click it to open the Finder extensions
+  in System Settings.
+
+macOS does not let an app turn its extensions on or off. Make the change in
+System Settings; the switch in JottaFS then shows it.
+
 ### Update JottaFS
 
 JottaFS checks for a new version when it opens and one time each day. When
@@ -312,8 +328,8 @@ copy, or a build from Xcode), and macOS uses the extension of a different copy.
 
 If the problem continues, restart your Mac.
 
-**The sidebar shows the JottaFS app icon for a disk, not the drive icon.**
-Finder keeps the old icon after an update. Relaunch Finder: hold Option,
+**The sidebar shows an old icon for a disk, not the drive icon.** Finder
+keeps the old icon after an update. Relaunch Finder: hold Option,
 Control-click the Finder icon in the Dock and choose **Relaunch**.
 
 **The location list is disabled.** Turn on **JottaFS** in **File System
@@ -327,7 +343,10 @@ Extensions** (step 2 above). JottaFS finds the change automatically.
 - Browser sign-in uses OAuth 2.0 with PKCE. The browser returns to JottaFS
   through a temporary address on your Mac (`localhost`).
 - JottaFS keeps the sign-in tokens in a private file in the app group folder
-  on your Mac. Only the JottaFS app and its extension can read this file.
+  on your Mac. Only JottaFS and its extensions can read this file.
+- JottaFS sends the name of your Mac to Jottacloud, so that your list of
+  signed-in devices on jottacloud.com shows it. Change the name in **System
+  Settings → General → About**.
 - JottaFS does not write tokens to logs.
 - The app and the extension run in the macOS App Sandbox.
 
@@ -384,6 +403,7 @@ builds. Add the Norwegian text for each new text before a release. Write
 - [FSKit notes](docs/fskit-internals.md)
 - [Write support design](docs/write-support-design.md)
 - [Trash design](docs/trash-design.md)
+- [Releasing](docs/releasing.md)
 
 ## License
 

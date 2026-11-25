@@ -67,6 +67,10 @@ builds; the release build sets the real version.
 1. Open the DMG. Check the window, the background and the icons.
 2. Drag JottaFS to Applications, open it, sign in and mount a location.
 3. Check **JottaFS → About JottaFS** for the version and the copyright.
+4. Check that every text has a Norwegian translation: Xcode shows the
+   progress of each String Catalog (`Localizable.xcstrings`) in the project
+   navigator. To see the app in Norwegian, set JottaFS to Norsk bokmål in
+   **System Settings → General → Language & Region → Applications**.
 
 ## How installed apps update
 
