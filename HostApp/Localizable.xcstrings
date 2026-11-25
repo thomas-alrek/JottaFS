@@ -55,7 +55,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En nøkkel virker bare én gang. Etterpå holder JottaFS deg innlogget, så du trenger ikke ta vare på nøkkelen."
+            "value" : "Et token virker bare én gang. Etterpå holder JottaFS deg innlogget, så du trenger ikke ta vare på tokenet."
           }
         }
       }
@@ -837,7 +837,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Lim inn nøkkelen her"
+            "value" : "Lim inn tokenet her"
           }
         }
       }
@@ -1029,7 +1029,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Logg inn med en personlig tilgangsnøkkel i stedet"
+            "value" : "Logg inn med et personlig login-token i stedet"
           }
         }
       }
@@ -1039,7 +1039,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Logg inn med tilgangsnøkkel"
+            "value" : "Logg inn med personlig login-token"
           }
         }
       }
