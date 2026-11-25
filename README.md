@@ -94,6 +94,11 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   asks, or use **JottaFS → Settings**.
 - **Sidebar icon.** Jottacloud disks show a drive icon in the Finder
   sidebar, the same as Macintosh HD.
+- **No clutter on Jottacloud.** Finder's own files stay on your Mac: the
+  view settings of folders (`.DS_Store`) and the `._` files that hold
+  Finder tags, comments and download information. These settings are kept
+  on this Mac only, so other devices do not see them. Time Machine does not
+  offer Jottacloud disks, and macOS keeps no file-event log on them.
 - **English and Norwegian.** JottaFS uses Norwegian (Bokmål) when Norwegian
   is in your preferred languages in **System Settings → General → Language &
   Region**. Otherwise it uses English. In Norwegian, Archive, Sync, Shared and

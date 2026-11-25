@@ -100,7 +100,7 @@ Finder writes a `.DS_Store` (view settings) into folders it shows, and macOS
 stores a file's extended attributes (tags, comments, quarantine) in a
 `._name` AppleDouble file next to it, because the volume supports extended
 attributes only on its root. Uploading them cluttered Jottacloud, so since
-1.2 they stay on this Mac (approved by the owner on 2026-11-25; per Mac only,
+1.1.2 they stay on this Mac (approved by the owner on 2026-11-25; per Mac only,
 and existing copies on Jottacloud may stay there):
 
 - **Where.** `LocalFinderFiles` keeps them in the extension's Application
@@ -125,6 +125,12 @@ and existing copies on Jottacloud may stay there):
 - **Limits.** Tags, comments and view settings are per Mac: other devices do
   not see them. Changes made on jottacloud.com are only noticed by the
   clean-up.
+- **Checked** 2026-11-25 on a mounted disk (new folders in `JottaFS-Test`):
+  a `.DS_Store` written from Terminal and the `._file.txt` the kernel wrote
+  for an extended attribute were stored locally and read back, and neither
+  was uploaded. Finder writes a `.DS_Store` only for settings it keeps per
+  folder (such as "Always open in list view"), not for every view change,
+  on APFS as well.
 
 ## Why the local copy stays (measured 2026-11-25)
 
