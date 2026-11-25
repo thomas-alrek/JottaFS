@@ -26,6 +26,8 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         switch item.role {
         case .mountpoint, .remote:
             return true
+        case .localFile:
+            return true
         case .userTrash, .trashed, .trashLocal:
             // The Trash can be emptied and its items put back (the kernel
             // needs write permission on a folder to remove its entries);
@@ -154,6 +156,9 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         else {
             throw POSIXError(.EPERM)
         }
+        if type == .file, LocalFinderFiles.isLocalName(newName) {
+            return try await createLocalFile(named: newName, at: location.path, in: parent)
+        }
         guard type == .file || type == .directory else {
             throw POSIXError(.ENOTSUP)
         }
@@ -257,6 +262,21 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             }
             return result
         }
+        if case .localFile(let path) = item.role {
+            do {
+                guard let url = localFiles.url(path) else {
+                    throw POSIXError(.EINVAL)
+                }
+                let size = try JottaFSStagingFile.write(contents, to: url, at: UInt64(offset))
+                updateEntry(item, size: size, modified: Date())
+            } catch {
+                throw posixError(error)
+            }
+            guard let result = FSWriteFileResult(bytesWritten: contents.count, itemAttributes: attributes(for: item), freeSpace: nil) else {
+                throw POSIXError(.EIO)
+            }
+            return result
+        }
         _ = try writableLocation(of: item)
         do {
             _ = try await stage(item, keepContents: true)
@@ -322,6 +342,19 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             if request.isValid(.size) {
                 do {
                     try JottaFSStagingFile.truncate(url, to: request.size)
+                } catch {
+                    throw posixError(error)
+                }
+                request.consumedAttributes.insert(.size)
+            }
+        case .localFile(let path):
+            if request.isValid(.size) {
+                do {
+                    guard let url = localFiles.url(path) else {
+                        throw POSIXError(.EINVAL)
+                    }
+                    try JottaFSStagingFile.truncate(url, to: request.size)
+                    updateEntry(item, size: request.size, modified: Date())
                 } catch {
                     throw posixError(error)
                 }
@@ -487,10 +520,12 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         guard let item = item as? JottacloudItem, item.entry.kind == .file else {
             throw POSIXError(.EISDIR)
         }
-        if case .trashLocal = item.role {
+        switch item.role {
+        case .trashLocal, .localFile:
             return
+        default:
+            _ = try writableLocation(of: item)
         }
-        _ = try writableLocation(of: item)
     }
 
     /// Uploads when the last writer closes and only returns once the file is
@@ -534,6 +569,19 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         switch item.role {
         case .trashed, .trashLocal:
             return try await removeFromTrash(item, from: parent)
+        case .localFile(let path):
+            do {
+                try localFiles.remove(path)
+            } catch {
+                throw posixError(error)
+            }
+            await directoryCache.recordAbsent(name: item.entry.name, inDirectory: parent.path)
+            let itemAttributes = attributes(for: item)
+            itemStore.remove(item)
+            guard let result = FSRemoveItemResult(itemAttributes: itemAttributes, directoryAttributes: attributes(for: parent), freeSpace: nil) else {
+                throw POSIXError(.EIO)
+            }
+            return result
         default:
             break
         }
@@ -547,6 +595,10 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             }
         }
         try await deletePermanently(item, at: location)
+        if isDirectory {
+            // Its local Finder files go with it.
+            localFiles.removeFolder(location.path)
+        }
         await directoryCache.recordAbsent(name: item.entry.name, inDirectory: parent.path)
         let itemAttributes = attributes(for: item)
         itemStore.remove(item)
@@ -564,7 +616,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
     /// trashed, then that trashed item is deleted permanently. Pending and
     /// running uploads of the file are stopped first, so they cannot create
     /// it again.
-    private func deletePermanently(_ item: JottacloudItem, at location: (volume: JottacloudRemoteVolume, path: String)) async throws {
+    func deletePermanently(_ item: JottacloudItem, at location: (volume: JottacloudRemoteVolume, path: String)) async throws {
         await readAhead.invalidate(item.identifier)
         let isDirectory = item.entry.kind == .directory
         if !isDirectory {
@@ -611,9 +663,14 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             switch item.role {
             case .remote:
                 return try await moveToTrash(item, from: source, name: newName, in: destination, over: overItem)
+            case .localFile:
+                return try await moveLocalFileToTrash(item, from: source, name: newName, in: destination, over: overItem)
             default:
                 throw POSIXError(.EPERM)
             }
+        }
+        if case .localFile = item.role {
+            return try await renameLocalFile(item, from: source, to: newName, in: destination, over: overItem)
         }
         switch item.role {
         case .trashed, .trashLocal:
@@ -631,6 +688,10 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             throw POSIXError(.EXDEV)
         }
         let isDirectory = item.entry.kind == .directory
+        if !isDirectory, LocalFinderFiles.isLocalName(newName) {
+            // An app saved Finder's file under another name first.
+            return try await turnIntoLocalFile(item, at: from, from: source, to: newName, in: destination, path: to.path, over: overItem)
+        }
 
         // The remote copy must hold the latest data before it is moved.
         if !isDirectory {
@@ -671,6 +732,8 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             inDirectory: destination.path
         )
         if isDirectory {
+            // Its local Finder files go with it.
+            localFiles.moveFolder(from: from.path, to: to.path)
             await directoryCache.invalidate(path: item.path)
         }
         writeLogger.info("Renamed an item.")
@@ -853,9 +916,12 @@ extension JottaFSVolume: FSVolume.PreallocateHandler {
         guard let item = fsItem as? JottacloudItem, item.entry.kind == .file, length >= 0 else {
             throw POSIXError(.EINVAL)
         }
-        if case .trashLocal = item.role {
-            // Finder's own files in the Trash folder: nothing to upload.
+        switch item.role {
+        case .trashLocal, .localFile:
+            // Finder's own files, kept on this Mac: nothing to upload.
             return try preallocateResult(length, item)
+        default:
+            break
         }
         _ = try writableLocation(of: item)
         do {

@@ -27,6 +27,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     let readAhead: ReadAhead
     /// This location's downloaded blocks; deleted when it is unmounted.
     let blockCache: BlockCache
+    /// Finder's own files (`.DS_Store`, `._*`), kept on this Mac.
+    let localFiles: LocalFinderFiles
     private let statistics: FSStatFSResult
     private let capabilities: FSVolume.SupportedCapabilities
     private let volumeIconData: Data
@@ -87,7 +89,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         self.blockCache = BlockCache(key: target.storageKey)
         self.readAhead = ReadAhead(cache: blockCache)
         self.trash = try TrashStore(client: client, locationPrefix: target.trashPrefix, key: target.storageKey)
-        self.directoryCache = DirectoryCache(client: client, trash: trash)
+        self.localFiles = try LocalFinderFiles(key: target.storageKey)
+        self.directoryCache = DirectoryCache(client: client, trash: trash, localFiles: localFiles)
         self.statistics = FSStatFSResult(fileSystemTypeName: "jottacloud")
         self.capabilities = FSVolume.SupportedCapabilities()
         // Finder omits volumes that report no size (statfs f_blocks == 0).
@@ -402,6 +405,11 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
                 )
             }
         case .trashLocal(let url):
+            data = try JottaFSStagingFile.read(from: url, at: UInt64(offset), length: length)
+        case .localFile(let path):
+            guard let url = localFiles.url(path) else {
+                throw POSIXError(.EINVAL)
+            }
             data = try JottaFSStagingFile.read(from: url, at: UInt64(offset), length: length)
         case .trashed:
             // Reading trashed files is not supported yet.

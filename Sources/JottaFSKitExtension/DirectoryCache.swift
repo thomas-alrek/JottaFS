@@ -79,7 +79,10 @@ actor DirectoryCache {
     private let overlayLifetime: TimeInterval = 60
     private var overlays: [String: [String: Overlay]] = [:]
 
-    init(client: JottacloudClient, trash: TrashStore) {
+    private let localFiles: LocalFinderFiles
+
+    init(client: JottacloudClient, trash: TrashStore, localFiles: LocalFinderFiles) {
+        self.localFiles = localFiles
         self.client = client
         self.trash = trash
     }
@@ -96,6 +99,16 @@ actor DirectoryCache {
     }
 
     /// Records a created, uploaded or moved-in item in `directoryPath`.
+    /// The folder's local Finder files, after removing those whose items
+    /// are no longer in the folder's (complete) Jottacloud listing.
+    private nonisolated func localEntries(inFolder folder: String, remote: [RemoteEntry]) -> [JottacloudDirectoryEntry] {
+        localFiles.prune(
+            folder: folder,
+            keeping: Set(remote.filter { !LocalFinderFiles.isLocalName($0.name) }.map { $0.name.lowercased() })
+        )
+        return localFiles.entries(inFolder: folder)
+    }
+
     func recordPresent(_ entry: JottacloudDirectoryEntry, inDirectory directoryPath: String) {
         record(name: entry.entry.name, entry: entry, inDirectory: directoryPath)
     }
@@ -198,9 +211,11 @@ actor DirectoryCache {
                 // virtual `.fseventsd`.
                 entries = (path.isEmpty ? [Self.trashesEntry, Self.fseventsEntry] : []) + remoteEntries.compactMap {
                     // A remote item named like one of them stays hidden (a
-                    // `.fseventsd` uploaded by versions before 1.1.2).
+                    // `.fseventsd` uploaded by versions before 1.1.2), and so
+                    // do Finder's own files: the local ones are shown.
                     guard !JottaFSNames.sameName($0.name, Self.trashesName),
-                          !JottaFSNames.sameName($0.name, Self.fseventsName)
+                          !JottaFSNames.sameName($0.name, Self.fseventsName),
+                          !LocalFinderFiles.isLocalName($0.name)
                     else {
                         return nil
                     }
@@ -208,13 +223,16 @@ actor DirectoryCache {
                         entry: $0,
                         role: .remote(volume, path: $0.name)
                     )
-                }
+                } + localEntries(inFolder: "", remote: remoteEntries)
             case .remote(let volume, let remotePath):
                 let remoteEntries = try await client.listDirectory(
                     volume: volume,
                     path: remotePath
                 )
-                entries = remoteEntries.map { entry in
+                entries = remoteEntries.compactMap { entry in
+                    guard !LocalFinderFiles.isLocalName(entry.name) else {
+                        return nil
+                    }
                     let path = remotePath.isEmpty
                         ? entry.name
                         : "\(remotePath)/\(entry.name)"
@@ -222,7 +240,7 @@ actor DirectoryCache {
                         entry: entry,
                         role: .remote(volume, path: path)
                     )
-                }
+                } + localEntries(inFolder: remotePath, remote: remoteEntries)
             case .trashes:
                 entries = [JottacloudDirectoryEntry(
                     entry: RemoteEntry(name: trash.userFolderName, kind: .directory, size: 0, modified: nil),
@@ -240,7 +258,7 @@ actor DirectoryCache {
                     entry: RemoteEntry(name: "no_log", kind: .file, size: 0, modified: nil),
                     role: .fseventsNoLog
                 )]
-            case .volumeIcon, .timeMachineMarker, .fseventsNoLog, .trashLocal:
+            case .volumeIcon, .timeMachineMarker, .fseventsNoLog, .trashLocal, .localFile:
                 throw POSIXError(.ENOTDIR)
             }
             return DirectorySnapshot(entries: entries, verifier: verifier)

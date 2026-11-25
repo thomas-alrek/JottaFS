@@ -94,6 +94,38 @@ MD5).
 - **Progress.** Upload progress is shown on the file's icon in Finder through
   `JottaFSProgressAgent` ([FSKit notes](fskit-internals.md#upload-progress-in-finder)).
 
+## Finder's own files (`.DS_Store`, `._*`)
+
+Finder writes a `.DS_Store` (view settings) into folders it shows, and macOS
+stores a file's extended attributes (tags, comments, quarantine) in a
+`._name` AppleDouble file next to it, because the volume supports extended
+attributes only on its root. Uploading them cluttered Jottacloud, so since
+1.2 they stay on this Mac (approved by the owner on 2026-11-25; per Mac only,
+and existing copies on Jottacloud may stay there):
+
+- **Where.** `LocalFinderFiles` keeps them in the extension's Application
+  Support folder, in a tree that mirrors the location's folders:
+  `LocalFiles/<location key>/<folder path>/<name>`. It lasts across unmounts
+  and restarts. Items with these names get the role `.localFile(path:)`.
+- **Operations.** They behave like any other file: create, write, read,
+  truncate, rename, delete. Nothing is uploaded. Listings show the folder's
+  local files and hide copies of these names that are on Jottacloud.
+- **Pairing.** The kernel renames and deletes a file's `._` file with the file,
+  through the volume. Renaming or deleting a folder through JottaFS moves or
+  deletes its mirrored folder. A local file moved to the Trash joins the
+  Trash's local files (`.trashLocal`), and Put Back brings it back.
+- **Saved under another name.** A regular file renamed to one of these names
+  (an app that writes a temporary file first) is moved into the local store
+  and deleted on Jottacloud (not uploaded if it was not uploaded yet).
+- **Clean-up.** When a folder is listed, a `._name` file whose item is gone
+  is removed once it is older than an hour (a file still being created keeps
+  its `._` file), and a mirrored folder whose folder is gone once it is
+  older than 7 days (Put Back of a folder keeps its files' tags and view
+  settings for a week).
+- **Limits.** Tags, comments and view settings are per Mac: other devices do
+  not see them. Changes made on jottacloud.com are only noticed by the
+  clean-up.
+
 ## Why the local copy stays (measured 2026-11-25)
 
 A 300 MB copy with `cp` onto a mounted disk took 20.9 s: about 1 s writing

@@ -78,6 +78,10 @@ enum JottacloudItemRole: Sendable {
     case trashed(JottacloudPathItem, topLevel: Bool)
     /// Finder metadata (`.DS_Store`, `._*`) in the Trash, kept locally.
     case trashLocal(URL)
+    /// Finder's own files (`.DS_Store`, `._*`) anywhere else in the location,
+    /// kept on this Mac (`LocalFinderFiles`); `path` is relative to the
+    /// location, like a remote item's.
+    case localFile(path: String)
 }
 
 struct JottacloudDirectoryEntry: Sendable {
@@ -319,6 +323,10 @@ final class ItemStore {
                 if let oldRemotePath, let remote = descendant.remoteLocation {
                     let remoteSuffix = String(remote.path.dropFirst(oldRemotePath.count))
                     descendant.role = .remote(remote.volume, path: location.path + remoteSuffix)
+                } else if let oldRemotePath, case .localFile(let localPath) = descendant.role,
+                          localPath.lowercased().hasPrefix(oldRemotePath.lowercased() + "/") {
+                    // A local Finder file inside the moved folder.
+                    descendant.role = .localFile(path: location.path + String(localPath.dropFirst(oldRemotePath.count)))
                 }
                 itemsByPath[Self.key(descendant.path)] = descendant
             }

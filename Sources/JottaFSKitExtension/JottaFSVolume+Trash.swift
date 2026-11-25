@@ -125,6 +125,28 @@ extension JottaFSVolume {
         let over = overItem as? JottacloudItem
         switch item.role {
         case .trashLocal(let url):
+            if LocalFinderFiles.isLocalName(newName), let to = destination.childLocation(named: newName) {
+                // Put Back of a file's `._` file (the kernel moves it with
+                // the file): back to the local Finder files.
+                if let over, over !== item {
+                    guard case .localFile = over.role else {
+                        throw POSIXError(.EEXIST)
+                    }
+                    itemStore.remove(over)
+                }
+                do {
+                    try localFiles.move(url, to: to.path)
+                } catch {
+                    throw posixError(error)
+                }
+                let oldName = item.entry.name
+                let entry = RemoteEntry(name: newName, kind: .file, size: item.entry.size, modified: item.entry.modified)
+                itemStore.relocate(item, to: destination, name: newName, role: .localFile(path: to.path), entry: entry)
+                await trash.localFilesChanged()
+                await directoryCache.recordAbsent(name: oldName, inDirectory: source.path)
+                await directoryCache.recordPresent(JottacloudDirectoryEntry(entry: entry, role: item.role), inDirectory: destination.path)
+                return try renameResult(item, name: newName, source: source, destination: destination, over: over)
+            }
             guard case .userTrash = destination.role, TrashStore.isLocalMetadataName(newName) else {
                 throw POSIXError(.EPERM)
             }
@@ -312,7 +334,7 @@ extension JottaFSVolume {
         return nil
     }
 
-    private func renameResult(
+    func renameResult(
         _ item: JottacloudItem,
         name: String,
         source: JottacloudItem,
