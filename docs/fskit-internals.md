@@ -307,6 +307,30 @@ macOS's "Reopen windows when logging back in" relaunched the app as a normal
 launch (now prevented with `NSApp.disableRelaunchOnLogin()`). The app moves
 an old `mainApp` registration to the agent.
 
+## Private FSKit interfaces (checked 2026-11-25)
+
+Looking for a way to upload a copied file without a full local copy, all
+FSKit classes and protocols in the macOS 27 shared cache were listed through
+the Objective-C runtime (115 classes, 49 protocols), with the SDK's
+`FSKit.tbd` and the strings of `fskitd`, `fskit_agent` and `fskit_helper`.
+Nothing exposes the source of a copy, an MD5, or a way to make the writer
+send the data again:
+
+- `FSContext` has a private `_auditToken` (`FSAuditToken`: `pid`, `ruid`,
+  `euid`, `audit_token`; exported in the `.tbd`, not in the headers), so the
+  writer's process could be known. It would only help for copy tools in the
+  user session (an unsandboxed helper could find the source file the tool has
+  open); Finder copies run in `DesktopServicesHelper` as root, whose open
+  files a user process cannot see. Not used: private, and no help for Finder.
+- A private `FSVolumeCloneHandler` (`createCloneOfItem:named:inDirectory:…`)
+  clones within one volume only; a copy from APFS onto JottaFS is a
+  cross-volume copy that falls back to reading and writing.
+- Kernel-offloaded I/O and extents are for block-device resources; the data
+  would still be stored locally.
+- Copy tools set the size and extended attributes before the data, but none
+  carries a source path or a checksum. The size is used for the early
+  free-space check ([write design](write-support-design.md)).
+
 ## Deferred: the format name
 
 Get Info shows the format as "Unknown (jottacloud)". Foundation and Finder
