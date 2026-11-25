@@ -10,7 +10,12 @@ let package = Package(
         .executable(name: "jottafs-fskit-module", targets: ["JottaFSKitExtension"])
     ],
     targets: [
-        .target(name: "JottaFSCore", path: "Sources/JottaFSCore"),
+        .target(
+            name: "JottaFSCore",
+            path: "Sources/JottaFSCore",
+            // Translations are bundled by the Xcode project only.
+            exclude: ["Localizable.xcstrings"]
+        ),
         .executableTarget(
             name: "JottaFSCoreChecks",
             dependencies: ["JottaFSCore"],

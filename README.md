@@ -92,9 +92,12 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   Jottacloud disk and choose **Copy Jottacloud Link**. For a shared item,
   **Stop Sharing Jottacloud Link** removes the link. Turn on the Finder extension once: JottaFS
   asks, or use **JottaFS → Settings**.
-- **Sidebar icon.** Jottacloud disks show their own icon in the Finder
-  sidebar: a drive with the Jottacloud logo, in the same style as Macintosh
-  HD.
+- **Sidebar icon.** Jottacloud disks show a drive icon in the Finder
+  sidebar, the same as Macintosh HD.
+- **English and Norwegian.** JottaFS uses Norwegian (Bokmål) when Norwegian
+  is in your preferred languages in **System Settings → General → Language &
+  Region**. Otherwise it uses English. In Norwegian, Archive, Sync, Shared and
+  Photos show as Arkiv, Synk, Delt and Bilder, also as the disk names.
 - **Download cache.** JottaFS keeps recently downloaded file data on your Mac
   (1 GB by default). Files that you open again open immediately. Change the
   size in **JottaFS → Settings**. JottaFS deletes the data of a disk when you
@@ -351,6 +354,15 @@ After you change the extension:
 
 If macOS does not show the new extension, turn **JottaFS** off and on in
 **File System Extensions**. If that does not help, restart your Mac.
+
+### Translations
+
+The texts are in String Catalogs (`Localizable.xcstrings`): one for the app
+(`HostApp`), the Finder extension, JottaFSService and the JottaFSCore
+framework (its error messages). English is the development language and the
+fallback; Norwegian is `nb`. Xcode adds new texts to the catalogs when it
+builds. Add the Norwegian text for each new text before a release. Write
+"Aktiver / Deaktiver" for mount and unmount (as in Disk Utility).
 
 > [!CAUTION]
 > Your Jottacloud account contains your own files. Test changes only on files

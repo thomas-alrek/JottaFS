@@ -45,7 +45,7 @@ private struct SettingsView: View {
                     do {
                         try JottaFSStorage.setBlockCacheLimitMB(newValue)
                     } catch {
-                        failure = "JottaFS couldn’t save the setting."
+                        failure = String(localized: "JottaFS couldn’t save the setting.")
                     }
                 }
                 usage
@@ -95,7 +95,7 @@ private struct SettingsView: View {
                 do {
                     try JottaFSStorage.clearBlockCache()
                 } catch {
-                    failure = "JottaFS couldn’t clear the cache."
+                    failure = String(localized: "JottaFS couldn’t clear the cache.")
                 }
                 used = JottaFSStorage.blockCacheSize()
             }
@@ -152,7 +152,7 @@ private struct SettingsView: View {
 
     private static func title(for size: Int) -> String {
         switch size {
-        case 0: "Off"
+        case 0: String(localized: "Off")
         case let size where size >= 1024 && size % 1024 == 0: "\(size / 1024) GB"
         default: "\(size) MB"
         }
@@ -494,7 +494,7 @@ private struct Step<Content: View>: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("\(number)")
+            Text(verbatim: "\(number)")
                 .font(.callout.bold())
                 .frame(width: 22, height: 22)
                 .background(Circle().fill(.tint.opacity(0.15)))
@@ -549,7 +549,7 @@ private struct SignedInView: View {
                         .truncationMode(.middle)
                     // Just the email: "Signed in as …" did not fit beside
                     // the Sign Out button.
-                    Text(model.accountSubtitle ?? "Signed in to Jottacloud")
+                    Text(model.accountSubtitle ?? String(localized: "Signed in to Jottacloud"))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -590,7 +590,7 @@ private struct SignedInView: View {
                     )) {
                         Text("Mount automatically when I log in")
                     }
-                    .help(model.selectedLocation.map { "Mount “\(model.displayName(of: $0))” automatically when you log in." } ?? "")
+                    .help(model.selectedLocation.map { String(localized: "Mount “\(model.displayName(of: $0))” automatically when you log in.") } ?? "")
                     .disabled(model.selectedLocation == nil)
                     Spacer()
                     Button("Advanced…") {
@@ -770,7 +770,7 @@ private struct LocationPicker: View {
             (lhs == JottacloudRemoteVolume.builtInDevice ? 0 : 1, lhs) < (rhs == JottacloudRemoteVolume.builtInDevice ? 0 : 1, rhs)
         }
         return order.map { device in
-            (device == JottacloudRemoteVolume.builtInDevice ? "Jottacloud" : "Backup from \(device)", byDevice[device] ?? [])
+            (device == JottacloudRemoteVolume.builtInDevice ? "Jottacloud" : String(localized: "Backup from \(device)", comment: "Section title in the location list; the argument is a computer name"), byDevice[device] ?? [])
         }
     }
 }
@@ -787,7 +787,7 @@ private struct LocationRow: View {
                 .frame(width: 20)
                 .foregroundStyle(.tint)
             VStack(alignment: .leading, spacing: 1) {
-                Text(location.mountpoint)
+                Text(AppModel.ownName(of: location))
                 if let detail {
                     Text(detail)
                         .font(.caption)
@@ -821,16 +821,16 @@ private struct LocationRow: View {
 
     private var detail: String? {
         if let finderName {
-            return "Shown in Finder as “\(finderName)”"
+            return String(localized: "Shown in Finder as “\(finderName)”")
         }
         guard location.isBuiltIn else {
             return nil
         }
         switch location.mountpoint.lowercased() {
-        case "archive": return "Files stored only in Jottacloud"
-        case "sync": return "Files synced with your devices"
-        case "shared": return "Folders shared with others"
-        case "photos": return "Your photos and videos"
+        case "archive": return String(localized: "Files stored only in Jottacloud")
+        case "sync": return String(localized: "Files synced with your devices")
+        case "shared": return String(localized: "Folders shared with others")
+        case "photos": return String(localized: "Your photos and videos")
         default: return nil
         }
     }
@@ -853,7 +853,7 @@ private struct FinderStatus: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(true)
-                .help("Mounted. To unmount, eject “\(selectedName ?? "the disk")” in Finder.")
+                .help("Mounted. To unmount, eject “\(selectedName ?? String(localized: "the disk"))” in Finder.")
             } else if model.selectedIsMounted {
                 Button(role: .destructive) {
                     confirmsUnmount = true
@@ -903,7 +903,7 @@ private struct AdvancedSettingsView: View {
     @State private var name = ""
 
     private var defaultName: String {
-        JottaFSStorage.defaultVolumeName(mountpoint: location.mountpoint)
+        AppModel.defaultName(of: location)
     }
 
     private var isMounted: Bool {
@@ -921,7 +921,7 @@ private struct AdvancedSettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Advanced")
                     .font(.title2.bold())
-                Text(location.isBuiltIn ? location.mountpoint : "\(location.mountpoint) · Backup from \(location.device)")
+                Text(location.isBuiltIn ? AppModel.ownName(of: location) : String(localized: "\(location.mountpoint) · Backup from \(location.device)", comment: "A backed-up folder and the computer it is backed up from"))
                     .foregroundStyle(.secondary)
             }
 
@@ -1021,7 +1021,7 @@ private struct UpdateBanner: View {
 
     private func banner<Content: View>(
         systemImage: String,
-        title: String,
+        title: LocalizedStringKey,
         @ViewBuilder content: () -> Content
     ) -> some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1044,7 +1044,7 @@ private struct UpdateBanner: View {
 
 /// A button title, or a spinner with "Mounting…"/"Unmounting…" while busy.
 private struct ButtonLabel: View {
-    let title: String
+    let title: LocalizedStringKey
     let activity: AppModel.Activity?
 
     var body: some View {
@@ -1068,9 +1068,9 @@ private struct ButtonLabel: View {
 
 private struct Notice: View {
     let systemImage: String
-    let title: String
-    let message: String
-    let buttonTitle: String
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
+    let buttonTitle: LocalizedStringKey
     let action: () -> Void
 
     var body: some View {

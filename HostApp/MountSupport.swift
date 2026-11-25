@@ -15,11 +15,11 @@ enum UnmountError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .ejectInFinder:
-            "Eject your Jottacloud disks in Finder first, then try again."
+            String(localized: "Eject your Jottacloud disks in Finder first, then try again.")
         case .volumeStillMounted:
-            "Jottacloud is still in use. Close any files or windows from it and try again."
+            String(localized: "Jottacloud is still in use. Close any files or windows from it and try again.")
         case .serviceUnavailable:
-            "JottaFS could not disconnect Jottacloud. Try again, or restart your Mac."
+            String(localized: "JottaFS could not disconnect Jottacloud. Try again, or restart your Mac.")
         case .failed(let message):
             message
         }

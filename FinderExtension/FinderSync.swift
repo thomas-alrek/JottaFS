@@ -74,7 +74,7 @@ final class FinderSync: FIFinderSync {
         }
         let menu = NSMenu(title: "")
         let copy = NSMenuItem(
-            title: items.count == 1 ? "Copy Jottacloud Link" : "Copy Jottacloud Links",
+            title: items.count == 1 ? String(localized: "Copy Jottacloud Link") : String(localized: "Copy Jottacloud Links"),
             action: #selector(copyLinks(_:)),
             keyEquivalent: ""
         )
@@ -82,7 +82,7 @@ final class FinderSync: FIFinderSync {
         menu.addItem(copy)
         if items.allSatisfy({ isShared($0) }) {
             let stop = NSMenuItem(
-                title: items.count == 1 ? "Stop Sharing Jottacloud Link" : "Stop Sharing Jottacloud Links",
+                title: items.count == 1 ? String(localized: "Stop Sharing Jottacloud Link") : String(localized: "Stop Sharing Jottacloud Links"),
                 action: #selector(stopSharing(_:)),
                 keyEquivalent: ""
             )
@@ -147,7 +147,7 @@ final class FinderSync: FIFinderSync {
         let logger = logger
         Task.detached {
             guard let client = JottaFSItem.client() else {
-                await Self.notify("JottaFS isn’t signed in.", body: "Open JottaFS and sign in to Jottacloud.")
+                await Self.notify(String(localized: "JottaFS isn’t signed in."), body: String(localized: "Open JottaFS and sign in to Jottacloud."))
                 return
             }
             var links: [String] = []
@@ -159,7 +159,7 @@ final class FinderSync: FIFinderSync {
                 }
             } catch {
                 logger.error("Sharing failed (\((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)).")
-                await Self.notify("JottaFS couldn’t create the link.", body: "Check your internet connection and try again.")
+                await Self.notify(String(localized: "JottaFS couldn’t create the link."), body: String(localized: "Check your internet connection and try again."))
                 return
             }
             let text = links.joined(separator: "\n")
@@ -168,10 +168,10 @@ final class FinderSync: FIFinderSync {
                 NSPasteboard.general.setString(text, forType: .string)
             }
             await Self.notify(
-                items.count == 1 ? "Link copied" : "\(items.count) links copied",
+                items.count == 1 ? String(localized: "Link copied") : String(localized: "\(items.count) links copied"),
                 body: items.count == 1
-                    ? "Anyone with the link can open “\(items[0].name)”."
-                    : "Anyone with the links can open these items."
+                    ? String(localized: "Anyone with the link can open “\(items[0].name)”.")
+                    : String(localized: "Anyone with the links can open these items.")
             )
         }
     }
@@ -185,7 +185,7 @@ final class FinderSync: FIFinderSync {
         let logger = logger
         Task.detached {
             guard let client = JottaFSItem.client() else {
-                await Self.notify("JottaFS isn’t signed in.", body: "Open JottaFS and sign in to Jottacloud.")
+                await Self.notify(String(localized: "JottaFS isn’t signed in."), body: String(localized: "Open JottaFS and sign in to Jottacloud."))
                 return
             }
             do {
@@ -195,12 +195,12 @@ final class FinderSync: FIFinderSync {
                 }
             } catch {
                 logger.error("Stop sharing failed (\((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)).")
-                await Self.notify("JottaFS couldn’t stop sharing.", body: "Check your internet connection and try again.")
+                await Self.notify(String(localized: "JottaFS couldn’t stop sharing."), body: String(localized: "Check your internet connection and try again."))
                 return
             }
             await Self.notify(
-                "Sharing stopped",
-                body: items.count == 1 ? "The link to “\(items[0].name)” no longer works." : "The links to these items no longer work."
+                String(localized: "Sharing stopped"),
+                body: items.count == 1 ? String(localized: "The link to “\(items[0].name)” no longer works.") : String(localized: "The links to these items no longer work.")
             )
         }
     }

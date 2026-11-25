@@ -1,0 +1,1500 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ of %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$@"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ av %2$@"
+          }
+        }
+      }
+    },
+    "%@ of %@ used" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ of %2$@ used"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ av %2$@ brukt"
+          }
+        }
+      }
+    },
+    "%@ · Backup from %@" : {
+      "comment" : "A backed-up folder and the computer it is backed up from",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ · Backup from %2$@"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ · Backup fra %2$@"
+          }
+        }
+      }
+    },
+    "A token works once. After that, JottaFS keeps you signed in, so you don’t need to keep the token." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En nøkkel virker bare én gang. Etterpå holder JottaFS deg innlogget, så du trenger ikke ta vare på nøkkelen."
+          }
+        }
+      }
+    },
+    "Advanced" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avansert"
+          }
+        }
+      }
+    },
+    "Advanced…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avansert …"
+          }
+        }
+      }
+    },
+    "Allow JottaFS in Login Items" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tillat JottaFS i Påloggingsobjekter"
+          }
+        }
+      }
+    },
+    "Allow JottaFS in Login Items to see progress bars while files upload." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tillat JottaFS i Påloggingsobjekter for å se fremdriftslinjer mens filer lastes opp."
+          }
+        }
+      }
+    },
+    "Allow JottaFS in System Settings" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tillat JottaFS i Systeminnstillinger"
+          }
+        }
+      }
+    },
+    "Archive" : {
+      "comment" : "Jottacloud's built-in location for files stored only in Jottacloud",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arkiv"
+          }
+        }
+      }
+    },
+    "Back" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tilbake"
+          }
+        }
+      }
+    },
+    "Backup from %@" : {
+      "comment" : "Section title in the location list; the argument is a computer name",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Backup fra %@"
+          }
+        }
+      }
+    },
+    "Cache size" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bufferstørrelse"
+          }
+        }
+      }
+    },
+    "Cache used" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Buffer brukt"
+          }
+        }
+      }
+    },
+    "Cancel" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avbryt"
+          }
+        }
+      }
+    },
+    "Check Login Items in System Settings." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sjekk Påloggingsobjekter i Systeminnstillinger."
+          }
+        }
+      }
+    },
+    "Check your internet connection and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sjekk internettilkoblingen og prøv igjen."
+          }
+        }
+      }
+    },
+    "Choose another location." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velg en annen plassering."
+          }
+        }
+      }
+    },
+    "Choose what to mount" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velg hva du vil aktivere"
+          }
+        }
+      }
+    },
+    "Clear Cache" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tøm buffer"
+          }
+        }
+      }
+    },
+    "Clear Cache…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tøm buffer …"
+          }
+        }
+      }
+    },
+    "Clear the download cache?" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tømme nedlastingsbufferen?"
+          }
+        }
+      }
+    },
+    "Continue in your browser" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fortsett i nettleseren"
+          }
+        }
+      }
+    },
+    "Control-click a file or folder on a Jottacloud disk to copy its link." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kontroll-klikk på en fil eller mappe på en Jottacloud-disk for å kopiere lenken."
+          }
+        }
+      }
+    },
+    "Copy Jottacloud links from Finder?" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiere Jottacloud-lenker fra Finder?"
+          }
+        }
+      }
+    },
+    "Download Cache" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nedlastingsbuffer"
+          }
+        }
+      }
+    },
+    "Downloading JottaFS %@…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laster ned JottaFS %@ …"
+          }
+        }
+      }
+    },
+    "Eject your Jottacloud disks in Finder first, then try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mat ut Jottacloud-diskene i Finder først, og prøv igjen."
+          }
+        }
+      }
+    },
+    "File System" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filsystem"
+          }
+        }
+      }
+    },
+    "Files stored only in Jottacloud" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filer som bare er lagret i Jottacloud"
+          }
+        }
+      }
+    },
+    "Files synced with your devices" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filer som synkroniseres med enhetene dine"
+          }
+        }
+      }
+    },
+    "Files you open again are downloaded from Jottacloud again. Your files in Jottacloud are not changed." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filer du åpner igjen, lastes ned fra Jottacloud på nytt. Filene dine i Jottacloud blir ikke endret."
+          }
+        }
+      }
+    },
+    "Finder" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finder"
+          }
+        }
+      }
+    },
+    "Folders shared with others" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mapper som er delt med andre"
+          }
+        }
+      }
+    },
+    "If you’d rather not sign in through the browser." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvis du ikke vil logge inn via nettleseren."
+          }
+        }
+      }
+    },
+    "Installing JottaFS %@…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installerer JottaFS %@ …"
+          }
+        }
+      }
+    },
+    "It will be removed from Finder. Your files stay in Jottacloud. Close any files you have open from it first." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den blir fjernet fra Finder. Filene dine blir værende i Jottacloud. Lukk først alle filer du har åpne fra den."
+          }
+        }
+      }
+    },
+    "JottaFS %@ couldn’t be installed." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS %@ kunne ikke installeres."
+          }
+        }
+      }
+    },
+    "JottaFS %@ is available." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS %@ er tilgjengelig."
+          }
+        }
+      }
+    },
+    "JottaFS can mount Jottacloud locations as disks in Finder." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kan aktivere Jottacloud-plasseringer som disker i Finder."
+          }
+        }
+      }
+    },
+    "JottaFS can’t reach Jottacloud." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS får ikke kontakt med Jottacloud."
+          }
+        }
+      }
+    },
+    "JottaFS could not disconnect Jottacloud. Try again, or restart your Mac." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke koble fra Jottacloud. Prøv igjen, eller start Mac-en på nytt."
+          }
+        }
+      }
+    },
+    "JottaFS could not prepare the sign-in. Try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke klargjøre innloggingen. Prøv igjen."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t clear the cache." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke tømme bufferen."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t load your Jottacloud locations." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke laste inn Jottacloud-plasseringene dine."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t mount the location." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke aktivere plasseringen."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t prepare its storage." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke klargjøre lagringen sin."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t save the name." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke lagre navnet."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t save the setting." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke lagre innstillingen."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t sign out because Jottacloud is still mounted." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke logge ut fordi Jottacloud fortsatt er aktivert."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t sign out." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke logge ut."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t sign you in." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke logge deg inn."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t turn off mounting at login." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke slå av aktivering ved pålogging."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t turn on mounting at login." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke slå på aktivering ved pålogging."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t unmount the location." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke deaktivere plasseringen."
+          }
+        }
+      }
+    },
+    "JottaFS keeps recently downloaded file data on your Mac, so files you open again open immediately. When the cache is full, the oldest data is removed. A disk’s data is removed when you unmount it, and all of it when you restart your Mac." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS beholder nylig nedlastede fildata på Mac-en, slik at filer du åpner igjen, åpnes med en gang. Når bufferen er full, fjernes de eldste dataene. Dataene for en disk fjernes når du deaktiverer den, og alle data fjernes når du starter Mac-en på nytt."
+          }
+        }
+      }
+    },
+    "JottaFS opens again when it’s done." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS åpnes igjen når den er ferdig."
+          }
+        }
+      }
+    },
+    "Jottacloud didn’t accept the sign-in. Please try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud godtok ikke innloggingen. Prøv igjen."
+          }
+        }
+      }
+    },
+    "Jottacloud disks" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud-disker"
+          }
+        }
+      }
+    },
+    "Jottacloud is still in use. Close any files or windows from it and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud er fortsatt i bruk. Lukk filer og vinduer fra den, og prøv igjen."
+          }
+        }
+      }
+    },
+    "Later" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Senere"
+          }
+        }
+      }
+    },
+    "Loading your locations…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Laster inn plasseringene dine …"
+          }
+        }
+      }
+    },
+    "Mount" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiver"
+          }
+        }
+      }
+    },
+    "Mount automatically when I log in" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiver automatisk når jeg logger på"
+          }
+        }
+      }
+    },
+    "Mount “%@” automatically when you log in." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiver «%@» automatisk når du logger på."
+          }
+        }
+      }
+    },
+    "Mounted" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivert"
+          }
+        }
+      }
+    },
+    "Mounted and available in Finder" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivert og tilgjengelig i Finder"
+          }
+        }
+      }
+    },
+    "Mounted. To unmount, eject “%@” in Finder." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktivert. Mat ut «%@» i Finder for å deaktivere."
+          }
+        }
+      }
+    },
+    "Mounting…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiverer …"
+          }
+        }
+      }
+    },
+    "Name in Finder" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navn i Finder"
+          }
+        }
+      }
+    },
+    "Not Now" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke nå"
+          }
+        }
+      }
+    },
+    "Not found" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke funnet"
+          }
+        }
+      }
+    },
+    "OK" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        }
+      }
+    },
+    "Off" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Av"
+          }
+        }
+      }
+    },
+    "Open" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne"
+          }
+        }
+      }
+    },
+    "Open Login Items" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne Påloggingsobjekter"
+          }
+        }
+      }
+    },
+    "Open System Settings" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne Systeminnstillinger"
+          }
+        }
+      }
+    },
+    "Open System Settings → General → Login Items & Extensions → File System Extensions, and turn on JottaFS." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne Systeminnstillinger → Generelt → Påloggingsobjekter og utvidelser → Filsystemutvidelser, og slå på JottaFS."
+          }
+        }
+      }
+    },
+    "Open your Jottacloud security settings." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne sikkerhetsinnstillingene dine i Jottacloud."
+          }
+        }
+      }
+    },
+    "Opens File System Extensions in System Settings. Turn JottaFS on or off there." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpner Filsystemutvidelser i Systeminnstillinger. Slå JottaFS av eller på der."
+          }
+        }
+      }
+    },
+    "Opens the Finder extensions in System Settings. Turn JottaFS on or off there." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpner Finder-utvidelser i Systeminnstillinger. Slå JottaFS av eller på der."
+          }
+        }
+      }
+    },
+    "Paste the token here" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lim inn nøkkelen her"
+          }
+        }
+      }
+    },
+    "Photos" : {
+      "comment" : "Jottacloud's built-in location for photos and videos",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilder"
+          }
+        }
+      }
+    },
+    "Reinstall the app and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer programmet på nytt, og prøv igjen."
+          }
+        }
+      }
+    },
+    "Removes this location from Finder. Your files stay in Jottacloud." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fjerner denne plasseringen fra Finder. Filene dine blir værende i Jottacloud."
+          }
+        }
+      }
+    },
+    "Return to JottaFS and sign in again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gå tilbake til JottaFS og logg inn igjen."
+          }
+        }
+      }
+    },
+    "Return to JottaFS to continue." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gå tilbake til JottaFS for å fortsette."
+          }
+        }
+      }
+    },
+    "Return to JottaFS to try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gå tilbake til JottaFS for å prøve igjen."
+          }
+        }
+      }
+    },
+    "Save" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lagre"
+          }
+        }
+      }
+    },
+    "See upload progress in Finder" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se opplastingsfremdrift i Finder"
+          }
+        }
+      }
+    },
+    "Select a Jottacloud location and mount it. It appears in Finder like a disk. You can mount more than one." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velg en plassering i Jottacloud og aktiver den. Den vises i Finder som en disk. Du kan aktivere flere."
+          }
+        }
+      }
+    },
+    "Settings" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innstillinger"
+          }
+        }
+      }
+    },
+    "Share links in Finder" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delingslenker i Finder"
+          }
+        }
+      }
+    },
+    "Shared" : {
+      "comment" : "Jottacloud's built-in location for folders shared with others",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delt"
+          }
+        }
+      }
+    },
+    "Shown in Finder as “%@”" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vises i Finder som «%@»"
+          }
+        }
+      }
+    },
+    "Sign In" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg inn"
+          }
+        }
+      }
+    },
+    "Sign In with Jottacloud" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg inn med Jottacloud"
+          }
+        }
+      }
+    },
+    "Sign Out" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg ut"
+          }
+        }
+      }
+    },
+    "Sign Out…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg ut …"
+          }
+        }
+      }
+    },
+    "Sign in to Jottacloud in the window that just opened. It closes by itself, and JottaFS continues automatically when you’re done." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg inn på Jottacloud i vinduet som nettopp åpnet seg. Det lukkes av seg selv, og JottaFS fortsetter automatisk når du er ferdig."
+          }
+        }
+      }
+    },
+    "Sign in with a personal login token instead" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg inn med en personlig tilgangsnøkkel i stedet"
+          }
+        }
+      }
+    },
+    "Sign in with a token" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg inn med tilgangsnøkkel"
+          }
+        }
+      }
+    },
+    "Sign out and sign in again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg ut og logg inn igjen."
+          }
+        }
+      }
+    },
+    "Sign out of Jottacloud?" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logge ut av Jottacloud?"
+          }
+        }
+      }
+    },
+    "Sign-in didn’t finish" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingen ble ikke fullført"
+          }
+        }
+      }
+    },
+    "Sign-in didn’t finish in the browser. Please try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingen ble ikke fullført i nettleseren. Prøv igjen."
+          }
+        }
+      }
+    },
+    "Sign-in was cancelled." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingen ble avbrutt."
+          }
+        }
+      }
+    },
+    "Signed in to Jottacloud" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logget inn på Jottacloud"
+          }
+        }
+      }
+    },
+    "Signing in…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logger inn …"
+          }
+        }
+      }
+    },
+    "Start Over" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start på nytt"
+          }
+        }
+      }
+    },
+    "Sync" : {
+      "comment" : "Jottacloud's built-in location for files synced with the user's devices",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Synk"
+          }
+        }
+      }
+    },
+    "That doesn’t look like a personal login token. Copy the whole token from Jottacloud and paste it again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette ser ikke ut som et personlig login-token. Kopier hele tokenet fra Jottacloud og lim det inn på nytt."
+          }
+        }
+      }
+    },
+    "The cache is off." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bufferen er av."
+          }
+        }
+      }
+    },
+    "The cache is off. %@ is still stored." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bufferen er av. %@ er fortsatt lagret."
+          }
+        }
+      }
+    },
+    "The disk gets this name the next time you mount it. Leave it empty to use “%@”." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disken får dette navnet neste gang du aktiverer den. La feltet være tomt for å bruke «%@»."
+          }
+        }
+      }
+    },
+    "The installer couldn’t be started." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installasjonsprogrammet kunne ikke startes."
+          }
+        }
+      }
+    },
+    "The sign-in didn’t match this window. Please try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingen passet ikke til dette vinduet. Prøv igjen."
+          }
+        }
+      }
+    },
+    "The update couldn’t be downloaded. Check your internet connection and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdateringen kunne ikke lastes ned. Sjekk internettilkoblingen og prøv igjen."
+          }
+        }
+      }
+    },
+    "This location isn’t available any more." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne plasseringen er ikke tilgjengelig lenger."
+          }
+        }
+      }
+    },
+    "This name can’t be used. Avoid “/” and “:”, and use a shorter name." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette navnet kan ikke brukes. Unngå «/» og «:», og bruk et kortere navn."
+          }
+        }
+      }
+    },
+    "This sign-in link has expired" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne innloggingslenken er utløpt"
+          }
+        }
+      }
+    },
+    "This token has already been used or has expired. Create a new token in Jottacloud and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette tokenet er allerede brukt eller utløpt. Lag et nytt token i Jottacloud og prøv igjen."
+          }
+        }
+      }
+    },
+    "To open Jottacloud when you log in, macOS needs you to allow JottaFS in Login Items." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "For å åpne Jottacloud når du logger på, må du tillate JottaFS i Påloggingsobjekter."
+          }
+        }
+      }
+    },
+    "Try Again" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prøv igjen"
+          }
+        }
+      }
+    },
+    "Turn On…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slå på …"
+          }
+        }
+      }
+    },
+    "Turn on JottaFS in System Settings." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slå på JottaFS i Systeminnstillinger."
+          }
+        }
+      }
+    },
+    "Turn on JottaFS under File System Extensions to mount Jottacloud locations as disks." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slå på JottaFS under Filsystemutvidelser for å aktivere Jottacloud-plasseringer som disker."
+          }
+        }
+      }
+    },
+    "Turn on JottaFS under Finder extensions in System Settings. Then you can Control-click a file or folder on a Jottacloud disk and copy a link to share it. You can also do this later in JottaFS Settings." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slå på JottaFS under Finder-utvidelser i Systeminnstillinger. Da kan du kontroll-klikke på en fil eller mappe på en Jottacloud-disk og kopiere en lenke for å dele den. Du kan også gjøre dette senere i JottaFS-innstillingene."
+          }
+        }
+      }
+    },
+    "Turn on JottaFS under Finder extensions to copy Jottacloud links from Finder." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slå på JottaFS under Finder-utvidelser for å kopiere Jottacloud-lenker fra Finder."
+          }
+        }
+      }
+    },
+    "Under **Personal login token**, choose **Generate** and copy the token." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Under **Personlig login-token** velger du **Generer** og kopierer tokenet."
+          }
+        }
+      }
+    },
+    "Unmount" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deaktiver"
+          }
+        }
+      }
+    },
+    "Unmount “%@” to change its name." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deaktiver «%@» for å endre navnet."
+          }
+        }
+      }
+    },
+    "Unmount “%@”?" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deaktivere «%@»?"
+          }
+        }
+      }
+    },
+    "Unmounting…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deaktiverer …"
+          }
+        }
+      }
+    },
+    "Update" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdater"
+          }
+        }
+      }
+    },
+    "Waiting for a network connection…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Venter på nettverkstilkobling …"
+          }
+        }
+      }
+    },
+    "Welcome to JottaFS" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velkommen til JottaFS"
+          }
+        }
+      }
+    },
+    "What’s New" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nyheter"
+          }
+        }
+      }
+    },
+    "Work with your Jottacloud files in Finder, just like files on your Mac." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bruk Jottacloud-filene dine i Finder, akkurat som filer på Mac-en."
+          }
+        }
+      }
+    },
+    "You sign in on jottacloud.com in your browser. JottaFS never sees your password." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du logger inn på jottacloud.com i nettleseren. JottaFS ser aldri passordet ditt."
+          }
+        }
+      }
+    },
+    "Your Jottacloud locations will be unmounted and removed from Finder. Your files stay in Jottacloud." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud-plasseringene dine blir deaktivert og fjernet fra Finder. Filene dine blir værende i Jottacloud."
+          }
+        }
+      }
+    },
+    "Your locations couldn’t be loaded." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plasseringene dine kunne ikke lastes inn."
+          }
+        }
+      }
+    },
+    "Your photos and videos" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bildene og videoene dine"
+          }
+        }
+      }
+    },
+    "Your sign-in has expired." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingen din er utløpt."
+          }
+        }
+      }
+    },
+    "You’re signed in" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Du er logget inn"
+          }
+        }
+      }
+    },
+    "macOS needs your permission once before Jottacloud can appear in Finder. Turn on JottaFS under File System Extensions." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS trenger tillatelsen din én gang før Jottacloud kan vises i Finder. Slå på JottaFS under Filsystemutvidelser."
+          }
+        }
+      }
+    },
+    "the disk" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "disken"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

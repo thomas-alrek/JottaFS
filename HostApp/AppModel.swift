@@ -115,9 +115,12 @@ final class AppModel: ObservableObject {
         observeVolumeChanges()
         do {
             credentialsDirectory = try JottaFSStorage.prepareCredentialsDirectory()
+            // The extension names the built-in locations' disks with these
+            // (in the user's language, like the list).
+            try? JottaFSStorage.setBuiltInLocationNames(Self.builtInLocationNames)
         } catch {
             phase = .signedOut
-            alert = AppAlert(title: "JottaFS couldn’t prepare its storage.", message: "Reinstall the app and try again.")
+            alert = AppAlert(title: String(localized: "JottaFS couldn’t prepare its storage."), message: String(localized: "Reinstall the app and try again."))
             return
         }
         await refreshSystemState()
@@ -387,7 +390,7 @@ final class AppModel: ObservableObject {
         refreshMountState()
         if let failure = await unmountAll() {
             alert = AppAlert(
-                title: "JottaFS couldn’t sign out because Jottacloud is still mounted.",
+                title: String(localized: "JottaFS couldn’t sign out because Jottacloud is still mounted."),
                 message: failure.localizedDescription
             )
             return
@@ -396,7 +399,7 @@ final class AppModel: ObservableObject {
             do {
                 try JottaFSStorage.deleteCredentials(from: credentialsDirectory)
             } catch {
-                alert = AppAlert(title: "JottaFS couldn’t sign out.", message: error.localizedDescription)
+                alert = AppAlert(title: String(localized: "JottaFS couldn’t sign out."), message: error.localizedDescription)
                 return
             }
         }
@@ -451,7 +454,7 @@ final class AppModel: ObservableObject {
                 isWaitingForNetwork = true
                 reloadLocationsWhenOnline()
             } else {
-                alert = errorAlert(error, title: "JottaFS couldn’t load your Jottacloud locations.")
+                alert = errorAlert(error, title: String(localized: "JottaFS couldn’t load your Jottacloud locations."))
             }
         }
     }
@@ -575,7 +578,7 @@ final class AppModel: ObservableObject {
             if mounts[location.id] == nil {
                 alert = extensionEnabled == false
                     ? Self.extensionOffAlert
-                    : errorAlert(error, title: "JottaFS couldn’t mount the location.")
+                    : errorAlert(error, title: String(localized: "JottaFS couldn’t mount the location."))
                 return false
             }
         }
@@ -647,7 +650,7 @@ final class AppModel: ObservableObject {
         refreshMountState()
         if mounts[location.id] != nil {
             alert = AppAlert(
-                title: "JottaFS couldn’t unmount the location.",
+                title: String(localized: "JottaFS couldn’t unmount the location."),
                 message: (failure ?? UnmountError.volumeStillMounted).localizedDescription
             )
         }
@@ -773,8 +776,8 @@ final class AppModel: ObservableObject {
             }
         } catch {
             alert = AppAlert(
-                title: list.isEmpty ? "JottaFS couldn’t turn off mounting at login." : "JottaFS couldn’t turn on mounting at login.",
-                message: "Check Login Items in System Settings."
+                title: list.isEmpty ? String(localized: "JottaFS couldn’t turn off mounting at login.") : String(localized: "JottaFS couldn’t turn on mounting at login."),
+                message: String(localized: "Check Login Items in System Settings.")
             )
         }
         refreshLoginItemStatus()
@@ -984,9 +987,33 @@ final class AppModel: ObservableObject {
 
     // MARK: Names
 
+    /// The location's name in the user's language: "Arkiv" for Jottacloud's
+    /// built-in "Archive" in Norwegian. Backed-up folders keep their names.
+    static func ownName(of location: JottacloudRemoteVolume) -> String {
+        guard location.isBuiltIn else {
+            return location.mountpoint
+        }
+        return builtInLocationNames[location.mountpoint.lowercased()] ?? location.mountpoint
+    }
+
+    /// The translated names of Jottacloud's built-in locations, by
+    /// lower-cased mountpoint. Saved for the extension, which names the
+    /// disks with them (`JottaFSStorage.setBuiltInLocationNames`).
+    static let builtInLocationNames: [String: String] = [
+        "archive": String(localized: "Archive", comment: "Jottacloud's built-in location for files stored only in Jottacloud"),
+        "sync": String(localized: "Sync", comment: "Jottacloud's built-in location for files synced with the user's devices"),
+        "shared": String(localized: "Shared", comment: "Jottacloud's built-in location for folders shared with others"),
+        "photos": String(localized: "Photos", comment: "Jottacloud's built-in location for photos and videos"),
+    ]
+
+    /// The name a location gets in Finder when the user has not chosen one.
+    static func defaultName(of location: JottacloudRemoteVolume) -> String {
+        JottaFSStorage.defaultVolumeName(mountpoint: ownName(of: location))
+    }
+
     /// The location's name in Finder (a custom name, if set).
     func displayName(of location: JottacloudRemoteVolume) -> String {
-        customName(of: location) ?? location.mountpoint
+        customName(of: location) ?? Self.defaultName(of: location)
     }
 
     /// The name the location has in Finder: while mounted, its volume's
@@ -999,7 +1026,7 @@ final class AppModel: ObservableObject {
     /// `finderName(of:)`, or nil when it is the location's own name.
     func finderNameIfDifferent(of location: JottacloudRemoteVolume) -> String? {
         let name = finderName(of: location)
-        return name == location.mountpoint ? nil : name
+        return name == Self.defaultName(of: location) ? nil : name
     }
 
     /// Names the user chose for locations in Finder, by location id (read
@@ -1022,13 +1049,13 @@ final class AppModel: ObservableObject {
     /// location's own name. Used at the next mount.
     func setCustomName(_ name: String?, for location: JottacloudRemoteVolume) {
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let value = trimmed.isEmpty || trimmed == JottaFSStorage.defaultVolumeName(mountpoint: location.mountpoint)
+        let value = trimmed.isEmpty || trimmed == Self.defaultName(of: location)
             ? nil : trimmed
         do {
             try JottaFSStorage.setCustomVolumeName(value, device: location.device, mountpoint: location.mountpoint)
             customNames[location.id] = value
         } catch {
-            alert = AppAlert(title: "JottaFS couldn’t save the name.", message: error.localizedDescription)
+            alert = AppAlert(title: String(localized: "JottaFS couldn’t save the name."), message: error.localizedDescription)
         }
     }
 
@@ -1075,24 +1102,24 @@ final class AppModel: ObservableObject {
     // MARK: Messages
 
     private static let extensionOffAlert = AppAlert(
-        title: "Turn on JottaFS in System Settings.",
-        message: "Open System Settings → General → Login Items & Extensions → File System Extensions, and turn on JottaFS."
+        title: String(localized: "Turn on JottaFS in System Settings."),
+        message: String(localized: "Open System Settings → General → Login Items & Extensions → File System Extensions, and turn on JottaFS.")
     )
 
     private func signInAlert(for error: Error, usedToken: Bool) -> AppAlert {
-        let title = "JottaFS couldn’t sign you in."
+        let title = String(localized: "JottaFS couldn’t sign you in.")
         if let error = error as? JottacloudError {
             switch error {
             case .invalidLoginToken:
-                return AppAlert(title: title, message: "That doesn’t look like a personal login token. Copy the whole token from Jottacloud and paste it again.")
+                return AppAlert(title: title, message: String(localized: "That doesn’t look like a personal login token. Copy the whole token from Jottacloud and paste it again."))
             case .httpStatus(400), .httpStatus(401):
                 return AppAlert(title: title, message: usedToken
-                    ? "This token has already been used or has expired. Create a new token in Jottacloud and try again."
-                    : "Jottacloud didn’t accept the sign-in. Please try again.")
+                    ? String(localized: "This token has already been used or has expired. Create a new token in Jottacloud and try again.")
+                    : String(localized: "Jottacloud didn’t accept the sign-in. Please try again."))
             case .browserLoginStateMismatch:
-                return AppAlert(title: title, message: "The sign-in didn’t match this window. Please try again.")
+                return AppAlert(title: title, message: String(localized: "The sign-in didn’t match this window. Please try again."))
             case .browserLoginFailed:
-                return AppAlert(title: title, message: "Sign-in didn’t finish in the browser. Please try again.")
+                return AppAlert(title: title, message: String(localized: "Sign-in didn’t finish in the browser. Please try again."))
             default:
                 break
             }
@@ -1106,16 +1133,16 @@ final class AppModel: ObservableObject {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost, .cannotFindHost, .cannotConnectToHost, .timedOut, .dnsLookupFailed:
-                return AppAlert(title: "JottaFS can’t reach Jottacloud.", message: "Check your internet connection and try again.")
+                return AppAlert(title: String(localized: "JottaFS can’t reach Jottacloud."), message: String(localized: "Check your internet connection and try again."))
             default:
                 break
             }
         }
         if case JottacloudError.locationNotFound = error {
-            return AppAlert(title: "This location isn’t available any more.", message: "Choose another location.")
+            return AppAlert(title: String(localized: "This location isn’t available any more."), message: String(localized: "Choose another location."))
         }
         if case JottacloudError.tokenRefreshDisabled = error {
-            return AppAlert(title: "Your sign-in has expired.", message: "Sign out and sign in again.")
+            return AppAlert(title: String(localized: "Your sign-in has expired."), message: String(localized: "Sign out and sign in again."))
         }
         return AppAlert(title: title, message: error.localizedDescription)
     }

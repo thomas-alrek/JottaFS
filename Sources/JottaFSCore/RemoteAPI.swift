@@ -25,41 +25,41 @@ public enum JottacloudError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidLoginToken:
-            "Invalid Jottacloud personal login token."
+            String(localized: "Invalid Jottacloud personal login token.", bundle: .jottaFSCore)
         case .unsafeIdentityURL:
-            "Jottacloud authentication URLs must use HTTPS on id.jottacloud.com."
+            String(localized: "Jottacloud authentication URLs must use HTTPS on id.jottacloud.com.", bundle: .jottaFSCore)
         case .missingRefreshToken:
-            "Jottacloud authentication response did not include a refresh token."
+            String(localized: "Jottacloud authentication response did not include a refresh token.", bundle: .jottaFSCore)
         case .missingUsername:
-            "Jottacloud customer response did not include a username."
+            String(localized: "Jottacloud customer response did not include a username.", bundle: .jottaFSCore)
         case .noRemoteVolumes:
-            "No Jottacloud devices or mountpoints were found for this account."
+            String(localized: "No Jottacloud devices or mountpoints were found for this account.", bundle: .jottaFSCore)
         case .invalidXML:
-            "Jottacloud returned invalid directory XML."
+            String(localized: "Jottacloud returned invalid directory XML.", bundle: .jottaFSCore)
         case .httpStatus(let status):
-            "Jottacloud returned HTTP status \(status)."
+            String(localized: "Jottacloud returned HTTP status \(status).", bundle: .jottaFSCore)
         case .invalidRangeResponse:
-            "Jottacloud returned an unexpected response to a ranged read."
+            String(localized: "Jottacloud returned an unexpected response to a ranged read.", bundle: .jottaFSCore)
         case .tokenRefreshDisabled:
-            "The saved access token is expired or rejected, and token refresh is disabled."
+            String(localized: "The saved access token is expired or rejected, and token refresh is disabled.", bundle: .jottaFSCore)
         case .untrustedUploadURL(let host):
-            "Jottacloud returned an upload URL on an untrusted host (\(host))."
+            String(localized: "Jottacloud returned an upload URL on an untrusted host (\(host)).", bundle: .jottaFSCore)
         case .uploadNotVerified:
-            "Jottacloud did not confirm the uploaded file's size and checksum."
+            String(localized: "Jottacloud did not confirm the uploaded file's size and checksum.", bundle: .jottaFSCore)
         case .unexpectedAllocateResponse(let keys):
-            "Unexpected upload allocation response (keys: \(keys.joined(separator: ", ")))."
+            String(localized: "Unexpected upload allocation response (keys: \(keys.joined(separator: ", "))).", bundle: .jottaFSCore)
         case .grpcStatus(let status):
-            "Jottacloud returned gRPC status \(status)."
+            String(localized: "Jottacloud returned gRPC status \(status).", bundle: .jottaFSCore)
         case .notInTrash:
-            "The item is not in the Jottacloud trash, so it was not deleted permanently."
+            String(localized: "The item is not in the Jottacloud trash, so it was not deleted permanently.", bundle: .jottaFSCore)
         case .browserLoginFailed(let reason):
-            "Jottacloud did not complete the sign-in (\(reason))."
+            String(localized: "Jottacloud did not complete the sign-in (\(reason)).", bundle: .jottaFSCore)
         case .browserLoginStateMismatch:
-            "The sign-in response did not match this sign-in attempt."
+            String(localized: "The sign-in response did not match this sign-in attempt.", bundle: .jottaFSCore)
         case .invalidPath:
-            "The path cannot be used in a Jottacloud request."
+            String(localized: "The path cannot be used in a Jottacloud request.", bundle: .jottaFSCore)
         case .locationNotFound:
-            "The chosen Jottacloud location no longer exists."
+            String(localized: "The chosen Jottacloud location no longer exists.", bundle: .jottaFSCore)
         }
     }
 }

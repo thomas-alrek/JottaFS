@@ -9,11 +9,11 @@ public enum JottaFSStorageError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .applicationGroupUnavailable:
-            "Could not access Jottacloud's shared Application Support folder."
+            String(localized: "Could not access Jottacloud's shared Application Support folder.", bundle: .jottaFSCore)
         case .credentialsDirectoryNotWritable(let reason):
-            "Could not create Jottacloud's shared Application Support folder. Ensure App Group \(JottaFSStorage.applicationGroupIdentifier) is registered and included in the provisioning profiles for both the app and FSKit extension. Details: \(reason)"
+            String(localized: "Could not create Jottacloud's shared Application Support folder. Ensure App Group \(JottaFSStorage.applicationGroupIdentifier) is registered and included in the provisioning profiles for both the app and FSKit extension. Details: \(reason)", bundle: .jottaFSCore)
         case .invalidCredentialsDirectory:
-            "The filesystem resource is not Jottacloud's shared credentials folder."
+            String(localized: "The filesystem resource is not Jottacloud's shared credentials folder.", bundle: .jottaFSCore)
         }
     }
 }
@@ -29,6 +29,19 @@ public enum JottaFSStorage {
     public static func volumeName(device: String, mountpoint: String) -> String {
         if let custom = customVolumeName(device: device, mountpoint: mountpoint) {
             return custom
+        }
+        return defaultVolumeName(device: device, mountpoint: mountpoint)
+    }
+
+    /// The name a location gets in Finder when the user has not chosen one:
+    /// for the built-in Jottacloud locations, the name in the user's
+    /// language that the app saved ("Arkiv" for "Archive"); otherwise the
+    /// location's own name.
+    public static func defaultVolumeName(device: String, mountpoint: String) -> String {
+        if device == JottacloudRemoteVolume.builtInDevice,
+           let names = loadSettings()[builtInLocationNamesKey] as? [String: String],
+           let name = names[mountpoint.lowercased()].flatMap(validVolumeName) {
+            return name
         }
         return defaultVolumeName(mountpoint: mountpoint)
     }
@@ -117,6 +130,26 @@ public enum JottaFSStorage {
             names.removeValue(forKey: key)
         }
         settings[volumeNamesKey] = names
+        try saveSettings(settings, to: directory)
+    }
+
+    // MARK: Built-in location names (Settings.plist, shared with the extension)
+
+    static let builtInLocationNamesKey = "BuiltInLocationNames"
+
+    /// Saves the names of the built-in Jottacloud locations in the app's
+    /// language, by lower-cased mountpoint ("archive": "Arkiv"). The app
+    /// translates them; the extension names the disks with them, so a disk
+    /// gets the same name as in the app's list. Writes only when they change.
+    public static func setBuiltInLocationNames(_ names: [String: String]) throws {
+        guard let directory = credentialsDirectoryURL() else {
+            throw JottaFSStorageError.applicationGroupUnavailable
+        }
+        var settings = loadSettings()
+        guard settings[builtInLocationNamesKey] as? [String: String] != names else {
+            return
+        }
+        settings[builtInLocationNamesKey] = names
         try saveSettings(settings, to: directory)
     }
 

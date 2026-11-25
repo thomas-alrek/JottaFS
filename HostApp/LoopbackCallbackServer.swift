@@ -13,9 +13,9 @@ final class LoopbackCallbackServer: @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .couldNotListen:
-                "JottaFS could not prepare the sign-in. Try again."
+                String(localized: "JottaFS could not prepare the sign-in. Try again.")
             case .cancelled:
-                "Sign-in was cancelled."
+                String(localized: "Sign-in was cancelled.")
             }
         }
     }
@@ -188,7 +188,7 @@ final class LoopbackCallbackServer: @unchecked Sendable {
     private func respond(to requestLine: String, on connection: NWConnection) {
         let parts = requestLine.split(separator: " ")
         var status = "404 Not Found"
-        var body = Self.page(title: "Not found", message: "")
+        var body = Self.page(title: String(localized: "Not found"), message: "")
         var location: String?
         if parts.count >= 2, parts[0] == "GET",
            let components = URLComponents(string: "http://localhost" + parts[1]),
@@ -201,8 +201,8 @@ final class LoopbackCallbackServer: @unchecked Sendable {
             if let expected, query["state"] == expected {
                 let failed = query["error"] != nil
                 body = failed
-                    ? Self.page(title: "Sign-in didn’t finish", message: "Return to JottaFS to try again.")
-                    : Self.page(title: "You’re signed in", message: "Return to JottaFS to continue.")
+                    ? Self.page(title: String(localized: "Sign-in didn’t finish"), message: String(localized: "Return to JottaFS to try again."))
+                    : Self.page(title: String(localized: "You’re signed in"), message: String(localized: "Return to JottaFS to continue."))
                 if redirect {
                     // The browser ends the web authentication session, closes
                     // the sign-in tab and returns to JottaFS. The URL carries
@@ -216,7 +216,7 @@ final class LoopbackCallbackServer: @unchecked Sendable {
             } else {
                 // Not this sign-in (an old tab, a prefetch, another process).
                 status = "400 Bad Request"
-                body = Self.page(title: "This sign-in link has expired", message: "Return to JottaFS and sign in again.")
+                body = Self.page(title: String(localized: "This sign-in link has expired"), message: String(localized: "Return to JottaFS and sign in again."))
             }
         }
         let locationHeader = location.map { "Location: \($0)\r\n" } ?? ""
@@ -242,8 +242,10 @@ final class LoopbackCallbackServer: @unchecked Sendable {
     /// The page the browser shows briefly before the sign-in tab closes (or
     /// if it cannot).
     private static func page(title: String, message: String) -> String {
-        """
-        <!doctype html><html lang="en"><head><meta charset="utf-8"><title>JottaFS</title>
+        // The language the texts are in ("en", "nb").
+        let language = Bundle.main.preferredLocalizations.first ?? "en"
+        return """
+        <!doctype html><html lang="\(language)"><head><meta charset="utf-8"><title>JottaFS</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
         :root { color-scheme: light dark; }

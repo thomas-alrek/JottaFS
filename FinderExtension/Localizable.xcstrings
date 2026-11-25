@@ -1,0 +1,166 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%lld links copied" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld lenker er kopiert"
+          }
+        }
+      }
+    },
+    "Anyone with the link can open “%@”." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle som har lenken, kan åpne «%@»."
+          }
+        }
+      }
+    },
+    "Anyone with the links can open these items." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle som har lenkene, kan åpne disse objektene."
+          }
+        }
+      }
+    },
+    "Check your internet connection and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sjekk internettilkoblingen og prøv igjen."
+          }
+        }
+      }
+    },
+    "Copy Jottacloud Link" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopier Jottacloud-lenke"
+          }
+        }
+      }
+    },
+    "Copy Jottacloud Links" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopier Jottacloud-lenker"
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t create the link." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke lage lenken."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t stop sharing." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke slutte å dele."
+          }
+        }
+      }
+    },
+    "JottaFS isn’t signed in." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS er ikke logget inn."
+          }
+        }
+      }
+    },
+    "Link copied" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lenken er kopiert"
+          }
+        }
+      }
+    },
+    "Open JottaFS and sign in to Jottacloud." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne JottaFS og logg inn på Jottacloud."
+          }
+        }
+      }
+    },
+    "Sharing stopped" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delingen er stoppet"
+          }
+        }
+      }
+    },
+    "Stop Sharing Jottacloud Link" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slutt å dele Jottacloud-lenke"
+          }
+        }
+      }
+    },
+    "Stop Sharing Jottacloud Links" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slutt å dele Jottacloud-lenker"
+          }
+        }
+      }
+    },
+    "The link to “%@” no longer works." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lenken til «%@» virker ikke lenger."
+          }
+        }
+      }
+    },
+    "The links to these items no longer work." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lenkene til disse objektene virker ikke lenger."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

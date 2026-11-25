@@ -1,0 +1,156 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Could not read the list of mounted volumes." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunne ikke lese listen over aktiverte volumer."
+          }
+        }
+      }
+    },
+    "DiskArbitration is unavailable." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "DiskArbitration er ikke tilgjengelig."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t be replaced. Check that you can change it in the Applications folder." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke erstattes. Sjekk at du kan endre den i Programmer-mappen."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t find its own app to update." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS fant ikke sitt eget program å oppdatere."
+          }
+        }
+      }
+    },
+    "Jottacloud could not be unmounted (%@)." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud kunne ikke deaktiveres (%@)."
+          }
+        }
+      }
+    },
+    "Jottacloud could not be unmounted." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud kunne ikke deaktiveres."
+          }
+        }
+      }
+    },
+    "Jottacloud is in use. Close any windows or terminals using it and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud er i bruk. Lukk vinduer eller terminaler som bruker den, og prøv igjen."
+          }
+        }
+      }
+    },
+    "The downloaded update isn’t valid." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den nedlastede oppdateringen er ugyldig."
+          }
+        }
+      }
+    },
+    "The update couldn’t be installed (%@ failed)." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdateringen kunne ikke installeres (%@ mislyktes)."
+          }
+        }
+      }
+    },
+    "The update couldn’t be installed (%lld)." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdateringen kunne ikke installeres (%lld)."
+          }
+        }
+      }
+    },
+    "The update doesn’t contain JottaFS." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdateringen inneholder ikke JottaFS."
+          }
+        }
+      }
+    },
+    "The update isn’t newer than the installed version." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdateringen er ikke nyere enn versjonen som er installert."
+          }
+        }
+      }
+    },
+    "The update isn’t signed by the JottaFS developer." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdateringen er ikke signert av utvikleren av JottaFS."
+          }
+        }
+      }
+    },
+    "The update’s signature couldn’t be checked." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Signaturen til oppdateringen kunne ikke kontrolleres."
+          }
+        }
+      }
+    },
+    "Updates can only be installed in a signed release build." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdateringer kan bare installeres i en signert utgave."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

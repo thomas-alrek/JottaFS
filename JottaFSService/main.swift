@@ -26,7 +26,7 @@ private func isMountSource(_ source: String, ofAnchor anchorName: String) -> Boo
 }
 private let hostAppIdentifier = "no.alrek.jottafs"
 
-private let busyMessage = "Jottacloud is in use. Close any windows or terminals using it and try again."
+private let busyMessage = String(localized: "Jottacloud is in use. Close any windows or terminals using it and try again.")
 private let diskArbitrationQueue = DispatchQueue(label: "no.alrek.jottafs.service.diskarbitration")
 
 final class JottaFSServiceHandler: NSObject, JottaFSServiceProtocol {
@@ -38,14 +38,14 @@ final class JottaFSServiceHandler: NSObject, JottaFSServiceProtocol {
 
     func unmountJottaFSVolume(anchorName: String, reply: @escaping (String?) -> Void) {
         guard isValidAnchorName(anchorName) else {
-            reply("Jottacloud could not be unmounted.")
+            reply(String(localized: "Jottacloud could not be unmounted."))
             return
         }
         let mountPoint: URL?
         do {
             mountPoint = try jottaFSMountPoint(anchorName: anchorName)
         } catch {
-            reply("Could not read the list of mounted volumes.")
+            reply(String(localized: "Could not read the list of mounted volumes."))
             return
         }
         guard let mountPoint else {
@@ -101,7 +101,7 @@ private final class PendingUnmount {
 /// BSD device and unmounts it for an unsandboxed caller.
 private func unmount(_ mountPoint: URL, reply: @escaping (String?) -> Void) {
     guard let session = DASessionCreate(kCFAllocatorDefault) else {
-        reply("DiskArbitration is unavailable.")
+        reply(String(localized: "DiskArbitration is unavailable."))
         return
     }
     guard let disk = DADiskCreateFromVolumePath(kCFAllocatorDefault, session, mountPoint as CFURL) else {
@@ -130,7 +130,7 @@ private func unmount(_ mountPoint: URL, reply: @escaping (String?) -> Void) {
             }
             let reason = (DADissenterGetStatusString(dissenter) as String?)
                 ?? String(format: "0x%08x", UInt32(bitPattern: status))
-            pending.reply("Jottacloud could not be unmounted (\(reason)).")
+            pending.reply(String(localized: "Jottacloud could not be unmounted (\(reason))."))
         },
         context
     )

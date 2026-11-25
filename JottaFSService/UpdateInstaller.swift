@@ -30,13 +30,13 @@ enum UpdateInstaller {
         } catch Failure.message(let message) {
             return message
         } catch {
-            return "The update couldn’t be installed (\((error as NSError).code))."
+            return String(localized: "The update couldn’t be installed (\((error as NSError).code)).")
         }
     }
 
     private static func performInstall(diskImagePath: String) throws {
         guard let team = ownTeamIdentifier() else {
-            throw Failure.message("Updates can only be installed in a signed release build.")
+            throw Failure.message(String(localized: "Updates can only be installed in a signed release build."))
         }
         let installed = try installedAppURL()
         let diskImage = try validatedDiskImage(diskImagePath)
@@ -63,14 +63,14 @@ enum UpdateInstaller {
         let newApp = mountPoint.appendingPathComponent(appName, isDirectory: true)
         let values = try? newApp.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         guard values?.isDirectory == true, values?.isSymbolicLink != true else {
-            throw Failure.message("The update doesn’t contain JottaFS.")
+            throw Failure.message(String(localized: "The update doesn’t contain JottaFS."))
         }
         let appRequirement = #"anchor apple generic and identifier "\#(appIdentifier)" and certificate leaf[subject.OU] = "\#(team)""#
         try checkSignature(of: newApp, requirement: appRequirement)
         guard let newVersion = version(of: newApp), let oldVersion = version(of: installed),
               isVersion(newVersion, newerThan: oldVersion)
         else {
-            throw Failure.message("The update isn’t newer than the installed version.")
+            throw Failure.message(String(localized: "The update isn’t newer than the installed version."))
         }
 
         // Copy next to the installed app (same volume), drop the download
@@ -86,7 +86,7 @@ enum UpdateInstaller {
         do {
             _ = try FileManager.default.replaceItemAt(installed, withItemAt: staged)
         } catch {
-            throw Failure.message("JottaFS couldn’t be replaced. Check that you can change it in the Applications folder.")
+            throw Failure.message(String(localized: "JottaFS couldn’t be replaced. Check that you can change it in the Applications folder."))
         }
     }
 
@@ -100,7 +100,7 @@ enum UpdateInstaller {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         guard Bundle(url: app)?.bundleIdentifier == appIdentifier else {
-            throw Failure.message("JottaFS couldn’t find its own app to update.")
+            throw Failure.message(String(localized: "JottaFS couldn’t find its own app to update."))
         }
         return app
     }
@@ -117,7 +117,7 @@ enum UpdateInstaller {
               resolved.pathExtension.lowercased() == "dmg",
               values?.isRegularFile == true, values?.isSymbolicLink != true
         else {
-            throw Failure.message("The downloaded update isn’t valid.")
+            throw Failure.message(String(localized: "The downloaded update isn’t valid."))
         }
         return resolved
     }
@@ -128,14 +128,14 @@ enum UpdateInstaller {
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code,
               SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement
         else {
-            throw Failure.message("The update’s signature couldn’t be checked.")
+            throw Failure.message(String(localized: "The update’s signature couldn’t be checked."))
         }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
         let status = SecStaticCodeCheckValidity(code, flags, requirement)
         if status == errSecSuccess || (allowUnsigned && status == errSecCSUnsigned) {
             return
         }
-        throw Failure.message("The update isn’t signed by the JottaFS developer.")
+        throw Failure.message(String(localized: "The update isn’t signed by the JottaFS developer."))
     }
 
     private static func ownTeamIdentifier() -> String? {
@@ -181,7 +181,7 @@ enum UpdateInstaller {
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw Failure.message("The update couldn’t be installed (\(URL(fileURLWithPath: tool).lastPathComponent) failed).")
+            throw Failure.message(String(localized: "The update couldn’t be installed (\(URL(fileURLWithPath: tool).lastPathComponent) failed)."))
         }
         return process.terminationStatus
     }

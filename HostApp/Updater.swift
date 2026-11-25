@@ -163,7 +163,7 @@ final class Updater: ObservableObject {
                 return
             }
             updateLogger.error("Update download failed (\((error as NSError).code, privacy: .public)).")
-            state = .failed(release, reason: "The update couldn’t be downloaded. Check your internet connection and try again.")
+            state = .failed(release, reason: String(localized: "The update couldn’t be downloaded. Check your internet connection and try again."))
         }
     }
 
@@ -202,7 +202,7 @@ final class Updater: ObservableObject {
                 once.resume(.failure(error))
             } as? JottaFSServiceProtocol
             guard let proxy else {
-                once.resume(.success("The installer couldn’t be started."))
+                once.resume(.success(String(localized: "The installer couldn’t be started.")))
                 return
             }
             proxy.installUpdate(diskImagePath: diskImage.path) { failure in

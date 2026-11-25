@@ -1,0 +1,222 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Could not access Jottacloud's shared Application Support folder." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fikk ikke tilgang til Jottacloud-mappen i den delte Application Support-mappen."
+          }
+        }
+      }
+    },
+    "Could not create Jottacloud's shared Application Support folder. Ensure App Group %@ is registered and included in the provisioning profiles for both the app and FSKit extension. Details: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Could not create Jottacloud's shared Application Support folder. Ensure App Group %1$@ is registered and included in the provisioning profiles for both the app and FSKit extension. Details: %2$@"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunne ikke opprette den delte Application Support-mappen for Jottacloud. Kontroller at programgruppen %1$@ er registrert og tatt med i klargjøringsprofilene for både programmet og FSKit-utvidelsen. Detaljer: %2$@"
+          }
+        }
+      }
+    },
+    "Invalid Jottacloud personal login token." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ugyldig personlig login-token for Jottacloud."
+          }
+        }
+      }
+    },
+    "Jottacloud authentication URLs must use HTTPS on id.jottacloud.com." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud-adresser for innlogging må bruke HTTPS på id.jottacloud.com."
+          }
+        }
+      }
+    },
+    "Jottacloud authentication response did not include a refresh token." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Svaret fra Jottacloud-innloggingen inneholdt ikke et fornyelsestoken."
+          }
+        }
+      }
+    },
+    "Jottacloud customer response did not include a username." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kundesvaret fra Jottacloud inneholdt ikke et brukernavn."
+          }
+        }
+      }
+    },
+    "Jottacloud did not complete the sign-in (%@)." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud fullførte ikke innloggingen (%@)."
+          }
+        }
+      }
+    },
+    "Jottacloud did not confirm the uploaded file's size and checksum." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud bekreftet ikke størrelsen og sjekksummen til den opplastede filen."
+          }
+        }
+      }
+    },
+    "Jottacloud returned HTTP status %lld." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud returnerte HTTP-status %lld."
+          }
+        }
+      }
+    },
+    "Jottacloud returned an unexpected response to a ranged read." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud ga et uventet svar på en delvis lesing."
+          }
+        }
+      }
+    },
+    "Jottacloud returned an upload URL on an untrusted host (%@)." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud oppga en opplastingsadresse på en ikke-klarert server (%@)."
+          }
+        }
+      }
+    },
+    "Jottacloud returned gRPC status %lld." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud returnerte gRPC-status %lld."
+          }
+        }
+      }
+    },
+    "Jottacloud returned invalid directory XML." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud returnerte ugyldig mappeinformasjon (XML)."
+          }
+        }
+      }
+    },
+    "No Jottacloud devices or mountpoints were found for this account." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fant ingen Jottacloud-enheter eller -plasseringer for denne kontoen."
+          }
+        }
+      }
+    },
+    "The chosen Jottacloud location no longer exists." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den valgte Jottacloud-plasseringen finnes ikke lenger."
+          }
+        }
+      }
+    },
+    "The filesystem resource is not Jottacloud's shared credentials folder." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filsystemressursen er ikke Jottacloud-mappen for innloggingsdata."
+          }
+        }
+      }
+    },
+    "The item is not in the Jottacloud trash, so it was not deleted permanently." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Objektet ligger ikke i Jottacloud-papirkurven, så det ble ikke slettet permanent."
+          }
+        }
+      }
+    },
+    "The path cannot be used in a Jottacloud request." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Banen kan ikke brukes i en forespørsel til Jottacloud."
+          }
+        }
+      }
+    },
+    "The saved access token is expired or rejected, and token refresh is disabled." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det lagrede tilgangstokenet er utløpt eller avvist, og fornyelse av token er slått av."
+          }
+        }
+      }
+    },
+    "The sign-in response did not match this sign-in attempt." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingssvaret passet ikke til dette innloggingsforsøket."
+          }
+        }
+      }
+    },
+    "Unexpected upload allocation response (keys: %@)." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uventet svar ved klargjøring av opplasting (nøkler: %@)."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
