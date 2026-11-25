@@ -196,14 +196,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let updater = Updater()
     private var window: NSWindow?
     private var launchedAtLogin = false
+    private var launchedToRefresh = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Started at login by the launch agent (no.alrek.jottafs.login),
         // which passes this argument; any other launch is a normal one.
         launchedAtLogin = CommandLine.arguments.contains(AppModel.mountAtLoginArgument)
+        // Started by the refresh agent (no.alrek.jottafs.refresh) to keep
+        // the sign-in alive: also hidden.
+        launchedToRefresh = CommandLine.arguments.contains(AppModel.refreshSessionArgument)
         // The app starts without a Dock icon (LSUIElement); a normal launch
         // becomes a regular Dock app with a menu bar here, before any window.
-        NSApp.setActivationPolicy(launchedAtLogin ? .accessory : .regular)
+        NSApp.setActivationPolicy(launchedAtLogin || launchedToRefresh ? .accessory : .regular)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -212,12 +216,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // shows the window. Mount at login uses the login item instead.
         NSApp.disableRelaunchOnLogin()
         model.launchedAtLogin = launchedAtLogin
+        model.launchedToRefresh = launchedToRefresh
         model.showWindow = { [weak self] in
             NSApp.setActivationPolicy(.regular)
             self?.showWindow()
             self?.updater.start()
         }
-        if !launchedAtLogin {
+        if !launchedAtLogin, !launchedToRefresh {
             showWindow()
             updater.start()
         }
@@ -234,8 +239,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // Opened by the user while the login item was still mounting: become
         // a normal app and stay open.
-        if model.launchedAtLogin {
+        if model.launchedAtLogin || model.launchedToRefresh {
             model.launchedAtLogin = false
+            model.launchedToRefresh = false
             NSApp.setActivationPolicy(.regular)
             updater.start()
         }

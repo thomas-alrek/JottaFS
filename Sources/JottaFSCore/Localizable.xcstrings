@@ -216,6 +216,16 @@
           }
         }
       }
+    },
+    "Your Jottacloud sign-in has ended. Sign in again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingen din i Jottacloud er avsluttet. Logg inn igjen."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -1014,6 +1014,26 @@
         }
       }
     },
+    "Sign in again to use your Jottacloud disks. Eject the Jottacloud disks that are still in Finder. Your files stay in Jottacloud." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg inn igjen for å bruke Jottacloud-diskene dine. Mat ut Jottacloud-diskene som fortsatt vises i Finder. Filene dine blir værende i Jottacloud."
+          }
+        }
+      }
+    },
+    "Sign in again to use your Jottacloud disks. Your files stay in Jottacloud." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Logg inn igjen for å bruke Jottacloud-diskene dine. Filene dine blir værende i Jottacloud."
+          }
+        }
+      }
+    },
     "Sign in to Jottacloud in the window that just opened. It closes by itself, and JottaFS continues automatically when you’re done." : {
       "localizations" : {
         "nb" : {
@@ -1431,6 +1451,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Jottacloud-plasseringene dine blir deaktivert og fjernet fra Finder. Filene dine blir værende i Jottacloud."
+          }
+        }
+      }
+    },
+    "Your Jottacloud sign-in has ended." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Innloggingen din i Jottacloud er avsluttet."
           }
         }
       }

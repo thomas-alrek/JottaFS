@@ -159,6 +159,10 @@ final class FinderSync: FIFinderSync {
                 }
             } catch {
                 logger.error("Sharing failed (\((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)).")
+                if case JottacloudError.sessionEnded = error {
+                    await Self.notify(String(localized: "JottaFS isn’t signed in."), body: String(localized: "Open JottaFS and sign in to Jottacloud."))
+                    return
+                }
                 await Self.notify(String(localized: "JottaFS couldn’t create the link."), body: String(localized: "Check your internet connection and try again."))
                 return
             }
@@ -195,6 +199,10 @@ final class FinderSync: FIFinderSync {
                 }
             } catch {
                 logger.error("Stop sharing failed (\((error as NSError).domain, privacy: .public) \((error as NSError).code, privacy: .public)).")
+                if case JottacloudError.sessionEnded = error {
+                    await Self.notify(String(localized: "JottaFS isn’t signed in."), body: String(localized: "Open JottaFS and sign in to Jottacloud."))
+                    return
+                }
                 await Self.notify(String(localized: "JottaFS couldn’t stop sharing."), body: String(localized: "Check your internet connection and try again."))
                 return
             }
@@ -286,7 +294,9 @@ struct JottaFSItem: Sendable {
         return JottacloudClient(
             credentials: credentials,
             persistCredentials: { try JottaFSStorage.saveTokens(of: $0, to: directory) },
-            loadSavedCredentials: { try? JottaFSStorage.loadCredentials(from: directory) }
+            loadSavedCredentials: { try? JottaFSStorage.loadCredentials(from: directory) },
+            // The app signs out and asks the user to sign in again.
+            sessionEnded: { JottaFSStorage.markSessionEnded() }
         )
     }
 }

@@ -102,7 +102,9 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 },
                 loadSavedCredentials: {
                     try? JottaFSStorage.loadCredentials(from: credentialsDirectory)
-                }
+                },
+                // The app signs out and asks the user to sign in again.
+                sessionEnded: { JottaFSStorage.markSessionEnded() }
             )
             let account = try await client.listAccount()
             let target = try await mountTarget(

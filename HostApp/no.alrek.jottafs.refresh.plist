@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>no.alrek.jottafs.refresh</string>
+    <!-- Keeps the Jottacloud sign-in alive: registered with
+         SMAppService.agent while signed in. launchd starts the app hidden
+         every 12 hours (and after waking, if a run was missed) with an
+         argument that says so; it refreshes the tokens and quits. If the
+         sign-in has ended, the app signs out and shows why. -->
+    <key>BundleProgram</key>
+    <string>Contents/MacOS/JottaFS</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>JottaFS</string>
+        <string>--refresh-session</string>
+    </array>
+    <key>AssociatedBundleIdentifiers</key>
+    <array>
+        <string>no.alrek.jottafs</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>43200</integer>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

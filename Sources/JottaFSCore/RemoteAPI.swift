@@ -21,6 +21,9 @@ public enum JottacloudError: Error, LocalizedError {
     case browserLoginStateMismatch
     case invalidPath
     case locationNotFound
+    /// Jottacloud no longer accepts the refresh token: the sign-in has
+    /// ended (revoked, or unused for too long). The user must sign in again.
+    case sessionEnded
 
     public var errorDescription: String? {
         switch self {
@@ -60,6 +63,8 @@ public enum JottacloudError: Error, LocalizedError {
             String(localized: "The path cannot be used in a Jottacloud request.", bundle: .jottaFSCore)
         case .locationNotFound:
             String(localized: "The chosen Jottacloud location no longer exists.", bundle: .jottaFSCore)
+        case .sessionEnded:
+            String(localized: "Your Jottacloud sign-in has ended. Sign in again.", bundle: .jottaFSCore)
         }
     }
 }
@@ -200,17 +205,22 @@ public actor JottacloudClient {
     /// saved instead of using an already rotated refresh token.
     private let loadSavedCredentials: (@Sendable () -> JottacloudCredentials?)?
     private var refreshTask: Task<JottacloudCredentials, Error>?
+    /// Called once when Jottacloud refuses the refresh token (the sign-in
+    /// has ended), before the request fails with `sessionEnded`.
+    private let sessionEnded: (@Sendable () -> Void)?
 
     public init(
         credentials: JottacloudCredentials,
         allowsTokenRefresh: Bool = true,
         persistCredentials: (@Sendable (JottacloudCredentials) async throws -> Void)? = nil,
-        loadSavedCredentials: (@Sendable () -> JottacloudCredentials?)? = nil
+        loadSavedCredentials: (@Sendable () -> JottacloudCredentials?)? = nil,
+        sessionEnded: (@Sendable () -> Void)? = nil
     ) {
         self.credentials = credentials
         self.allowsTokenRefresh = allowsTokenRefresh
         self.persistCredentials = persistCredentials
         self.loadSavedCredentials = loadSavedCredentials
+        self.sessionEnded = sessionEnded
         self.http = URLSession(configuration: Self.dataSessionConfiguration)
         self.authHTTP = Self.identitySession
     }
@@ -590,12 +600,49 @@ public actor JottacloudClient {
             // Our refresh token may have been rotated by the other process
             // meanwhile: retry once with the newest saved one.
             guard adoptSavedTokens() else {
-                throw JottacloudError.httpStatus(status)
+                throw endSession()
             }
             if credentials.expiresAt.timeIntervalSinceNow > 30 {
                 return credentials.accessToken
             }
-            return try await refreshNow()
+            do {
+                return try await refreshNow()
+            } catch JottacloudError.httpStatus(let status) where status == 400 || status == 401 {
+                throw endSession()
+            }
+        }
+    }
+
+    /// The identity server refused the newest refresh token (400 is
+    /// `invalid_grant`: revoked or expired): the sign-in has ended.
+    private func endSession() -> JottacloudError {
+        sessionEnded?()
+        return .sessionEnded
+    }
+
+    /// Refreshes the tokens now, whatever their expiry, so the offline
+    /// session does not pass Jottacloud's idle limit while nothing uses it.
+    /// Throws `sessionEnded` if the sign-in has ended.
+    public func refreshSession() async throws {
+        guard allowsTokenRefresh else {
+            throw JottacloudError.tokenRefreshDisabled
+        }
+        if let refreshTask {
+            adoptTokens(try await refreshTask.value)
+            return
+        }
+        _ = adoptSavedTokens()
+        do {
+            _ = try await refreshNow()
+        } catch JottacloudError.httpStatus(let status) where status == 400 || status == 401 {
+            guard adoptSavedTokens() else {
+                throw endSession()
+            }
+            do {
+                _ = try await refreshNow()
+            } catch JottacloudError.httpStatus(let status) where status == 400 || status == 401 {
+                throw endSession()
+            }
         }
     }
 
@@ -2156,5 +2203,49 @@ private final class BoundedDataCollector: NSObject, URLSessionDataDelegate, @unc
             }
         }
         continuation?.resume(with: result)
+    }
+}
+
+// MARK: - Sign-in session
+
+extension JottacloudClient {
+    static let authService = "no.jotta.openapi.auth.v2.AuthService"
+    static let appIdentifier = "no.alrek.jottafs"
+
+    /// Names this sign-in in the account's list of signed-in devices
+    /// (jottacloud.com → Security): "Enhet" shows `deviceName` and
+    /// "Applikasjon" shows "JottaFS" (instead of "Jottacloud CLI" for both).
+    /// `AuthService.RegisterSession`: device_name 1, user_agent 2,
+    /// app_version 3, device_id 4, app_id 5, app_type 6; the reply is the
+    /// session id. Checked 2026-11-25.
+    public func registerSession(deviceName: String, appVersion: String, deviceID: String) async throws {
+        let system = ProcessInfo.processInfo.operatingSystemVersion
+        var message = Data()
+        Self.appendProtobufString(field: 1, deviceName, to: &message)
+        Self.appendProtobufString(field: 2, "JottaFS/\(appVersion) (Macintosh; macOS \(system.majorVersion).\(system.minorVersion))", to: &message)
+        Self.appendProtobufString(field: 3, appVersion, to: &message)
+        Self.appendProtobufString(field: 4, deviceID, to: &message)
+        Self.appendProtobufString(field: 5, Self.appIdentifier, to: &message)
+        Self.appendProtobufString(field: 6, "JottaFS", to: &message)
+        _ = try await grpcCall("RegisterSession", message, service: Self.authService)
+    }
+
+    /// Ends this sign-in on Jottacloud: OpenID Connect logout with the
+    /// newest refresh token (Keycloak's `…/protocol/openid-connect/logout`
+    /// next to the token endpoint, on the official identity host). The
+    /// session then disappears from the account's list of signed-in devices
+    /// and its refresh token stops working. Checked 2026-11-25.
+    public func logout() async throws {
+        _ = adoptSavedTokens()
+        let endpoint = credentials.tokenEndpoint.deletingLastPathComponent().appendingPathComponent("logout")
+        guard endpoint.scheme == "https", endpoint.host == credentials.tokenEndpoint.host else {
+            throw JottacloudError.unsafeIdentityURL
+        }
+        _ = try await Self.requestData(
+            from: authHTTP,
+            url: endpoint,
+            method: "POST",
+            form: ["client_id": Self.clientID, "refresh_token": credentials.refreshToken]
+        )
     }
 }

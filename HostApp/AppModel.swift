@@ -5,8 +5,10 @@ import OSLog
 import FSKit
 import JottaFSCore
 import Network
+import notify
 import ServiceManagement
 import SwiftUI
+import SystemConfiguration
 
 /// The app's state and actions: signing in (browser or personal login
 /// token), choosing the Jottacloud location to show in Finder, mounting,
@@ -70,6 +72,9 @@ final class AppModel: ObservableObject {
 
     /// Set by the app delegate when macOS opened the app at login.
     var launchedAtLogin = false
+    /// Set by the app delegate when the refresh agent opened the app to
+    /// keep the sign-in alive (no window; it quits when done).
+    var launchedToRefresh = false
     /// Creates and shows the window (it does not exist after a launch at
     /// login); set by the app delegate.
     var showWindow: (() -> Void)?
@@ -135,6 +140,15 @@ final class AppModel: ObservableObject {
             return
         }
         useClient(makeClient(saved), credentials: saved)
+        observeSessionEnd()
+        if let credentialsDirectory, JottaFSStorage.sessionHasEnded(in: credentialsDirectory) {
+            await handleSessionEnded()
+            return
+        }
+        if launchedToRefresh {
+            await refreshSessionLaunch()
+            return
+        }
         loginLogger.notice("Launched \(self.launchedAtLogin ? "at login (--mount-at-login)" : "normally", privacy: .public), \(Int(ProcessInfo.processInfo.systemUptime), privacy: .public) s after start-up.")
         if launchedAtLogin {
             await mountAtLoginLaunch()
@@ -146,6 +160,10 @@ final class AppModel: ObservableObject {
     /// Called when the app becomes active (the user may have changed System
     /// Settings or ejected the volume in Finder).
     func refreshSystemState() async {
+        if let credentialsDirectory, JottaFSStorage.sessionHasEnded(in: credentialsDirectory) {
+            await handleSessionEnded()
+            return
+        }
         refreshMountState()
         refreshLoginItemStatus()
         registerProgressAgent()
@@ -381,6 +399,129 @@ final class AppModel: ObservableObject {
         accountEmail = credentials.accountEmail
         selectedLocationID = JottacloudRemoteVolume(device: credentials.device, mountpoint: credentials.mountpoint).id
         phase = .signedIn
+        // Keeps the sign-in alive while JottaFS is not in use.
+        if Self.refreshAgent.status != .enabled {
+            try? Self.refreshAgent.register()
+        }
+        registerSession(client)
+    }
+
+    /// Names this sign-in on jottacloud.com (Security → signed-in devices):
+    /// the Mac's name and "JottaFS", instead of "Jottacloud CLI". Done at
+    /// each launch, so the name and version stay current; failures only
+    /// leave the old name.
+    private func registerSession(_ client: JottacloudClient) {
+        let deviceName = SCDynamicStoreCopyComputerName(nil, nil) as String? ?? Host.current().localizedName ?? "Mac"
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+        let deviceID = Self.sessionDeviceID
+        Task {
+            do {
+                try await client.registerSession(deviceName: deviceName, appVersion: appVersion, deviceID: deviceID)
+            } catch {
+                signInLogger.notice("Naming the sign-in failed (\(Self.describe(error), privacy: .public)).")
+            }
+        }
+    }
+
+    /// A random identifier for this Mac's JottaFS, kept across sign-ins.
+    private static var sessionDeviceID: String {
+        let key = "SessionDeviceID"
+        if let id = UserDefaults.standard.string(forKey: key) {
+            return id
+        }
+        let id = UUID().uuidString
+        UserDefaults.standard.set(id, forKey: key)
+        return id
+    }
+
+    // MARK: Ended sign-in
+
+    /// The launch agent that opens JottaFS twice a day (hidden) to refresh
+    /// the sign-in, so Jottacloud's offline session never passes its idle
+    /// limit while no disk is mounted (docs/jottacloud-api-internals.md).
+    private static let refreshAgent = SMAppService.agent(plistName: "no.alrek.jottafs.refresh.plist")
+    static let refreshSessionArgument = "--refresh-session"
+    private var sessionEndObserver: Int32 = NOTIFY_TOKEN_INVALID
+    private var handlingSessionEnd = false
+
+    /// Listens for the notification that a process (the app, the file
+    /// system extension or the Finder extension) found the sign-in ended.
+    private func observeSessionEnd() {
+        guard sessionEndObserver == NOTIFY_TOKEN_INVALID else {
+            return
+        }
+        notify_register_dispatch(JottaFSStorage.sessionEndedNotification, &sessionEndObserver, .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else {
+                    return
+                }
+                Task { await self.handleSessionEnded() }
+            }
+        }
+    }
+
+    /// A refresh launch: refreshes the tokens and quits. If the sign-in has
+    /// ended, signs out and shows the window with the reason.
+    private func refreshSessionLaunch() async {
+        do {
+            try await client?.refreshSession()
+            loginLogger.notice("Refreshed the sign-in.")
+        } catch JottacloudError.sessionEnded {
+            await handleSessionEnded()
+            return
+        } catch {
+            // Usually no network: the next run tries again.
+            loginLogger.notice("Refreshing the sign-in failed (\(Self.describe(error), privacy: .public)); trying again later.")
+        }
+        if launchedToRefresh {
+            NSApp.terminate(nil)
+        } else {
+            // The user opened the window meanwhile.
+            await loadLocations()
+        }
+    }
+
+    /// Jottacloud no longer accepts the sign-in: unmounts every location
+    /// (they cannot work any more), signs out and asks the user to sign in
+    /// again. The locations chosen for mount at login are kept for the next
+    /// sign-in.
+    func handleSessionEnded() async {
+        guard let credentialsDirectory, JottaFSStorage.sessionHasEnded(in: credentialsDirectory),
+              client != nil, !handlingSessionEnd
+        else {
+            return
+        }
+        handlingSessionEnd = true
+        defer { handlingSessionEnd = false }
+        signInLogger.notice("The Jottacloud sign-in has ended; signing out.")
+        refreshMountState()
+        let failure = await unmountAll()
+        try? JottaFSStorage.deleteCredentials(from: credentialsDirectory)
+        try? await Self.refreshAgent.unregister()
+        forgetAccount()
+        alert = AppAlert(
+            title: String(localized: "Your Jottacloud sign-in has ended."),
+            message: failure == nil
+                ? String(localized: "Sign in again to use your Jottacloud disks. Your files stay in Jottacloud.")
+                : String(localized: "Sign in again to use your Jottacloud disks. Eject the Jottacloud disks that are still in Finder. Your files stay in Jottacloud.")
+        )
+        if launchedAtLogin || launchedToRefresh {
+            launchedAtLogin = false
+            launchedToRefresh = false
+            showWindow?()
+        }
+        Self.bringWindowToFront()
+    }
+
+    /// Clears the signed-in state (after the credentials are deleted).
+    private func forgetAccount() {
+        client = nil
+        username = ""
+        accountName = nil
+        accountEmail = nil
+        locations = []
+        selectedLocationID = nil
+        phase = .signedOut
     }
 
     // MARK: Sign out
@@ -397,6 +538,14 @@ final class AppModel: ObservableObject {
             )
             return
         }
+        // End the sign-in on Jottacloud too, so it leaves the account's list
+        // of signed-in devices and its tokens stop working. Offline, it only
+        // ends here (the server ends unused sign-ins by itself).
+        do {
+            try await client?.logout()
+        } catch {
+            signInLogger.notice("Signing out on Jottacloud failed (\(Self.describe(error), privacy: .public)); signing out here only.")
+        }
         if let credentialsDirectory {
             do {
                 try JottaFSStorage.deleteCredentials(from: credentialsDirectory)
@@ -408,13 +557,8 @@ final class AppModel: ObservableObject {
         if !loginLocations.isEmpty {
             saveLoginLocations([])
         }
-        client = nil
-        username = ""
-        accountName = nil
-        accountEmail = nil
-        locations = []
-        selectedLocationID = nil
-        phase = .signedOut
+        try? await Self.refreshAgent.unregister()
+        forgetAccount()
     }
 
     // MARK: Locations
@@ -1086,7 +1230,10 @@ final class AppModel: ObservableObject {
             persistCredentials: Self.persistence(directory),
             loadSavedCredentials: {
                 directory.flatMap { try? JottaFSStorage.loadCredentials(from: $0) }
-            }
+            },
+            // Marks it for all processes and posts the notification that
+            // handleSessionEnded() listens for.
+            sessionEnded: { JottaFSStorage.markSessionEnded() }
         )
     }
 
@@ -1142,6 +1289,10 @@ final class AppModel: ObservableObject {
         }
         if case JottacloudError.locationNotFound = error {
             return AppAlert(title: String(localized: "This location isn’t available any more."), message: String(localized: "Choose another location."))
+        }
+        if case JottacloudError.sessionEnded = error {
+            // handleSessionEnded() signs out and explains it.
+            return AppAlert(title: String(localized: "Your Jottacloud sign-in has ended."), message: String(localized: "Sign in again to use your Jottacloud disks. Your files stay in Jottacloud."))
         }
         if case JottacloudError.tokenRefreshDisabled = error {
             return AppAlert(title: String(localized: "Your sign-in has expired."), message: String(localized: "Sign out and sign in again."))

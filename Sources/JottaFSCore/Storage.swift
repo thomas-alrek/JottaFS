@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import notify
 
 public enum JottaFSStorageError: Error, LocalizedError {
     case applicationGroupUnavailable
@@ -446,12 +447,45 @@ public enum JottaFSStorage {
         return directory.appendingPathComponent("credentials.plist")
     }
 
-    /// Removes the saved credentials (signing out).
+    /// Removes the saved credentials (signing out), and the mark that the
+    /// sign-in has ended.
     public static func deleteCredentials(from directory: URL) throws {
         let url = try credentialsFileURL(in: directory)
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
+        clearSessionEnded(in: directory)
+    }
+
+    // MARK: Ended sign-in (shared by the app and the extensions)
+
+    static let sessionEndedFileName = "SessionEnded"
+    /// Darwin notification posted when a process finds that the sign-in has
+    /// ended; the app signs out and asks the user to sign in again.
+    public static let sessionEndedNotification = "no.alrek.jottafs.session-ended"
+
+    /// Marks the sign-in as ended (Jottacloud refused the refresh token)
+    /// and tells the app. Any process can find this first: the app, the
+    /// file system extension or the Finder extension.
+    public static func markSessionEnded() {
+        guard let directory = credentialsDirectoryURL() else {
+            return
+        }
+        FileManager.default.createFile(
+            atPath: directory.appendingPathComponent(sessionEndedFileName).path,
+            contents: nil,
+            attributes: [.posixPermissions: 0o600]
+        )
+        notify_post(sessionEndedNotification)
+    }
+
+    /// Whether a process found that the sign-in has ended.
+    public static func sessionHasEnded(in directory: URL) -> Bool {
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent(sessionEndedFileName).path)
+    }
+
+    static func clearSessionEnded(in directory: URL) {
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(sessionEndedFileName))
     }
 
     public static func loadCredentials(from directory: URL) throws -> JottacloudCredentials {
@@ -472,6 +506,8 @@ public enum JottaFSStorage {
         try withCredentialsLock(in: directory) {
             try writeCredentials(credentials, to: directory)
         }
+        // A new sign-in.
+        clearSessionEnded(in: directory)
     }
 
     /// Changes some fields of the saved credentials: read, change and write

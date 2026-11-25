@@ -86,6 +86,9 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         if case JottacloudError.notInTrash = error {
             return POSIXError(.EPERM)
         }
+        if case JottacloudError.sessionEnded = error {
+            return POSIXError(.EACCES)
+        }
         if case JottacloudError.httpStatus(let status) = error {
             switch status {
             case 404: return POSIXError(.ENOENT)

@@ -48,6 +48,7 @@
 		A10000000000000000000032 /* JottaFSProgressAgent in Embed Helpers */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* JottaFSProgressAgent */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		A10000000000000000000033 /* no.alrek.jottafs.progress.plist in Embed Launch Agents */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* no.alrek.jottafs.progress.plist */; };
 		A10000000000000000000047 /* no.alrek.jottafs.login.plist in Embed Launch Agents */ = {isa = PBXBuildFile; fileRef = A20000000000000000000045 /* no.alrek.jottafs.login.plist */; };
+		A1000000000000000000004F /* no.alrek.jottafs.refresh.plist in Embed Launch Agents */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004D /* no.alrek.jottafs.refresh.plist */; };
 		A10000000000000000000040 /* FinderSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000040 /* FinderSync.swift */; };
 		A10000000000000000000041 /* JottaFSCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* JottaFSCore.framework */; };
 		A10000000000000000000042 /* JottaFSFinderSync.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A20000000000000000000043 /* JottaFSFinderSync.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -170,6 +171,7 @@
 			files = (
 				A10000000000000000000033 /* no.alrek.jottafs.progress.plist in Embed Launch Agents */,
 				A10000000000000000000047 /* no.alrek.jottafs.login.plist in Embed Launch Agents */,
+				A1000000000000000000004F /* no.alrek.jottafs.refresh.plist in Embed Launch Agents */,
 			);
 			name = "Embed Launch Agents";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -228,6 +230,7 @@
 		A20000000000000000000023 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A20000000000000000000024 /* no.alrek.jottafs.progress.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = no.alrek.jottafs.progress.plist; sourceTree = "<group>"; };
 		A20000000000000000000045 /* no.alrek.jottafs.login.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = no.alrek.jottafs.login.plist; sourceTree = "<group>"; };
+		A2000000000000000000004D /* no.alrek.jottafs.refresh.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = no.alrek.jottafs.refresh.plist; sourceTree = "<group>"; };
 		A20000000000000000000025 /* JottaFSProgressAgent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = JottaFSProgressAgent; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000026 /* JottaFSProgressAgent.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JottaFSProgressAgent.entitlements; sourceTree = "<group>"; };
 		A20000000000000000000040 /* FinderSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinderSync.swift; sourceTree = "<group>"; };
@@ -311,6 +314,7 @@
 				A20000000000000000000038 /* AppModel.swift */,
 				A20000000000000000000049 /* Localizable.xcstrings */,
 				A20000000000000000000045 /* no.alrek.jottafs.login.plist */,
+				A2000000000000000000004D /* no.alrek.jottafs.refresh.plist */,
 				A20000000000000000000012 /* JottaFS.entitlements */,
 			);
 			path = HostApp;
