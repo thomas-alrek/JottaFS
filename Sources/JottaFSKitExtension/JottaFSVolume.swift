@@ -9,6 +9,12 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     /// root, and only when the root's FinderInfo has `kHasCustomIcon` set
     /// (served by the `FSVolume.XattrHandler` extension below).
     static let volumeIconName = ".VolumeIcon.icns"
+    /// Time Machine does not offer a volume that has this file at its root
+    /// (macOS uses it for disk images and installers). A JottaFS disk cannot
+    /// be a backup disk: Time Machine needs a disk with a device, or a
+    /// network share with Time Machine support, and only finds out after the
+    /// user chose the disk.
+    static let timeMachineMarkerName = ".com.apple.timemachine.donotpresent"
     let client: JottacloudClient
     /// The mounted Jottacloud location.
     let target: MountTarget
@@ -400,6 +406,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         case .trashed:
             // Reading trashed files is not supported yet.
             throw POSIXError(.EACCES)
+        case .timeMachineMarker, .fseventsNoLog:
+            data = Data()
         case .volumeIcon:
             guard let startOffset = Int(exactly: offset) else {
                 throw POSIXError(.EINVAL)
@@ -458,6 +466,12 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         if case .volumeIcon = item.role {
             attributes.flags = UInt32(UF_HIDDEN)
         }
+        switch item.role {
+        case .timeMachineMarker, .fseventsDirectory:
+            attributes.flags = UInt32(UF_HIDDEN)
+        default:
+            break
+        }
         if isVolumeRoot(item) {
             // Root exposes only com.apple.FinderInfo (custom-icon flag).
             attributes.supportsLimitedXAttrs = true
@@ -511,8 +525,13 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             size: UInt64(volumeIconData.count),
             modified: nil
         )
-        return snapshot.entries.filter { !JottaFSNames.sameName($0.entry.name, Self.volumeIconName) } + [
-            JottacloudDirectoryEntry(entry: iconEntry, role: .volumeIcon)
+        let markerEntry = RemoteEntry(name: Self.timeMachineMarkerName, kind: .file, size: 0, modified: nil)
+        return snapshot.entries.filter {
+            !JottaFSNames.sameName($0.entry.name, Self.volumeIconName)
+                && !JottaFSNames.sameName($0.entry.name, Self.timeMachineMarkerName)
+        } + [
+            JottacloudDirectoryEntry(entry: iconEntry, role: .volumeIcon),
+            JottacloudDirectoryEntry(entry: markerEntry, role: .timeMachineMarker),
         ]
     }
 

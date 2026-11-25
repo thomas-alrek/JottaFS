@@ -144,6 +144,21 @@ make mounts fail with ExtensionKit error 2.
   and a limited `FSVolume.XattrHandler` exposes only the root's
   `com.apple.FinderInfo` with `kHasCustomIcon`. Other extended attributes
   return `ENOTSUP`.
+- **Markers.** The root also holds two read-only, hidden, virtual items that
+  are never uploaded, and their names are reserved (a remote item with the
+  same name is hidden):
+  - `.com.apple.timemachine.donotpresent` (empty file): Time Machine does not
+    offer the disk as a backup disk. It could not use it anyway: a local
+    backup disk needs a device (the settings fail with DiskManagement error
+    -69471, "A BSD disk name could not be obtained") and network backups
+    need an SMB share with Time Machine support. Without the marker the
+    settings offered every mounted JottaFS disk.
+  - `.fseventsd/no_log`: `fseventsd` keeps no event log on the disk. Without
+    it, `fseventsd` created `.fseventsd` and its log files at every mount and
+    JottaFS uploaded them (seen 2026-11-25). Live change notifications do not
+    depend on the log.
+  Spotlight already reports indexing as disabled for JottaFS disks (`mdutil
+  -s`), so there is no `.metadata_never_index`.
 - **Sidebar icon.** Finder's sidebar does not use the volume icon. For an
   FSKit volume it shows the SF Symbol named in the **app's** `Info.plist` at
   `CFBundleIcons` → `CFBundlePrimaryIcon` → `CFBundleSymbolName`, the

@@ -60,6 +60,15 @@ enum JottacloudItemRole: Sendable {
     case mountpoint(JottacloudRemoteVolume)
     case remote(JottacloudRemoteVolume, path: String)
     case volumeIcon
+    /// `/.com.apple.timemachine.donotpresent` (virtual, empty): keeps the
+    /// disk out of Time Machine's list of backup disks.
+    case timeMachineMarker
+    /// `/.fseventsd` (virtual, read-only), holding only `no_log`, so
+    /// `fseventsd` keeps no event log on the disk (it would otherwise create
+    /// this folder and upload its log files to Jottacloud).
+    case fseventsDirectory
+    /// `/.fseventsd/no_log` (virtual, empty).
+    case fseventsNoLog
     /// `/.Trashes` (virtual).
     case trashes
     /// `/.Trashes/<uid>`: the Jottacloud trash, as Finder's Trash.

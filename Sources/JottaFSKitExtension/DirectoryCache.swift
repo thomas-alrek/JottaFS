@@ -47,6 +47,12 @@ actor DirectoryCache {
         entry: RemoteEntry(name: trashesName, kind: .directory, size: 0, modified: nil),
         role: .trashes
     )
+    /// Name of the virtual `fseventsd` folder at the volume root.
+    static let fseventsName = ".fseventsd"
+    static let fseventsEntry = JottacloudDirectoryEntry(
+        entry: RemoteEntry(name: fseventsName, kind: .directory, size: 0, modified: nil),
+        role: .fseventsDirectory
+    )
     /// A listing younger than this is served without contacting Jottacloud.
     private let freshLifetime: TimeInterval = 15
     /// An older listing up to this age is still served immediately while one
@@ -188,10 +194,14 @@ actor DirectoryCache {
                     volume: volume,
                     path: ""
                 )
-                // The volume root also holds the virtual Trash.
-                entries = (path.isEmpty ? [Self.trashesEntry] : []) + remoteEntries.compactMap {
-                    // A remote item named like the Trash folder stays hidden.
-                    guard !JottaFSNames.sameName($0.name, Self.trashesName) else {
+                // The volume root also holds the virtual Trash and the
+                // virtual `.fseventsd`.
+                entries = (path.isEmpty ? [Self.trashesEntry, Self.fseventsEntry] : []) + remoteEntries.compactMap {
+                    // A remote item named like one of them stays hidden (a
+                    // `.fseventsd` uploaded by versions before 1.1.2).
+                    guard !JottaFSNames.sameName($0.name, Self.trashesName),
+                          !JottaFSNames.sameName($0.name, Self.fseventsName)
+                    else {
                         return nil
                     }
                     return JottacloudDirectoryEntry(
@@ -225,7 +235,12 @@ actor DirectoryCache {
                 // cost a request while Finder waits, and their files cannot
                 // be read yet. Deleting one deletes all of its contents.
                 entries = []
-            case .volumeIcon, .trashLocal:
+            case .fseventsDirectory:
+                entries = [JottacloudDirectoryEntry(
+                    entry: RemoteEntry(name: "no_log", kind: .file, size: 0, modified: nil),
+                    role: .fseventsNoLog
+                )]
+            case .volumeIcon, .timeMachineMarker, .fseventsNoLog, .trashLocal:
                 throw POSIXError(.ENOTDIR)
             }
             return DirectorySnapshot(entries: entries, verifier: verifier)

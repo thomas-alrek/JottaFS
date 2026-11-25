@@ -36,10 +36,13 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         }
     }
 
-    /// Names the volume root provides itself (the Trash and the volume icon).
+    /// Names the volume root provides itself (the Trash, the volume icon and
+    /// the Time Machine marker).
     func isReservedRootName(_ name: String) -> Bool {
         JottaFSNames.sameName(name, DirectoryCache.trashesName)
             || JottaFSNames.sameName(name, Self.volumeIconName)
+            || JottaFSNames.sameName(name, Self.timeMachineMarkerName)
+            || JottaFSNames.sameName(name, DirectoryCache.fseventsName)
     }
 
     private func validateNewName(_ name: FSFileName) throws -> String {
