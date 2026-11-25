@@ -77,7 +77,7 @@ release has a `JottaFS-*.dmg` asset, the app offers the update. Network
 errors, timeouts (10 s) and other answers are only logged.
 
 **Update** downloads the DMG into the app's container. The unsandboxed
-helper service (`UnmountService/UpdateInstaller.swift`) then:
+helper service (`JottaFSService/UpdateInstaller.swift`) then:
 
 1. accepts only a regular `.dmg` in the app's container;
 2. checks the `JottaFS.app` inside the DMG: Developer ID, the same team as

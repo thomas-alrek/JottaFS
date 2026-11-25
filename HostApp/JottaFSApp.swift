@@ -844,7 +844,17 @@ private struct FinderStatus: View {
     var body: some View {
         HStack {
             Spacer()
-            if model.selectedIsMounted {
+            if model.selectedIsMounted, !model.canUnmount {
+                // This build cannot unmount (no JottaFSService): the user
+                // ejects the disk in Finder.
+                Button {} label: {
+                    ButtonLabel(title: "Mount", activity: nil)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(true)
+                .help("Mounted. To unmount, eject “\(selectedName ?? "the disk")” in Finder.")
+            } else if model.selectedIsMounted {
                 Button(role: .destructive) {
                     confirmsUnmount = true
                 } label: {

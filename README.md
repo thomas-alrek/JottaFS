@@ -319,7 +319,7 @@ Extensions** (step 2 above). JottaFS finds the change automatically.
 | `JottaFS` (app) | Sign-in, location list, mount and unmount, mount at login. |
 | `JottaFSKitExtension` | The FSKit file system. It shows the location and does all file operations. |
 | `JottaFSCore` | The Jottacloud client: sign-in, folder lists, downloads, uploads and the trash. |
-| `JottaFSUnmountService` | An XPC service that unmounts the disk through Disk Arbitration and installs updates. |
+| `JottaFSService` | An XPC service outside the App Sandbox that unmounts disks and installs updates. Included by default. A fully sandboxed build (`make sandboxed`) leaves it out; then you eject the disks in Finder and update JottaFS yourself. |
 | `JottaFSFinderSync` | A Finder extension: **Copy Jottacloud Link** and **Stop Sharing Jottacloud Link** for items on JottaFS disks. |
 | `JottaFSProgressAgent` | A background helper that shows upload progress on file icons in Finder. |
 | Login agent | Starts JottaFS at login to mount the locations that you selected. |

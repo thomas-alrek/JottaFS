@@ -14,7 +14,7 @@ API; it needs no macFUSE kernel extension and no reduced Startup Security.
 | `JottaFS.app` (`HostApp/`) | `no.alrek.jottafs` | Sign-in, location list, mount and unmount, Settings. Sandboxed. |
 | `JottaFSKitExtension` (`Sources/JottaFSKitExtension/`, `FSKitExtension/`) | `no.alrek.jottafs.extension` | The FSKit file system. One process per mounted location. Sandboxed. |
 | `JottaFSCore` (`Sources/JottaFSCore/`) | `no.alrek.jottafs.core` | Framework: Jottacloud client, storage (credentials, settings, mount anchors), shared types. |
-| `JottaFSUnmountService` (`UnmountService/`) | `no.alrek.jottafs.unmount` | Unsandboxed XPC service: unmounts through DiskArbitration and installs updates. |
+| `JottaFSService` (`JottaFSService/`) | `no.alrek.jottafs.service` | Unsandboxed XPC service for what the sandboxed app cannot do: unmounting through DiskArbitration and installing updates. Optional (see below). |
 | `JottaFSProgressAgent` (`ProgressAgent/`) | `no.alrek.jottafs.progress` | Sandboxed launch agent that publishes upload progress for Finder. |
 | `JottaFSFinderSync` (`FinderExtension/`) | `no.alrek.jottafs.findersync` | Finder Sync extension: Copy Jottacloud Link / Stop Sharing. |
 | Login agent (`HostApp/no.alrek.jottafs.login.plist`) | `no.alrek.jottafs.login` | Starts the app at login with `--mount-at-login`. |
@@ -96,12 +96,28 @@ app's `com.apple.developer.fskit.mount` entitlement and mounts under
 `fskitd` mounts as root, so `unmount(2)` from the user fails with `EPERM`;
 DiskArbitration refuses sandboxed callers (`kDAReturnNotPermitted`) and
 `FileManager.unmountVolume` fails in the sandbox. The app asks
-`JottaFSUnmountService` (protocol in `Shared/`) to call `DADiskUnmount`. The
+`JottaFSService` (protocol in `Shared/`) to call `DADiskUnmount`. The
 service takes an anchor name, never a path, finds that anchor's
 `jottacloud` mount itself, and accepts only `no.alrek.jottafs` signed by its
 own team. It sets `XPCService.JoinExistingSession` so authd can grant the
 volume-unmount right in the user's login session. Unmounting waits for
 pending and running uploads.
+
+### Fully sandboxed build
+
+`JottaFSService` is the only unsandboxed part, and it is included by default
+(releases are distributed outside the Mac App Store, with Developer ID).
+Building with
+`JOTTAFS_SANDBOXED=YES` (`make sandboxed`) leaves it out of the app (a
+build phase deletes `JottaFSService.xpc` before signing), and the app adapts
+at runtime (`JottaFSService.isAvailable`): it does not check for updates, a
+mounted location shows a disabled Mount button (the user ejects in Finder),
+and Sign Out asks the user to eject the disks first. The upload-progress
+agent and the extension still use temporary `mach-lookup`/`mach-register`
+sandbox exceptions, so such a build is sandboxed throughout but not yet
+App Store-clean; without the agent, a file's progress bar would only complete
+at the end of its upload. Delete the build afterwards: extra copies of the app
+make mounts fail with ExtensionKit error 2.
 
 ## Volume
 

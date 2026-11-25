@@ -45,6 +45,12 @@ final class Updater: ObservableObject {
         guard checkTask == nil else {
             return
         }
+        // Installing needs JottaFSService, which a fully sandboxed build
+        // does not have: no checks then (updates come another way).
+        guard JottaFSService.isAvailable else {
+            updateLogger.info("Update checks are off: this build has no JottaFSService.")
+            return
+        }
         checkTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.check()
@@ -186,15 +192,15 @@ final class Updater: ObservableObject {
     }
 
     private func requestInstall(diskImage: URL) async throws -> String? {
-        let connection = NSXPCConnection(serviceName: JottaFSUnmountService.serviceName)
-        connection.remoteObjectInterface = NSXPCInterface(with: JottaFSUnmountServiceProtocol.self)
+        let connection = NSXPCConnection(serviceName: JottaFSService.serviceName)
+        connection.remoteObjectInterface = NSXPCInterface(with: JottaFSServiceProtocol.self)
         connection.resume()
         defer { connection.invalidate() }
         return try await withCheckedThrowingContinuation { continuation in
             let once = ReplyOnce(continuation)
             let proxy = connection.remoteObjectProxyWithErrorHandler { error in
                 once.resume(.failure(error))
-            } as? JottaFSUnmountServiceProtocol
+            } as? JottaFSServiceProtocol
             guard let proxy else {
                 once.resume(.success("The installer couldn’t be started."))
                 return

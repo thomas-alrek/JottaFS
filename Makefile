@@ -6,9 +6,12 @@
 #   make ship            build, notarize and publish the next patch version
 #                        in one step (ship-minor / ship-major); needs the
 #                        release notes committed first
+#   make sandboxed       build a fully sandboxed app for testing (no JottaFSService:
+#                        no self-update, eject in Finder) in build/sandboxed.
+#                        Releases always include JottaFSService.
 #   make check           build the extension code and run the checks
 
-.PHONY: release release-minor release-major publish ship ship-minor ship-major check
+.PHONY: release release-minor release-major publish ship ship-minor ship-major sandboxed check
 
 release:
 	scripts/build-release.sh
@@ -30,6 +33,12 @@ ship-minor:
 
 ship-major:
 	scripts/release.sh --major
+
+sandboxed:
+	xcodebuild -project JottaFS.xcodeproj -scheme JottaFS -configuration Release \
+		-derivedDataPath build/sandboxed -allowProvisioningUpdates \
+		JOTTAFS_SANDBOXED=YES build
+	@echo "App: build/sandboxed/Build/Products/Release/JottaFS.app (delete build/sandboxed when done)"
 
 check:
 	swift build --target JottaFSKitExtension

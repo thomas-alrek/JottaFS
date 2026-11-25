@@ -625,8 +625,14 @@ final class AppModel: ObservableObject {
     }
 
     /// Unmounts the selected location (Finder's Eject does the same).
+    /// Whether the app can unmount: only through JottaFSService, which a
+    /// fully sandboxed build does not have (then the user ejects in Finder).
+    var canUnmount: Bool {
+        JottaFSService.isAvailable
+    }
+
     func unmountSelected() async {
-        guard let location = selectedLocation, let mounted = mounts[location.id], !isBusy else {
+        guard canUnmount, let location = selectedLocation, let mounted = mounts[location.id], !isBusy else {
             return
         }
         alert = nil
@@ -652,6 +658,9 @@ final class AppModel: ObservableObject {
     private func unmountAll() async -> Error? {
         guard let volumes = JottaFSStorage.mountedVolumes(), !volumes.isEmpty else {
             return nil
+        }
+        guard canUnmount else {
+            return UnmountError.ejectInFinder
         }
         activity = .unmounting(locationID: nil)
         defer { activity = nil }

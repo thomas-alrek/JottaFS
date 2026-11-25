@@ -2,16 +2,20 @@ import AppKit
 import Foundation
 import JottaFSCore
 
-// Mounting support for the app's model: the unmount service. The mount
+// Mounting support for the app's model: unmounting through JottaFSService. The mount
 // table is read with `JottaFSStorage.mountedVolumes()`.
 
 enum UnmountError: LocalizedError {
     case volumeStillMounted
+    /// This build cannot unmount (no JottaFSService).
+    case ejectInFinder
     case serviceUnavailable
     case failed(String)
 
     var errorDescription: String? {
         switch self {
+        case .ejectInFinder:
+            "Eject your Jottacloud disks in Finder first, then try again."
         case .volumeStillMounted:
             "Jottacloud is still in use. Close any files or windows from it and try again."
         case .serviceUnavailable:
@@ -25,8 +29,8 @@ enum UnmountError: LocalizedError {
 /// Asks the embedded unsandboxed XPC service to unmount the JottaFS volume
 /// mounted from the anchor `anchorName`.
 func requestUnmountFromService(anchorName: String) async throws {
-    let connection = NSXPCConnection(serviceName: JottaFSUnmountService.serviceName)
-    connection.remoteObjectInterface = NSXPCInterface(with: JottaFSUnmountServiceProtocol.self)
+    let connection = NSXPCConnection(serviceName: JottaFSService.serviceName)
+    connection.remoteObjectInterface = NSXPCInterface(with: JottaFSServiceProtocol.self)
     connection.resume()
     defer { connection.invalidate() }
 
@@ -34,7 +38,7 @@ func requestUnmountFromService(anchorName: String) async throws {
         let once = ResumeOnce(continuation)
         let proxy = connection.remoteObjectProxyWithErrorHandler { error in
             once.resume(with: .failure(error))
-        } as? JottaFSUnmountServiceProtocol
+        } as? JottaFSServiceProtocol
         guard let proxy else {
             once.resume(with: .failure(UnmountError.serviceUnavailable))
             return

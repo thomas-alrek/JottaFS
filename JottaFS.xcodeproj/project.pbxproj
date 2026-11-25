@@ -27,9 +27,9 @@
 		A1000000000000000000003B /* JottaFS.icns in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003B /* JottaFS.icns */; };
 		A10000000000000000000017 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* main.swift */; };
 		A1000000000000000000003D /* UpdateInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003D /* UpdateInstaller.swift */; };
-		A10000000000000000000018 /* UnmountServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* UnmountServiceProtocol.swift */; };
-		A10000000000000000000019 /* UnmountServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* UnmountServiceProtocol.swift */; };
-		A10000000000000000000020 /* JottaFSUnmountService.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* JottaFSUnmountService.xpc */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		A10000000000000000000018 /* JottaFSServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* JottaFSServiceProtocol.swift */; };
+		A10000000000000000000019 /* JottaFSServiceProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* JottaFSServiceProtocol.swift */; };
+		A10000000000000000000020 /* JottaFSService.xpc in Embed XPC Services */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* JottaFSService.xpc */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10000000000000000000026 /* WriteSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* WriteSupport.swift */; };
 		A10000000000000000000027 /* StagingArea.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* StagingArea.swift */; };
 		A1000000000000000000003C /* ReadAhead.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003C /* ReadAhead.swift */; };
@@ -76,7 +76,7 @@
 			containerPortal = A40000000000000000000001 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = A50000000000000000000004;
-			remoteInfo = JottaFSUnmountService;
+			remoteInfo = JottaFSService;
 		};
 		A30000000000000000000005 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -141,7 +141,7 @@
 			dstPath = "$(CONTENTS_FOLDER_PATH)/XPCServices";
 			dstSubfolderSpec = 16;
 			files = (
-				A10000000000000000000020 /* JottaFSUnmountService.xpc in Embed XPC Services */,
+				A10000000000000000000020 /* JottaFSService.xpc in Embed XPC Services */,
 			);
 			name = "Embed XPC Services";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -205,8 +205,8 @@
 		A20000000000000000000015 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A2000000000000000000003D /* UpdateInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UpdateInstaller.swift; sourceTree = "<group>"; };
 		A20000000000000000000016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A20000000000000000000017 /* UnmountServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnmountServiceProtocol.swift; sourceTree = "<group>"; };
-		A20000000000000000000018 /* JottaFSUnmountService.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = JottaFSUnmountService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000017 /* JottaFSServiceProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottaFSServiceProtocol.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* JottaFSService.xpc */ = {isa = PBXFileReference; explicitFileType = "wrapper.xpc-service"; includeInIndex = 0; path = JottaFSService.xpc; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000019 /* WriteSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WriteSupport.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* StagingArea.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StagingArea.swift; sourceTree = "<group>"; };
 		A2000000000000000000003C /* ReadAhead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAhead.swift; sourceTree = "<group>"; };
@@ -281,7 +281,7 @@
 			children = (
 				A80000000000000000000002 /* HostApp */,
 				A80000000000000000000003 /* FSKitExtension */,
-				A80000000000000000000008 /* UnmountService */,
+				A80000000000000000000008 /* JottaFSService */,
 				A8000000000000000000000B /* ProgressAgent */,
 				A80000000000000000000009 /* Shared */,
 				A8000000000000000000000C /* FinderExtension */,
@@ -329,7 +329,7 @@
 				A20000000000000000000009 /* JottaFS.app */,
 				A20000000000000000000008 /* JottaFSKitExtension.appex */,
 				A20000000000000000000007 /* JottaFSCore.framework */,
-				A20000000000000000000018 /* JottaFSUnmountService.xpc */,
+				A20000000000000000000018 /* JottaFSService.xpc */,
 				A20000000000000000000025 /* JottaFSProgressAgent */,
 				A20000000000000000000043 /* JottaFSFinderSync.appex */,
 			);
@@ -365,14 +365,14 @@
 			path = JottaFSKitExtension;
 			sourceTree = "<group>";
 		};
-		A80000000000000000000008 /* UnmountService */ = {
+		A80000000000000000000008 /* JottaFSService */ = {
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000015 /* main.swift */,
 				A2000000000000000000003D /* UpdateInstaller.swift */,
 				A20000000000000000000016 /* Info.plist */,
 			);
-			path = UnmountService;
+			path = JottaFSService;
 			sourceTree = "<group>";
 		};
 		A8000000000000000000000A /* Resources */ = {
@@ -387,7 +387,7 @@
 		A80000000000000000000009 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000017 /* UnmountServiceProtocol.swift */,
+				A20000000000000000000017 /* JottaFSServiceProtocol.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -425,6 +425,7 @@
 				A60000000000000000000002 /* Embed App Extensions */,
 				A60000000000000000000003 /* Embed Frameworks */,
 				A60000000000000000000005 /* Embed XPC Services */,
+				AB0000000000000000000001 /* Leave Out JottaFSService (Sandboxed Build) */,
 				A60000000000000000000006 /* Embed Helpers */,
 				A60000000000000000000007 /* Embed Launch Agents */,
 				A60000000000000000000009 /* Embed Foundation Extensions */,
@@ -478,9 +479,9 @@
 			productReference = A20000000000000000000007 /* JottaFSCore.framework */;
 			productType = "com.apple.product-type.framework";
 		};
-		A50000000000000000000004 /* JottaFSUnmountService */ = {
+		A50000000000000000000004 /* JottaFSService */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A90000000000000000000005 /* Build configuration list for PBXNativeTarget "JottaFSUnmountService" */;
+			buildConfigurationList = A90000000000000000000005 /* Build configuration list for PBXNativeTarget "JottaFSService" */;
 			buildPhases = (
 				A70000000000000000000004 /* Frameworks */,
 				A10000000000000000000024 /* Sources */,
@@ -489,9 +490,9 @@
 			);
 			dependencies = (
 			);
-			name = JottaFSUnmountService;
-			productName = JottaFSUnmountService;
-			productReference = A20000000000000000000018 /* JottaFSUnmountService.xpc */;
+			name = JottaFSService;
+			productName = JottaFSService;
+			productReference = A20000000000000000000018 /* JottaFSService.xpc */;
 			productType = "com.apple.product-type.xpc-service";
 		};
 		A50000000000000000000005 /* JottaFSProgressAgent */ = {
@@ -587,7 +588,7 @@
 				A50000000000000000000001 /* JottaFS */,
 				A50000000000000000000002 /* JottaFSKitExtension */,
 				A50000000000000000000003 /* JottaFSCore */,
-				A50000000000000000000004 /* JottaFSUnmountService */,
+				A50000000000000000000004 /* JottaFSService */,
 				A50000000000000000000005 /* JottaFSProgressAgent */,
 				A50000000000000000000006 /* JottaFSFinderSync */,
 			);
@@ -613,6 +614,28 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		AB0000000000000000000001 /* Leave Out JottaFSService (Sandboxed Build) */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Leave Out JottaFSService (Sandboxed Build)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# A fully sandboxed build (JOTTAFS_SANDBOXED=YES) has no unsandboxed\n# JottaFSService: the app then does not update itself or unmount\n# (JottaFSService.isAvailable). Runs before the app is signed.\nif [ \"${JOTTAFS_SANDBOXED}\" = \"YES\" ]; then\n  rm -rf \"${TARGET_BUILD_DIR}/${CONTENTS_FOLDER_PATH}/XPCServices/JottaFSService.xpc\"\n  echo \"Fully sandboxed build: JottaFSService left out.\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		A10000000000000000000011 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -623,7 +646,7 @@
 				A1000000000000000000003A /* MountSupport.swift in Sources */,
 				A10000000000000000000039 /* LoopbackCallbackServer.swift in Sources */,
 				A10000000000000000000038 /* AppModel.swift in Sources */,
-				A10000000000000000000019 /* UnmountServiceProtocol.swift in Sources */,
+				A10000000000000000000019 /* JottaFSServiceProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -662,7 +685,7 @@
 			files = (
 				A10000000000000000000017 /* main.swift in Sources */,
 				A1000000000000000000003D /* UpdateInstaller.swift in Sources */,
-				A10000000000000000000018 /* UnmountServiceProtocol.swift in Sources */,
+				A10000000000000000000018 /* JottaFSServiceProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -703,7 +726,7 @@
 		};
 		A10000000000000000000025 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = A50000000000000000000004 /* JottaFSUnmountService */;
+			target = A50000000000000000000004 /* JottaFSService */;
 			targetProxy = A30000000000000000000004 /* PBXContainerItemProxy */;
 		};
 		A10000000000000000000035 /* PBXTargetDependency */ = {
@@ -916,9 +939,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = PLY3DSPA3F;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = UnmountService/Info.plist;
+				INFOPLIST_FILE = JottaFSService/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				PRODUCT_BUNDLE_IDENTIFIER = no.alrek.jottafs.unmount;
+				PRODUCT_BUNDLE_IDENTIFIER = no.alrek.jottafs.service;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
@@ -934,9 +957,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = PLY3DSPA3F;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = UnmountService/Info.plist;
+				INFOPLIST_FILE = JottaFSService/Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				PRODUCT_BUNDLE_IDENTIFIER = no.alrek.jottafs.unmount;
+				PRODUCT_BUNDLE_IDENTIFIER = no.alrek.jottafs.service;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
@@ -1063,7 +1086,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A90000000000000000000005 /* Build configuration list for PBXNativeTarget "JottaFSUnmountService" */ = {
+		A90000000000000000000005 /* Build configuration list for PBXNativeTarget "JottaFSService" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AA0000000000000000000009 /* Debug */,

@@ -27,9 +27,9 @@ private func isMountSource(_ source: String, ofAnchor anchorName: String) -> Boo
 private let hostAppIdentifier = "no.alrek.jottafs"
 
 private let busyMessage = "Jottacloud is in use. Close any windows or terminals using it and try again."
-private let diskArbitrationQueue = DispatchQueue(label: "no.alrek.jottafs.unmount.diskarbitration")
+private let diskArbitrationQueue = DispatchQueue(label: "no.alrek.jottafs.service.diskarbitration")
 
-final class UnmountService: NSObject, JottaFSUnmountServiceProtocol {
+final class JottaFSServiceHandler: NSObject, JottaFSServiceProtocol {
     func installUpdate(diskImagePath: String, reply: @escaping (String?) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async {
             reply(UpdateInstaller.install(diskImagePath: diskImagePath))
@@ -171,8 +171,8 @@ final class ServiceDelegate: NSObject, NSXPCListenerDelegate {
         // Per-connection rather than `NSXPCListener.setConnectionCodeSigningRequirement`,
         // which crashes (EXC_BAD_ACCESS) on the `NSXPCListener.service()` listener.
         connection.setCodeSigningRequirement(clientRequirement)
-        connection.exportedInterface = NSXPCInterface(with: JottaFSUnmountServiceProtocol.self)
-        connection.exportedObject = UnmountService()
+        connection.exportedInterface = NSXPCInterface(with: JottaFSServiceProtocol.self)
+        connection.exportedObject = JottaFSServiceHandler()
         connection.resume()
         return true
     }
