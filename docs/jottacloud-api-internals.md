@@ -193,10 +193,11 @@ is at most 1 MiB, except read-ahead blocks (8 MiB), and reads are short at
 end of file.
 
 Each range request waits about 70–100 ms for its first byte, and one
-download runs at only about 4–5 MB/s (measured 2026-11-24, independent of the
-range size). JottaFS therefore reads ahead once 2 MiB of a file have been read
-in order (`ReadAhead.swift`): 8 MiB blocks at fixed positions, with up to four
-downloading at the same time ahead of the reader. Random reads, and readers
+download stream is limited in speed (see the measurements below). JottaFS
+therefore reads ahead once 2 MiB of a file have been read in order
+(`ReadAhead.swift`): 8 MiB blocks at fixed positions, downloading in
+parallel ahead of the reader, 2 at first and one more for each further 8 MiB
+read, up to 8 (the data session allows 16 connections per host). Random reads, and readers
 that only look at the start of a file (Finder thumbnails), still use one
 request each. Responses are collected in chunks and cancelled at the
 requested length.
@@ -237,11 +238,22 @@ network):
 | upload, one 64 MiB file | 11.9 MB/s |
 | upload, three 32 MiB files at once | 14.3 MB/s total |
 
-Downloads are limited to about 5–7 MB/s in total per account (or client),
-whatever the host, range size or number of connections; uploads on the same
-connection are twice as fast. Parallel requests do not raise the download
-limit, so JottaFS's read-ahead helps only by hiding request latency. Faster
-reads have to come from not downloading: JottaFS keeps downloaded 8 MiB blocks
+On 2026-11-24 downloads stayed at about 5–7 MB/s in total whatever the
+host, range size or number of connections (that test was limited to 6
+connections per host, `URLSession`'s default). A new test on 2026-11-25
+(same Mac and network, the same 64 MiB file, two rounds, up to 32
+connections) gave a different picture:
+
+| Path | 1 stream | 2 | 4 | 8 | 16 parallel |
+|---|---|---|---|---|---|
+| `jfs` ranges (whole file split) | 13.6–15.0 MB/s | 18.2–19.8 | 23.2–24.5 | 27.6 | 29.8–30.7 MB/s |
+| storage URL | 12.4–13.3 MB/s | | 24.6–24.7 | | 27.1–28.8 MB/s |
+
+So the speed of one stream varies with the time and the network (an rclone
+forum thread from 2022 reports the same, including a provider's network as
+the cause), and parallel streams do help, with less gain above 8. The size
+of each range hardly matters. The storage URL is not faster than `jfs`.
+Not downloading at all is still the fastest: JottaFS keeps downloaded 8 MiB blocks
 in a disk cache keyed by the listing's MD5 and the block index
 (`BlockCache.swift`, in the app group's `Library/Caches/BlockCache`, one
 folder per mounted location; 1024 MB in total by default, set and cleared in

@@ -5,14 +5,18 @@ import OSLog
 ///
 /// Each FSKit read used to be one HTTPS range request of at most 1 MiB, one
 /// after another, so a copy spent most of its time waiting for the first
-/// byte of each request (about 70–100 ms). A single Jottacloud download also
-/// runs at only about 4–5 MB/s, independent of its size.
+/// byte of each request (about 70–100 ms). One Jottacloud download stream is
+/// also limited (measured 2026-11-25: about 14 MB/s for one stream, 24 MB/s
+/// for 4 in parallel, 28 MB/s for 8; the speed varies with the time and
+/// network), so parallel streams make large files faster.
 ///
 /// Once 2 MiB of a file have been read in order, the file is read in blocks
-/// of 8 MiB at fixed positions, with up to four blocks downloading at the
-/// same time ahead of the reader. Random reads, and readers that only look at
-/// the start of a file (thumbnails, previews), still go straight to
-/// Jottacloud.
+/// of 8 MiB at fixed positions, with blocks downloading in parallel ahead of
+/// the reader. The number grows with the amount read in order
+/// (`parallelBlocks(after:)`): 2 at first, one more for each further 8 MiB,
+/// up to `maximumParallelBlocks`, so small files use few connections and
+/// large ones the most. Random reads, and readers that only look at the start
+/// of a file (thumbnails, previews), still go straight to Jottacloud.
 ///
 /// A file of at most `smallFileLimit` is downloaded whole by its first read
 /// (one request instead of several, each waiting 70–100 ms for its first
@@ -21,8 +25,8 @@ import OSLog
 /// Blocks of files with a known MD5 are kept on disk in `BlockCache`, and
 /// any read whose blocks are all there is served from the disk.
 ///
-/// Memory is bounded: the blocks around the reader (at most six per file)
-/// and `memoryLimit` in total; least recently used files are dropped first.
+/// Memory is bounded: the blocks around the reader (at most
+/// `maximumParallelBlocks` + 2 per file) and `memoryLimit` in total; least recently used files are dropped first.
 /// Callers invalidate a file when its contents may change (writes, uploads,
 /// deletes) and when it is closed.
 actor ReadAhead {
@@ -31,7 +35,14 @@ actor ReadAhead {
 
     static let blockSize = 8 * 1024 * 1024
     /// Blocks downloading at the same time ahead of the reader.
-    static let parallelBlocks = 4
+    static let maximumParallelBlocks = 8
+
+    /// Blocks downloading in parallel ahead of a reader that has read
+    /// `bytes` in order: 2 at first, one more per further 8 MiB, at most
+    /// `maximumParallelBlocks` (reached after 56 MiB).
+    static func parallelBlocks(after bytes: UInt64) -> Int {
+        min(maximumParallelBlocks, max(2, Int(bytes / UInt64(blockSize)) + 1))
+    }
     static let memoryLimit = 128 * 1024 * 1024
     /// Bytes read in order before reading ahead.
     private static let sequentialThreshold: UInt64 = 2 * 1024 * 1024
@@ -120,7 +131,7 @@ actor ReadAhead {
         let first = offset / block
         let last = (end - 1) / block
         let lastBlock = (fileSize - 1) / block
-        let ahead = min(last + UInt64(Self.parallelBlocks), lastBlock)
+        let ahead = min(last + UInt64(Self.parallelBlocks(after: file.sequentialBytes)), lastBlock)
         var tasks: [UInt64: Task<Data, Error>] = [:]
         for index in first...ahead {
             tasks[index] = task(for: index, of: id, fileSize: fileSize, md5: md5, fetch: fetch)

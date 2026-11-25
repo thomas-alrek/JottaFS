@@ -211,7 +211,7 @@ public actor JottacloudClient {
         self.allowsTokenRefresh = allowsTokenRefresh
         self.persistCredentials = persistCredentials
         self.loadSavedCredentials = loadSavedCredentials
-        self.http = URLSession(configuration: .ephemeral)
+        self.http = URLSession(configuration: Self.dataSessionConfiguration)
         self.authHTTP = Self.identitySession
     }
 
@@ -221,6 +221,15 @@ public actor JottacloudClient {
 
     /// For identity requests (discovery, tokens): never follows redirects.
     /// Shared and never invalidated, so it does not leak per client.
+    /// The data session: up to 16 connections per host (the default is 6),
+    /// so the extension's read-ahead (up to 8 blocks per file) can run for
+    /// more than one file next to listings and uploads.
+    static var dataSessionConfiguration: URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpMaximumConnectionsPerHost = 16
+        return configuration
+    }
+
     static let identitySession = URLSession(
         configuration: .ephemeral,
         delegate: NoRedirectDelegate(),
