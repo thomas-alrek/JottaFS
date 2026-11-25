@@ -215,6 +215,46 @@ be uploaded after it is completely written; JottaFS must keep its local copy
 until then. The test files (`md5probe-*.bin`, some `CORRUPT`) were left in
 `JottaFS-Test`.
 
+Parallel ranged uploads (2026-11-25, three 96 MiB files in `JottaFS-Test`,
+`files/v1/allocate` with the real MD5):
+
+- One stream: 7.0 s for 96 MiB, 14.3 MB/s, `COMPLETED`.
+- Three 32 MiB parts at the same time to one `upload_url`, each with a
+  `Range: bytes=start-end` header: only the part at the resume position is
+  taken. It ends with 420 `IncompleteUploadOpenApiException` (it stops before
+  the end of the file); the other parts get 400, or 409 while another part is
+  running. Afterwards the file is `INCOMPLETE` and allocating again returns
+  207 with `resume_pos` 25165824 (24 MiB of the first part kept).
+- The same parts one after another, out of order (2, 1, 3): the same result.
+
+So the body of one file is a strictly ordered stream; one file cannot be
+uploaded in parallel parts. Uploading several files at the same time is
+possible but needs an upload queue that does not block close(2); this was
+discussed and not done (see the write design).
+
+## Sessions (checked 2026-11-25)
+
+Jottacloud's list of signed-in devices (jottacloud.com → Security, "Mine
+innloggede enheter") comes from the gRPC
+`no.jotta.openapi.auth.v2.AuthService` on `grpc.jotta.cloud`:
+
+- `ListSessions` returns `Session` messages: id 1, ip_address 2,
+  started_at_millis 3, last_accessed_millis 4, device_name 5, client_name 6,
+  location 7, type 8 (`UNKNOWN` 0, `WEB` 1, `DEVICE` 2), country_code 9. The
+  page shows "Enhet" = `device_name` (else `client_name`) and "Applikasjon" =
+  `client_name`. A `jottacli` sign-in has no device name and the client name
+  "Jottacloud CLI".
+- `RegisterSession` (device_name 1, user_agent 2, app_version 3, device_id 4,
+  app_id 5, app_type 6; reply: session id) names the calling session. With the
+  Mac's computer name and app type "JottaFS" the page showed the Mac's name and
+  "JottaFS". The web app itself never calls it.
+- `DeleteSession` (session_id 1) is what the page's X calls.
+- Signing out: `POST https://id.jottacloud.com/auth/realms/jottacloud/protocol/openid-connect/logout`
+  (next to the token endpoint) with `client_id=jottacli` and the refresh token
+  removed the session from the list at once, and the refresh token was then
+  refused. Before 1.1.0 JottaFS only deleted its saved tokens at sign-out, so
+  the session stayed listed.
+
 ## Creation dates of locations (checked 2026-11-25)
 
 No listing gives a reliable creation date for a location:

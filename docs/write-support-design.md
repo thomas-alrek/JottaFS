@@ -80,6 +80,31 @@ MD5).
 - **Progress.** Upload progress is shown on the file's icon in Finder through
   `JottaFSProgressAgent` ([FSKit notes](fskit-internals.md#upload-progress-in-finder)).
 
+## Why the local copy stays (measured 2026-11-25)
+
+A 300 MB copy with `cp` onto a mounted disk took 20.9 s: about 1 s writing
+into the local copy through FSKit (about 330 MB/s, MD5 computed on the way),
+0.07 s to allocate and 19.8 s to upload (one stream, about 16 MB/s). A Finder
+copy took 19.6 s with the same split. The upload is about 95 % of the time.
+
+Alternatives that were checked and rejected:
+
+- **Upload from the original file.** FSKit gives the extension only the bytes
+  and the caller's uid/gid (`FSContext`): no source path, no process, no copy
+  or clone operation. An unsandboxed process can find the source of a `ditto`
+  (or `cp`) copy through libproc (the writer has the source open read-only),
+  but Finder copies run in `DesktopServicesHelper` as root, whose files a user
+  process cannot see. Even with the source, the upload can only start once
+  the whole MD5 is known, so at most the 5 % of writing would be saved.
+- **Send the MD5 or size after the body.** Jottacloud needs both before the
+  body and checks the body against them
+  ([API notes](jottacloud-api-internals.md#upload-no-streaming-variant-checked-2026-11-24)).
+- **Upload one file in parallel parts.** The server only takes bytes in order
+  from the resume position (same notes).
+- **Upload several files at once.** It would need close(2) to return before
+  the upload, so Finder's "done" would no longer mean the file is on
+  Jottacloud. Discussed on 2026-11-25 and left as it is for now.
+
 ## Names and case
 
 - Jottacloud is case-insensitive, so the volume is case-insensitive and

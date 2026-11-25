@@ -18,6 +18,7 @@ API; it needs no macFUSE kernel extension and no reduced Startup Security.
 | `JottaFSProgressAgent` (`ProgressAgent/`) | `no.alrek.jottafs.progress` | Sandboxed launch agent that publishes upload progress for Finder. |
 | `JottaFSFinderSync` (`FinderExtension/`) | `no.alrek.jottafs.findersync` | Finder Sync extension: Copy Jottacloud Link / Stop Sharing. |
 | Login agent (`HostApp/no.alrek.jottafs.login.plist`) | `no.alrek.jottafs.login` | Starts the app at login with `--mount-at-login`. |
+| Refresh agent (`HostApp/no.alrek.jottafs.refresh.plist`) | `no.alrek.jottafs.refresh` | Starts the app hidden every 12 hours with `--refresh-session` to keep the sign-in alive. |
 
 All targets use team `PLY3DSPA3F` and the app group `group.no.alrek.jottafs`.
 Releases are signed with Developer ID ([releasing](releasing.md)); the
@@ -249,6 +250,39 @@ extension black in dark mode, so the menu symbols get a fixed palette colour
 for the current appearance. The user turns the extension on in **System
 Settings → Login Items & Extensions → Finder**
 (`FIFinderSyncController.showExtensionManagementInterface()`).
+
+## Ended sign-ins and the refresh agent
+
+Jottacloud's refresh token is an offline token without a fixed lifetime, but
+it ends when it is unused for longer than the server's idle limit or when the
+user removes the session on jottacloud.com
+([API notes](jottacloud-api-internals.md#authentication)).
+
+- **Detection.** A refresh that the identity server refuses (400/401), also
+  after retrying with the newest saved tokens, throws
+  `JottacloudError.sessionEnded`. The client's `sessionEnded` callback
+  (`JottaFSStorage.markSessionEnded()`) writes a `SessionEnded` marker next to
+  the credentials and posts the Darwin notification
+  `no.alrek.jottafs.session-ended`. The app, the FSKit extension and the
+  Finder extension all pass that callback, so whichever finds it first tells
+  the app. The extension returns `EACCES` for the failed operation.
+- **App.** On the notification, at launch and when it becomes active, the app
+  checks the marker: it unmounts every location, deletes the credentials
+  (which removes the marker), signs out and shows "Your Jottacloud sign-in has
+  ended" with its window in front. The locations for mount at login are kept.
+  A new sign-in also clears the marker.
+- **Refresh agent.** `no.alrek.jottafs.refresh` (`StartInterval` 12 hours,
+  registered with `SMAppService.agent` while signed in, removed at sign-out)
+  starts the app with `--refresh-session`: hidden like a login launch, it
+  calls `JottacloudClient.refreshSession()` (a forced refresh) and quits. If
+  the sign-in has ended it signs out and shows the window. The progress agent
+  cannot do this: it has no network access and does not link JottaFSCore.
+  Test by hand: `launchctl kickstart -k gui/$(id -u)/no.alrek.jottafs.refresh`.
+- **Session name and sign-out.** After every sign-in and at each launch the
+  app calls `AuthService.RegisterSession`, so jottacloud.com lists the session
+  as the Mac's computer name and "JottaFS". Sign-out calls the OpenID Connect
+  logout with the refresh token before it deletes the credentials, so the
+  session leaves that list.
 
 ## Mount at login
 

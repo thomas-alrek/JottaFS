@@ -249,8 +249,17 @@ error.
 ### Sign out
 
 Click **Sign Out**, then click **Sign Out** again to confirm. JottaFS unmounts
-all mounted locations first. Then it deletes the saved sign-in from your Mac. Your files
-stay in Jottacloud.
+all mounted locations first. Then it signs out on Jottacloud and deletes the
+saved sign-in from your Mac. Your files stay in Jottacloud.
+
+On jottacloud.com, **Settings → Security** shows JottaFS in the list of
+signed-in devices, with the name of your Mac. If you remove JottaFS there,
+or if Jottacloud ends the sign-in, JottaFS unmounts your disks and asks you
+to sign in again.
+
+JottaFS keeps your sign-in active: macOS opens JottaFS without a window two
+times a day for a moment. You can see this item in **System Settings →
+General → Login Items & Extensions**.
 
 ## The Trash
 
@@ -333,6 +342,7 @@ Extensions** (step 2 above). JottaFS finds the change automatically.
 | `JottaFSFinderSync` | A Finder extension: **Copy Jottacloud Link** and **Stop Sharing Jottacloud Link** for items on JottaFS disks. |
 | `JottaFSProgressAgent` | A background helper that shows upload progress on file icons in Finder. |
 | Login agent | Starts JottaFS at login to mount the locations that you selected. |
+| Refresh agent | Starts JottaFS without a window two times a day to keep the sign-in active. |
 
 ## Development
 
