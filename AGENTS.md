@@ -34,6 +34,13 @@ location as a read-write volume.
   names rather than silently normalizing them.
 - Follow [the FSKit internals notes](docs/fskit-internals.md) and document
   platform requirements, extension installation, and known limits.
+- User-facing texts are localized with String Catalogs
+  (`Localizable.xcstrings` in `HostApp`, `FinderExtension`, `JottaFSService`
+  and `Sources/JottaFSCore`): English is the development language and
+  fallback, and every new text needs a Norwegian (`nb`) translation. Use
+  `String(localized:)` for texts that are not SwiftUI literals (JottaFSCore:
+  `bundle: .jottaFSCore`). Norwegian uses "Aktiver / Deaktiver" for mount and
+  unmount, and Jottacloud's own terms ("personlig login-token", "backup").
 - Run `swift build --target JottaFSKitExtension` and
   `swift run jottafs-checks` for local checks. The Swift package
   compilation does not validate app-extension packaging or mounting; use the
