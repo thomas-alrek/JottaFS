@@ -30,6 +30,16 @@ Refresh tokens rotate: each refresh returns a new refresh token and invalidates
 the prior one. Serialize refresh operations. Concurrent requests that receive
 401 for a now-stale access token should reuse the already-refreshed access
 token instead of attempting a second refresh with the stale refresh token.
+Token lifetimes (checked 2026-11-25 with a probe sign-in): the access token
+lasts 3600 s (`expires_in`). Because of the `offline_access` scope, the
+refresh token is a Keycloak offline token: its JWT has `typ` "Offline" and no
+`exp` claim, and the token response has `refresh_expires_in` 0. So it has no
+fixed lifetime; it can still end when the server's offline session idle limit
+passes without a refresh (the limit is server configuration and not visible;
+Keycloak's default is 30 days) or when the session is revoked (for example
+from the account's security settings). Browser and token sign-in both use the
+`jottacli` client, so both get offline tokens.
+
 Never log tokens or place them in process arguments. The personal login token
 is single-use; if a mount fails after successful authentication, generate a
 new one for the next attempt.
@@ -175,6 +185,31 @@ before allocating, and no upload can start before the complete MD5 is known, and
 is fully written; Finder's copy dialog (which counts bytes written) cannot
 follow the upload. These are observations from strings and type metadata in
 the shipped binary, not from decompiled control flow or network traffic.
+
+Follow-up experiments (2026-11-25, new files in `JottaFS-Test`):
+
+- Allocating with the MD5 of empty data and a size of 8 MiB fails with
+  HTTP 400 at allocation (an arbitrary placeholder MD5 was accepted on
+  2026-11-24), so that run did not test sending the MD5 after the body.
+- The legacy upload host `up.jottacloud.com` still answers. A raw POST of the
+  body to `/jfs/<user>/<device>/<mountpoint>/<path>` with the headers
+  `JSize`, `JCreated`, `JModified` (with or without `JMd5`, also with `JMd5`
+  as a chunked trailer) fails with HTTP 500 "POST Request is missing
+  multipart content or don't dont have any command parameters in the url".
+  It wants a multipart body; not tested yet.
+
+## Creation dates of locations (checked 2026-11-25)
+
+No listing gives a reliable creation date for a location:
+
+- The JFS account and device XML have only `modified` for a device (the last
+  change), and an empty `modified` for each mountpoint.
+- `account/v1/customer` has no date fields.
+- `DeviceService.List` (gRPC) has a millisecond timestamp in field 7 of each
+  backup device, but its meaning is unknown: one device had 2026-07-20, the
+  other 2004-09-08 (before Jottacloud existed).
+
+The volume root therefore keeps the mount time for its dates.
 
 ## File reads
 
