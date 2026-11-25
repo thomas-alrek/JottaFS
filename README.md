@@ -92,6 +92,9 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   Jottacloud disk and choose **Copy Jottacloud Link**. For a shared item,
   **Stop Sharing Jottacloud Link** removes the link. Turn on the Finder extension once: JottaFS
   asks, or use **JottaFS → Settings**.
+- **Sidebar icon.** Jottacloud disks show their own icon in the Finder
+  sidebar: a drive with the Jottacloud logo, in the same style as Macintosh
+  HD.
 - **Download cache.** JottaFS keeps recently downloaded file data on your Mac
   (1 GB by default). Files that you open again open immediately. Change the
   size in **JottaFS → Settings**. JottaFS deletes the data of a disk when you
@@ -296,6 +299,10 @@ copy, or a build from Xcode), and macOS uses the extension of a different copy.
 3. Open JottaFS from Applications and mount again.
 
 If the problem continues, restart your Mac.
+
+**The sidebar shows the JottaFS app icon for a disk, not the drive icon.**
+Finder keeps the old icon after an update. Relaunch Finder: hold Option,
+Control-click the Finder icon in the Dock and choose **Relaunch**.
 
 **The location list is disabled.** Turn on **JottaFS** in **File System
 Extensions** (step 2 above). JottaFS finds the change automatically.

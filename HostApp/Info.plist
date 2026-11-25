@@ -4,6 +4,19 @@
 <dict>
 	<key>CFBundleIconFile</key>
 	<string>JottaFS</string>
+	<!-- Finder's sidebar icon for the JottaFS disks: the custom symbol
+	     jottafs.drive (Assets.xcassets; made by Tools/make-sidebar-symbol.swift).
+	     Finder reads it from the app, not from the FSKit extension
+	     (docs/fskit-internals.md, "Sidebar icon"). The app icon stays
+	     CFBundleIconFile. -->
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleSymbolName</key>
+			<string>jottafs.drive</string>
+		</dict>
+	</dict>
 	<!-- Starts without a Dock icon, so a launch at login (by the
 	     no.alrek.jottafs.login agent) never shows one. Every other launch
 	     switches to a normal Dock app at once (AppDelegate

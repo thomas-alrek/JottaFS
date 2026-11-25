@@ -139,13 +139,40 @@ make mounts fail with ExtensionKit error 2.
   and a limited `FSVolume.XattrHandler` exposes only the root's
   `com.apple.FinderInfo` with `kHasCustomIcon`. Other extended attributes
   return `ENOTSUP`.
-  Observed 2026-11-24 (macOS 27.3): Finder's **sidebar** shows the app's icon
-  (`JottaFS.icns`, the cloud), not this volume icon (`JottaVolume.icns`, the
-  drive with the "J"), which other places use (window title, Get Info,
-  Desktop). It seems the sidebar takes the icon of the app that provides the
-  FSKit file system; this is not documented. Kept as it is; worth
-  researching further (for example whether the extension's own icon, or an
-  icon in its `Info.plist`, would be used instead).
+- **Sidebar icon.** Finder's sidebar does not use the volume icon. For an
+  FSKit volume it shows the SF Symbol named in the **app's** `Info.plist` at
+  `CFBundleIcons` → `CFBundlePrimaryIcon` → `CFBundleSymbolName`, the
+  mechanism Apple documents for File Provider extensions ("Setting the Finder
+  sidebar icon"). Without that key it shows the app's own icon (on macOS 27.3
+  drawn as the `.icns` inside a frame with a grey edge). The key changes only
+  the sidebar: the Dock, the Applications folder and the volume's own icon
+  stay the same. Tested 2026-11-25 on macOS 27.3 with only the installed
+  copy of the app registered, after relaunching Finder:
+  - the nested key with a test symbol in the app's `Info.plist`: the sidebar
+    showed that symbol;
+  - the nested key naming a custom symbol in the app's asset catalog
+    (`jottafs.drive`, see below): the sidebar showed it, after Finder was
+    relaunched (Finder keeps the previous icon until then);
+  - the same key in the FSKit extension's `Info.plist`: ignored;
+  - a top-level `CFBundleSymbolName` (app or extension): ignored;
+  - a bundle icon for the extension (`CFBundleIconFile`): ignored.
+
+  JottaFS uses the custom symbol `jottafs.drive`
+  (`HostApp/Assets.xcassets`): the outline of the system symbol
+  `internaldrive` without its vent bars, with the Jottacloud logo lying on
+  its top face in perspective, made by `Tools/make-sidebar-symbol.swift`
+  (needs the SF Symbols app, whose `SFSymbolsFallback.otf` holds the outline
+  as the glyph `drive.color`). AppKit draws system symbols as images, so
+  their outlines cannot be taken from a PDF rendering; the font glyph is the
+  vector source.
+
+  The volume itself reports `JottaVolume.icns` (`NSWorkspace.icon(forFile:)`,
+  `NSURLEffectiveIconKey`), and DiskArbitration has no media icon for it
+  (only `DAVolumeKind` `jottacloud`). Testing tip: a stale copy of the app
+  (Xcode's DerivedData, a mounted DMG) can serve the mount instead of the
+  installed one and spoil such tests; check the running extension's path
+  (`pgrep -lf JottaFSKitExtension`) and that only one copy is registered
+  (`pluginkit -mAvvv -i no.alrek.jottafs.extension`).
 - **Case.** Jottacloud names are case-insensitive, so the volume is
   case-insensitive and case-preserving.
 - **Concurrency.** Callbacks run concurrently. Item state is behind a lock per

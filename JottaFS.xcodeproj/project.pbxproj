@@ -47,6 +47,7 @@
 		A10000000000000000000041 /* JottaFSCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* JottaFSCore.framework */; };
 		A10000000000000000000042 /* JottaFSFinderSync.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A20000000000000000000043 /* JottaFSFinderSync.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		A10000000000000000000043 /* Sharing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000044 /* Sharing.swift */; };
+		A10000000000000000000049 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000047 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -225,6 +226,7 @@
 		A20000000000000000000042 /* JottaFSFinderSync.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = JottaFSFinderSync.entitlements; sourceTree = "<group>"; };
 		A20000000000000000000043 /* JottaFSFinderSync.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = JottaFSFinderSync.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000044 /* Sharing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sharing.swift; sourceTree = "<group>"; };
+		A20000000000000000000047 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -299,6 +301,7 @@
 				A2000000000000000000003A /* MountSupport.swift */,
 				A20000000000000000000039 /* LoopbackCallbackServer.swift */,
 				A20000000000000000000038 /* AppModel.swift */,
+				A20000000000000000000047 /* Assets.xcassets */,
 				A20000000000000000000045 /* no.alrek.jottafs.login.plist */,
 				A20000000000000000000012 /* JottaFS.entitlements */,
 			);
@@ -609,6 +612,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000000000000000000003B /* JottaFS.icns in Resources */,
+				A10000000000000000000049 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
