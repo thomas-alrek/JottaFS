@@ -150,21 +150,21 @@ make mounts fail with ExtensionKit error 2.
   copy of the app registered, after relaunching Finder:
   - the nested key with a test symbol in the app's `Info.plist`: the sidebar
     showed that symbol;
-  - the nested key naming a custom symbol in the app's asset catalog
-    (`jottafs.drive`, see below): the sidebar showed it, after Finder was
-    relaunched (Finder keeps the previous icon until then);
+  - the nested key naming a custom symbol in the app's asset catalog:
+    the sidebar showed it, after Finder was relaunched (Finder keeps the previous icon until then);
   - the same key in the FSKit extension's `Info.plist`: ignored;
   - a top-level `CFBundleSymbolName` (app or extension): ignored;
   - a bundle icon for the extension (`CFBundleIconFile`): ignored.
 
-  JottaFS uses the custom symbol `jottafs.drive`
-  (`HostApp/Assets.xcassets`): the outline of the system symbol
-  `internaldrive` without its vent bars, with the Jottacloud logo lying on
-  its top face in perspective, made by `Tools/make-sidebar-symbol.swift`
-  (needs the SF Symbols app, whose `SFSymbolsFallback.otf` holds the outline
-  as the glyph `drive.color`). AppKit draws system symbols as images, so
-  their outlines cannot be taken from a PDF rendering; the font glyph is the
-  vector source.
+  JottaFS uses the system symbol `internaldrive`, the plain drive that
+  Macintosh HD has in the sidebar. JottaFS 1.0.7 used a custom
+  symbol from the app's asset catalog (that outline with the Jottacloud logo
+  on its top face); it was replaced with the plain drive in 1.1.0. A custom
+  symbol works the same way: put a `.symbolset` in the app's asset catalog
+  and name it in the key. AppKit draws system symbols as images, so a custom
+  symbol's outline cannot be taken from a PDF rendering; the SF Symbols app's
+  `SFSymbolsFallback.otf` has the outlines as font glyphs (such as
+  `drive.color`).
 
   The volume itself reports `JottaVolume.icns` (`NSWorkspace.icon(forFile:)`,
   `NSURLEffectiveIconKey`), and DiskArbitration has no media icon for it
