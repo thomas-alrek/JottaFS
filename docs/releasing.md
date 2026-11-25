@@ -47,7 +47,13 @@ make release-major    # 1.4.2 → 2.0.0
    checks the signature.
 4. Notarizes and staples the app.
 5. Makes the DMG: the app, a link to Applications, the background from
-   `Tools/make-dmg-background.swift` and the JottaFS volume icon.
+   `Tools/make-dmg-background.swift` and the JottaFS volume icon. Finder
+   writes the window layout (background, icon positions) into the DMG's
+   `.DS_Store`. Finder finds the disk by its name, "JottaFS <version>", so
+   no other disk with that name may be mounted, such as a test DMG of the
+   same version: the build stops if one is, and fails if the layout is
+   missing. (JottaFS 1.1.0 was first published without its layout because a
+   1.1.0 test DMG was mounted; the DMG was replaced the same day.)
 6. Signs, notarizes and staples the DMG, and checks it with Gatekeeper.
 7. Writes `dist/JottaFS-<version>-CHANGELOG.md`: a copy of
    `docs/release-notes/<version>.md` when that file exists (write one for

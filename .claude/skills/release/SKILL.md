@@ -63,6 +63,12 @@ If it failed after tagging, do not delete tags or releases without asking.
 
 ## Rules
 
+- Before building, eject every mounted JottaFS DMG (`ls /Volumes`): a test
+  DMG of the same version has the same volume name, and Finder would write
+  the installer layout to it instead of the release DMG. The build stops if
+  one is mounted. Prefer test builds with `make release` from a reset
+  `VERSION` only when needed, and eject them when done.
+
 - Every published release updates the casks (AGENTS.md, "Releases"); the
   script does this. If a release is ever published another way, run
   `scripts/update-cask.sh <version> <sha256>`, commit `Casks/` and push.

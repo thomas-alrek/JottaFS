@@ -198,10 +198,15 @@ swiftc -O Tools/make-dmg-background.swift -o "$BUILD/make-dmg-background"
 tiffutil -cathidpicheck "$BUILD/background.png" "$BUILD/background@2x.png" -out "$STAGE/.background/background.tiff" >/dev/null
 
 VOLUME_NAME="$APP_NAME $VERSION"
+# Finder finds the disk by its name: with another disk of the same name
+# mounted (such as a test DMG of this version), the layout would go to that
+# disk and the DMG would have no background or icon positions.
+[[ ! -e "/Volumes/$VOLUME_NAME" ]] || fail "A disk named \"$VOLUME_NAME\" is already mounted (an earlier DMG of this version?). Eject it and build again."
 SIZE_MB=$(( $(du -sm "$STAGE" | cut -f1) + 20 ))
 hdiutil create -quiet -srcfolder "$STAGE" -volname "$VOLUME_NAME" -fs HFS+ -format UDRW -size "${SIZE_MB}m" "$BUILD/rw.dmg"
 MOUNT="$(hdiutil attach -readwrite -noverify -noautoopen "$BUILD/rw.dmg" | awk -F'\t' '/\/Volumes\// { print $NF; exit }')"
 [[ -d "$MOUNT" ]] || fail "Could not mount the temporary DMG."
+[[ "$MOUNT" == "/Volumes/$VOLUME_NAME" ]] || fail "The temporary DMG was mounted at $MOUNT, not /Volumes/$VOLUME_NAME. Eject other disks named \"$VOLUME_NAME\" and build again."
 
 # The installer window layout (written by Finder into the DMG's .DS_Store).
 # Icon positions match Tools/make-dmg-background.swift.
@@ -226,6 +231,8 @@ tell application "Finder"
     end tell
 end tell
 APPLESCRIPT
+sync
+[[ -f "$MOUNT/.DS_Store" ]] || fail "Finder did not save the window layout in the DMG (no .DS_Store)."
 # The custom volume icon, added after Finder's layout: Finder removes it
 # (and `hdiutil create -srcfolder` leaves it out).
 cp Resources/JottaFS.icns "$MOUNT/.VolumeIcon.icns"
