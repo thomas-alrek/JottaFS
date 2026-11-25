@@ -148,11 +148,17 @@ make mounts fail with ExtensionKit error 2.
   are never uploaded, and their names are reserved (a remote item with the
   same name is hidden):
   - `.com.apple.timemachine.donotpresent` (empty file): Time Machine does not
-    offer the disk as a backup disk. It could not use it anyway: a local
-    backup disk needs a device (the settings fail with DiskManagement error
-    -69471, "A BSD disk name could not be obtained") and network backups
-    need an SMB share with Time Machine support. Without the marker the
-    settings offered every mounted JottaFS disk.
+    ask whether to use the disk for backups when it is mounted (what the
+    marker is for). It does **not** remove the disk from the list in Time
+    Machine's settings: on macOS 27 the settings still list every mounted
+    JottaFS disk (checked 2026-11-25 with the marker present; no code in
+    the shared cache refers to the marker's name). Choosing one fails: a local
+    backup disk needs a device (DiskManagement error -69471, "A BSD disk name
+    could not be obtained"), and confirming the erase Time Machine then
+    offers fails too, without changing the files. Network backups need an
+    SMB share with Time Machine support. The only known way to hide a
+    volume from that list is the `nobrowse` mount option, which also hides
+    it from Finder.
   - `.fseventsd/no_log`: `fseventsd` keeps no event log on the disk. Without
     it, `fseventsd` created `.fseventsd` and its log files at every mount and
     JottaFS uploaded them (seen 2026-11-25). Live change notifications do not

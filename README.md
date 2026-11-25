@@ -97,8 +97,8 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
 - **No clutter on Jottacloud.** Finder's own files stay on your Mac: the
   view settings of folders (`.DS_Store`) and the `._` files that hold
   Finder tags, comments and download information. These settings are kept
-  on this Mac only, so other devices do not see them. Time Machine does not
-  offer Jottacloud disks, and macOS keeps no file-event log on them.
+  on this Mac only, so other devices do not see them. macOS keeps no
+  file-event log on Jottacloud disks.
 - **English and Norwegian.** JottaFS uses Norwegian (Bokmål) when Norwegian
   is in your preferred languages in **System Settings → General → Language &
   Region**. Otherwise it uses English. In Norwegian, Archive, Sync, Shared and
@@ -340,6 +340,13 @@ If the problem continues, restart your Mac.
 **The sidebar shows an old icon for a disk, not the drive icon.** Finder
 keeps the old icon after an update. Relaunch Finder: hold Option,
 Control-click the Finder icon in the Dock and choose **Relaunch**.
+
+**Time Machine lists the Jottacloud disks.** Time Machine cannot back up to
+a Jottacloud disk: it needs a disk with a device, or a network share with
+Time Machine support. Its settings still show the disks in the list of
+backup disks. If you choose one, Time Machine shows an error, also if you
+confirm to erase it; your files stay as they are. JottaFS tells Time
+Machine not to ask if you want to use a Jottacloud disk when it is mounted.
 
 **The location list is disabled.** Turn on **JottaFS** in **File System
 Extensions** (step 2 above). JottaFS finds the change automatically.
