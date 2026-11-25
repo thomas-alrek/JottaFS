@@ -16,6 +16,7 @@ enum RemoteAPIChecks {
         try decodesBackupDevices()
         try validatesNewNames()
         try stagesWritesInLocalFiles()
+        try reservesSpaceForStagedFiles()
         try encodesUploadRequestsAndParsesResponses()
         try classifiesTransientUploadFailures()
         try decodesTrashListingsAndMapsServicePaths()
@@ -226,6 +227,31 @@ enum RemoteAPIChecks {
             } catch JottaFSNameError.invalid {
             }
         }
+    }
+
+    private static func reservesSpaceForStagedFiles() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("jottafs-check-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        // A reservation keeps the size, and writes into it work.
+        try JottaFSStagingFile.reserve(8 * 1024 * 1024, for: url)
+        let reservedSize = try JottaFSStagingFile.size(of: url)
+        precondition(reservedSize == 0)
+        let writtenSize = try JottaFSStagingFile.write(Data(count: 1024), to: url, at: 0)
+        precondition(writtenSize == 1024)
+        // More than any disk holds fails as "out of space", at once.
+        do {
+            let free = try url.deletingLastPathComponent()
+                .resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity ?? 0
+            try JottaFSStagingFile.reserve(UInt64(free) + (UInt64(1) << 40), for: url)
+            preconditionFailure("an impossible reservation succeeded")
+        } catch {
+            precondition(JottaFSStagingFile.isOutOfSpace(error), "unexpected error: \(error)")
+        }
+        precondition(JottaFSStagingFile.isOutOfSpace(CocoaError(.fileWriteOutOfSpace)))
+        precondition(!JottaFSStagingFile.isOutOfSpace(POSIXError(.EIO)))
     }
 
     private static func stagesWritesInLocalFiles() throws {

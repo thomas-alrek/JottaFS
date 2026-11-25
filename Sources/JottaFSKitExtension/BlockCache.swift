@@ -95,6 +95,47 @@ final class BlockCache: @unchecked Sendable {
         }
     }
 
+    /// Gives disk space back for files being uploaded, which need it more:
+    /// deletes the least recently used blocks of any location until `bytes`
+    /// are freed or the cache is empty. Returns the bytes freed.
+    @discardableResult
+    func release(_ bytes: UInt64) -> UInt64 {
+        guard let root else {
+            return 0
+        }
+        return lock.withLock {
+            var freed: UInt64 = 0
+            var removed = 0
+            for entry in Self.entries(in: root) where freed < bytes {
+                // Gone already (another process) is fine.
+                try? FileManager.default.removeItem(at: entry.url)
+                freed += entry.size
+                removed += 1
+            }
+            estimatedSize = nil
+            if removed > 0 {
+                logger.notice("Removed \(removed, privacy: .public) blocks from the cache to make room for an upload.")
+            }
+            return freed
+        }
+    }
+
+    /// The cached blocks of all locations, least recently used first.
+    private static func entries(in root: URL) -> [(url: URL, size: UInt64, used: Date)] {
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
+        let files = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys)?.allObjects as? [URL]) ?? []
+        return files
+            .compactMap { url -> (url: URL, size: UInt64, used: Date)? in
+                guard url.lastPathComponent != bootMarkerName,
+                      let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true
+                else {
+                    return nil
+                }
+                return (url, UInt64(values.fileSize ?? 0), values.contentModificationDate ?? .distantPast)
+            }
+            .sorted { $0.used < $1.used }
+    }
+
     /// Creates the root and its boot marker.
     private static func prepare(root: URL) throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -203,18 +244,7 @@ final class BlockCache: @unchecked Sendable {
            Date().timeIntervalSince(lastScan) < Self.rescanInterval {
             return
         }
-        let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
-        let files = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys)?.allObjects as? [URL]) ?? []
-        let entries = files
-            .compactMap { url -> (url: URL, size: UInt64, used: Date)? in
-                guard url.lastPathComponent != Self.bootMarkerName,
-                      let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true
-                else {
-                    return nil
-                }
-                return (url, UInt64(values.fileSize ?? 0), values.contentModificationDate ?? .distantPast)
-            }
-            .sorted { $0.used < $1.used }
+        let entries = Self.entries(in: root)
         var total = entries.reduce(0) { $0 + $1.size }
         var removed = 0
         for entry in entries where total + needed > limit {

@@ -55,6 +55,44 @@ public enum JottaFSStagingFile {
         return try handle.read(upToCount: length) ?? Data()
     }
 
+    /// Reserves `length` bytes of disk space after the end of the file
+    /// (`F_PREALLOCATE`, all or nothing, kept after this call closes the
+    /// file), so writing that much more cannot run out of space. Throws
+    /// `POSIXError(.ENOSPC)` if the disk cannot hold it.
+    public static func reserve(_ length: UInt64, for url: URL) throws {
+        guard length > 0 else {
+            return
+        }
+        let descriptor = open(url.path, O_WRONLY)
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { close(descriptor) }
+        // F_ALLOCATEALL (0x4) | F_ALLOCATEPERSIST (0x8).
+        var store = fstore_t(
+            fst_flags: 0x4 | 0x8,
+            fst_posmode: F_PEOFPOSMODE,
+            fst_offset: 0,
+            fst_length: off_t(clamping: length),
+            fst_bytesalloc: 0
+        )
+        guard fcntl(descriptor, F_PREALLOCATE, &store) != -1 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+    }
+
+    /// Whether `error` means that the Mac's disk is full.
+    public static func isOutOfSpace(_ error: Error) -> Bool {
+        if (error as? CocoaError)?.code == .fileWriteOutOfSpace {
+            return true
+        }
+        if let posix = error as? POSIXError, posix.code == .ENOSPC {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSPOSIXErrorDomain && nsError.code == Int(ENOSPC)
+    }
+
     public static func truncate(_ url: URL, to size: UInt64) throws {
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }

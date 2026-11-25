@@ -137,6 +137,18 @@ final class StagingArea: @unchecked Sendable {
     /// writes can finish in any order, so the size only grows here. Returns
     /// the new size.
     @discardableResult
+    /// Reserves disk space for `length` more bytes of a staged file (see
+    /// `JottaFSStagingFile.reserve`). Throws `ENOSPC` if the Mac's disk
+    /// cannot hold them.
+    func reserve(_ length: UInt64, for id: UInt64) throws {
+        try lock.withLock {
+            guard let staged = files[id] else {
+                throw POSIXError(.EBADF)
+            }
+            try JottaFSStagingFile.reserve(length, for: staged.url)
+        }
+    }
+
     func write(_ contents: Data, to id: UInt64, at offset: UInt64) throws -> UInt64 {
         try lock.withLock {
             guard var staged = files[id] else {

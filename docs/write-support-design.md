@@ -75,6 +75,20 @@ MD5).
   writing app reports that there is not enough space. (Until 1.0.3 staging was
   capped at 2 GiB per file, and uploaded copies stayed until the item was
   reclaimed.)
+  - **Early refusal.** The volume implements `FSVolume.PreallocateHandler`:
+    when a writer announces the size first (`F_PREALLOCATE`, as copy tools
+    do), the extension reserves that space for the staged copy on the Mac's
+    disk (`F_PREALLOCATE` with `F_ALLOCATEALL | F_ALLOCATEPERSIST`, so the
+    reservation outlives the descriptor; `JottaFSStagingFile.reserve`). If the
+    disk cannot hold it, the call fails with `ENOSPC` before any data is
+    written, instead of after gigabytes. Checked 2026-11-25 with 50 MB copies
+    into `JottaFS-Test`: Finder and `cp` preallocate the whole size before
+    writing; `ditto` does not (its copies get only the cache fallback). A
+    direct `F_PREALLOCATE` of 1 TB was refused with `ENOSPC` at once.
+  - **Cache first.** Before refusing a reservation, and when a staged write
+    runs out of space, the download cache gives space back
+    (`BlockCache.release`: the least recently used blocks of any location),
+    and the operation is tried once more.
 - **Timestamps.** `created` and `modified` are sent with each upload; a
   modification time set on an unchanged file is applied at its next upload.
 - **Progress.** Upload progress is shown on the file's icon in Finder through

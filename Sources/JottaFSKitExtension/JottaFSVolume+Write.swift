@@ -222,6 +222,23 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         }
     }
 
+    /// Writes into the staged copy. If the Mac's disk is full, the download
+    /// cache gives its space back and the write is tried once more.
+    private func writeStaged(_ contents: Data, to item: JottacloudItem, at offset: UInt64) throws -> UInt64 {
+        do {
+            return try staging.write(contents, to: item.identifier, at: offset)
+        } catch where JottaFSStagingFile.isOutOfSpace(error) {
+            guard blockCache.release(UInt64(contents.count) + Self.spaceMargin) > 0 else {
+                throw POSIXError(.ENOSPC)
+            }
+            return try staging.write(contents, to: item.identifier, at: offset)
+        }
+    }
+
+    /// Extra space freed from the download cache when a write needs room,
+    /// so the next writes do not each have to free some.
+    static let spaceMargin: UInt64 = 64 * 1024 * 1024
+
     func writeData(_ contents: Data, to fsItem: FSItem, at offset: off_t) async throws -> FSWriteFileResult {
         guard let item = fsItem as? JottacloudItem, item.entry.kind == .file, offset >= 0 else {
             throw POSIXError(.EINVAL)
@@ -243,12 +260,12 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             await readAhead.invalidate(item.identifier)
             let size: UInt64
             do {
-                size = try staging.write(contents, to: item.identifier, at: UInt64(offset))
+                size = try writeStaged(contents, to: item, at: UInt64(offset))
             } catch POSIXError.EBADF {
                 // The local copy was deleted after an upload just now: stage
                 // the file again and write.
                 _ = try await stage(item, keepContents: true)
-                size = try staging.write(contents, to: item.identifier, at: UInt64(offset))
+                size = try writeStaged(contents, to: item, at: UInt64(offset))
             }
             updateEntry(item, size: size, modified: Date())
         } catch {
@@ -812,5 +829,57 @@ final class UploadFlag: @unchecked Sendable {
 
     var isSet: Bool {
         lock.withLock { value }
+    }
+}
+
+// MARK: - Preallocation
+
+/// Finder and `cp` announce a file's size before they write it
+/// (`F_PREALLOCATE`). JottaFS reserves that much space for the local copy
+/// on the Mac's disk, so a file the Mac cannot hold fails at once with
+/// "not enough free space" instead of after gigabytes have been written.
+/// The download cache gives its space back first.
+extension JottaFSVolume: FSVolume.PreallocateHandler {
+    func preallocateSpace(
+        for fsItem: FSItem,
+        at offset: off_t,
+        length: Int,
+        flags: FSVolume.PreallocateFlags,
+        context: FSContext
+    ) async throws -> FSPreallocateResult {
+        guard let item = fsItem as? JottacloudItem, item.entry.kind == .file, length >= 0 else {
+            throw POSIXError(.EINVAL)
+        }
+        if case .trashLocal = item.role {
+            // Finder's own files in the Trash folder: nothing to upload.
+            return try preallocateResult(length, item)
+        }
+        _ = try writableLocation(of: item)
+        do {
+            _ = try await stage(item, keepContents: true)
+            do {
+                try staging.reserve(UInt64(length), for: item.identifier)
+            } catch where JottaFSStagingFile.isOutOfSpace(error) {
+                guard blockCache.release(UInt64(length)) > 0 else {
+                    throw POSIXError(.ENOSPC)
+                }
+                try staging.reserve(UInt64(length), for: item.identifier)
+            }
+        } catch {
+            if JottaFSStagingFile.isOutOfSpace(error) {
+                writeLogger.notice("Not enough free space on the Mac for a \(length, privacy: .public)-byte file; refused before writing.")
+                throw POSIXError(.ENOSPC)
+            }
+            throw posixError(error)
+        }
+        writeLogger.info("Reserved \(length, privacy: .public) bytes on the Mac for a file being written.")
+        return try preallocateResult(length, item)
+    }
+
+    private func preallocateResult(_ length: Int, _ item: JottacloudItem) throws -> FSPreallocateResult {
+        guard let result = FSPreallocateResult(bytesAllocated: length, itemAttributes: attributes(for: item), freeSpace: nil) else {
+            throw POSIXError(.EIO)
+        }
+        return result
     }
 }

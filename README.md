@@ -307,8 +307,12 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
   Jottacloud must know the checksum of the complete file before the upload.
   Your Mac must have free space for the file that is uploading. JottaFS
   deletes its copy when the upload is complete (never the file that you
-  copied from). If your Mac has not enough free space, the copy stops with
-  the error "not enough free space".
+  copied from). When you copy many files, your Mac needs free space for the
+  largest file only. If your Mac has not enough free space for a file,
+  JottaFS first deletes data from its download cache. If that is not
+  sufficient, the copy stops with the error "not enough free space". When
+  you copy with Finder or `cp`, this happens at once, before the file is
+  written.
 - The **Get Info** window shows the format as "Unknown (jottacloud)".
 - Finder does not show changes that you make on jottacloud.com or on a
   different device until it reads the folder again. Close and open the
