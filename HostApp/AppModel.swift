@@ -152,35 +152,37 @@ final class AppModel: ObservableObject {
         await refreshExtensionState()
     }
 
-    /// Reads whether JottaFS is turned on in System Settings. While it is
-    /// off, keeps checking every two seconds (FSKit sends no notification),
-    /// so the app updates as soon as the user turns it on.
+    /// Reads whether JottaFS is turned on in System Settings, and keeps
+    /// checking (FSKit sends no notification): every two seconds while it is
+    /// off, so the app updates as soon as the user turns it on, and every
+    /// five seconds while it is on, so the window shows how to turn it on
+    /// again if the user turns it off.
     private func refreshExtensionState() async {
-        guard let extensions = try? await FSClient.shared.installedExtensions else {
-            return
-        }
-        let enabled = extensions.first { $0.bundleIdentifier == Self.extensionBundleID }?.isEnabled ?? false
-        let wasDisabled = extensionEnabled == false
-        extensionEnabled = enabled
-        offerFinderExtensionIfNeeded()
-        if enabled {
-            extensionWatch?.cancel()
-            extensionWatch = nil
-            if wasDisabled, openedExtensionSettings {
+        extensionWatch?.cancel()
+        extensionWatch = nil
+        if let extensions = try? await FSClient.shared.installedExtensions {
+            let enabled = extensions.first { $0.bundleIdentifier == Self.extensionBundleID }?.isEnabled ?? false
+            let wasDisabled = extensionEnabled == false
+            let wasEnabled = extensionEnabled == true
+            extensionEnabled = enabled
+            offerFinderExtensionIfNeeded()
+            if enabled, wasDisabled, openedExtensionSettings {
                 openedExtensionSettings = false
                 Self.bringWindowToFront()
+            } else if !enabled, wasEnabled {
+                // Turning it off unmounts the disks.
+                refreshMountState()
             }
-        } else if extensionWatch == nil {
-            // Check again in two seconds (each check schedules the next one
-            // while the extension stays off).
-            extensionWatch = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(2))
-                guard let self, !Task.isCancelled else {
-                    return
-                }
-                self.extensionWatch = nil
-                await self.refreshExtensionState()
+        }
+        let interval: Duration = extensionEnabled == true ? .seconds(5) : .seconds(2)
+        extensionWatch = Task { [weak self] in
+            try? await Task.sleep(for: interval)
+            guard let self, !Task.isCancelled else {
+                return
             }
+            // Not cancelled by the call below (it would cancel this task).
+            self.extensionWatch = nil
+            await self.refreshExtensionState()
         }
     }
 

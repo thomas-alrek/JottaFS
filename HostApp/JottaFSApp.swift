@@ -1,5 +1,6 @@
 import AppKit
 import FinderSync
+import FSKit
 import JottaFSCore
 import SwiftUI
 
@@ -25,6 +26,8 @@ private struct SettingsView: View {
     @State private var limit = JottaFSStorage.blockCacheLimitMB()
     @State private var used: UInt64 = 0
     @State private var finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
+    /// Whether the file system extension is on (nil until read).
+    @State private var fileSystemExtensionEnabled: Bool?
     @State private var confirmsClear = false
     @State private var failure: String?
 
@@ -58,27 +61,47 @@ private struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Section {
-                LabeledContent {
-                    if finderExtensionEnabled {
-                        Label("On", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                // macOS does not let an app turn its own extensions on or
+                // off: the switch opens System Settings and then shows what
+                // the user chose there (read every two seconds below).
+                Toggle(isOn: Binding(
+                    get: { fileSystemExtensionEnabled ?? false },
+                    set: { _ in _ = FSClient.shared.openFileSystemExtensionsSettings() }
+                )) {
+                    Text("Jottacloud disks")
+                    if fileSystemExtensionEnabled == false {
+                        Text("Turn on JottaFS under File System Extensions to mount Jottacloud locations as disks.")
                     } else {
-                        Button("Turn On…") {
-                            FIFinderSyncController.showExtensionManagementInterface()
-                        }
-                        .help("Opens the Finder extensions in System Settings. Turn on JottaFS there.")
+                        Text("JottaFS can mount Jottacloud locations as disks in Finder.")
                     }
-                } label: {
-                    Text("Share links in Finder")
-                    Text(finderExtensionEnabled
-                        ? "Control-click a file or folder on a Jottacloud disk to copy its link."
-                        : "Turn on JottaFS under Finder extensions to copy Jottacloud links from Finder.")
                 }
+                .disabled(fileSystemExtensionEnabled == nil)
+                .help("Opens File System Extensions in System Settings. Turn JottaFS on or off there.")
+            } header: {
+                Text("File System")
+            }
+            Section {
+                Toggle(isOn: Binding(
+                    get: { finderExtensionEnabled },
+                    set: { _ in FIFinderSyncController.showExtensionManagementInterface() }
+                )) {
+                    Text("Share links in Finder")
+                    if finderExtensionEnabled {
+                        Text("Control-click a file or folder on a Jottacloud disk to copy its link.")
+                    } else {
+                        Text("Turn on JottaFS under Finder extensions to copy Jottacloud links from Finder.")
+                    }
+                }
+                .help("Opens the Finder extensions in System Settings. Turn JottaFS on or off there.")
             } header: {
                 Text("Finder")
             }
         }
         .formStyle(.grouped)
+        // The window is sized to fit the form, so it never scrolls; the
+        // Settings window would otherwise show an empty scroller track.
+        .scrollDisabled(true)
+        .scrollIndicators(.never)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .task {
@@ -87,6 +110,9 @@ private struct SettingsView: View {
             while !Task.isCancelled {
                 used = JottaFSStorage.blockCacheSize()
                 finderExtensionEnabled = FIFinderSyncController.isExtensionEnabled
+                if let extensions = try? await FSClient.shared.installedExtensions {
+                    fileSystemExtensionEnabled = extensions.first { $0.bundleIdentifier == AppModel.extensionBundleID }?.isEnabled ?? false
+                }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -116,6 +142,7 @@ private struct SettingsView: View {
                     EmptyView()
                 }
                 .gaugeStyle(.linearCapacity)
+                .clipShape(Capsule())
                 .tint(used * 10 >= limitBytes * 9 ? .orange : .accentColor)
                 .accessibilityLabel("Cache used")
                 .accessibilityValue("\(Self.bytes(used)) of \(Self.bytes(limitBytes))")
@@ -622,8 +649,18 @@ private struct SignedInView: View {
                 )
             }
 
-            FinderStatus()
-                .disabled(model.extensionEnabled == false && model.mounts.isEmpty)
+            HStack {
+                // Opens the Settings window, like JottaFS → Settings….
+                SettingsLink {
+                    Label("Settings", systemImage: "gearshape")
+                        .labelStyle(.iconOnly)
+                        .imageScale(.large)
+                }
+                .buttonStyle(.borderless)
+                .help("Settings")
+                FinderStatus()
+                    .disabled(model.extensionEnabled == false && model.mounts.isEmpty)
+            }
 
         }
         .sheet(item: $advancedLocation) { location in
