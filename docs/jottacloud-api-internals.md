@@ -186,17 +186,34 @@ is fully written; Finder's copy dialog (which counts bytes written) cannot
 follow the upload. These are observations from strings and type metadata in
 the shipped binary, not from decompiled control flow or network traffic.
 
-Follow-up experiments (2026-11-25, new files in `JottaFS-Test`):
+Follow-up experiments (2026-11-25, new files in `JottaFS-Test`), looking for
+a way to send the MD5 (or the size) after the body:
 
-- Allocating with the MD5 of empty data and a size of 8 MiB fails with
-  HTTP 400 at allocation (an arbitrary placeholder MD5 was accepted on
-  2026-11-24), so that run did not test sending the MD5 after the body.
-- The legacy upload host `up.jottacloud.com` still answers. A raw POST of the
-  body to `/jfs/<user>/<device>/<mountpoint>/<path>` with the headers
-  `JSize`, `JCreated`, `JModified` (with or without `JMd5`, also with `JMd5`
-  as a chunked trailer) fails with HTTP 500 "POST Request is missing
-  multipart content or don't dont have any command parameters in the url".
-  It wants a multipart body; not tested yet.
+- `files/v1/allocate` with a random placeholder MD5 (accepted: 202,
+  `INCOMPLETE`), then the real bytes: the upload fails with 421
+  `CorruptUploadOpenApiException` and the revision is `CORRUPT`. The server
+  checks the body against the declared MD5 when the upload ends. (The MD5 of
+  empty data with a non-zero size is rejected at allocation with 400.)
+- The same, sent chunked with the real MD5 as HTTP trailers (`JMd5`,
+  `Content-MD5`): 421, `CORRUPT`. Trailers are ignored.
+- The legacy upload host `up.jottacloud.com` still works:
+  `POST /jfs/<user>/<device>/<mountpoint>/<path>` with a `multipart/form-data`
+  body (one `file` part) and the headers `JSize`, `JMd5`, `JCreated`,
+  `JModified` returns 201 with the file XML, `COMPLETED`. A raw (not
+  multipart) body fails with 500 "POST Request is missing multipart content".
+  - Without `JMd5`: 500 `NullPointerException` ("checksum" is null). The
+    server does not compute the MD5 itself.
+  - MD5 as form fields after the file part: the same 500; only the header
+    counts.
+  - A wrong `JMd5`: 201, but the revision is `CORRUPT`; the MD5 is checked.
+  - Chunked with `JMd5` as a trailer: the server resets the connection.
+  - Chunked without `JSize` and `JMd5`: 400 "Missing required header: JSize".
+
+Conclusion: the size and the MD5 must be known before the body is sent, and
+the server verifies the whole body against them. A file can therefore only
+be uploaded after it is completely written; JottaFS must keep its local copy
+until then. The test files (`md5probe-*.bin`, some `CORRUPT`) were left in
+`JottaFS-Test`.
 
 ## Creation dates of locations (checked 2026-11-25)
 
