@@ -219,6 +219,13 @@ make mounts fail with ExtensionKit error 2.
   the volume is mounted again. Changing the folder's time through the volume
   might make Finder reread it; this was considered and not built.
 
+- **Permissions.** Jottacloud keeps no Unix permissions. Files in the
+  location report 0755, like FAT and exFAT disks, so apps, scripts and
+  tools on the disk run (`JottaFSVolume.permissions`); before 1.2.1 they
+  reported 0644, and launchd refused to start an app on the disk
+  (`access(…/Contents/MacOS/<name>, X_OK)`: EACCES). Modes set with
+  chmod are accepted and not kept. Finder's own files kept on this Mac
+  (`.DS_Store`, `._*`) stay 0644.
 - **Rename flags.** FSKit fails `renamex_np(2)` with flags (`RENAME_EXCL`,
   `RENAME_SWAP`) with `ENOTSUP` before the extension sees it, and the volume
   reports no exclusive or swap renaming. Apple's own FSKit msdos module

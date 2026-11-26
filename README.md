@@ -308,6 +308,11 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
 - You cannot rename the disk in Finder. Use **Advanced** in JottaFS instead.
 - You cannot open files that are in the Trash.
 - Symbolic links and hard links are not supported.
+- Jottacloud stores no file permissions, so every file on a Jottacloud disk
+  can be run, like on a USB drive with the FAT or exFAT format. Apps, scripts
+  and tools on the disk open as usual. Finder shows files without a file
+  extension (such as `README`) as Unix executables, and opens them in
+  Terminal.
 - Names with the characters `" * : < > ? | % \` cannot be used, because
   Jottacloud cannot store them. Finder then shows "an unknown error
   occurred (error code -50)". Images that you save from websites often
