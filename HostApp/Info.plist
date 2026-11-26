@@ -6,8 +6,9 @@
 	<string>JottaFS</string>
 	<!-- Finder's sidebar icon for the JottaFS disks: the system symbol
 	     internaldrive, the plain drive that Macintosh HD has. Finder reads it from the app, not from the FSKit extension
-	     (docs/fskit-internals.md, "Sidebar icon"). The app icon stays
-	     CFBundleIconFile. -->
+	     (docs/fskit-internals.md, "Sidebar icon"). The app icon is the
+	     layered Resources/JottaFS.icon (Icon Composer); the asset compiler
+	     also writes the JottaFS.icns that CFBundleIconFile names. -->
 	<key>CFBundleIcons</key>
 	<dict>
 		<key>CFBundlePrimaryIcon</key>

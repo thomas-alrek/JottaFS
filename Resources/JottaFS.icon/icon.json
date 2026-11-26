@@ -1,0 +1,89 @@
+{
+  "groups": [
+    {
+      "name": "Cloud",
+      "layers": [
+        {
+          "image-name": "cloud.svg",
+          "name": "cloud",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.4
+      },
+      "specular": true
+    },
+    {
+      "name": "Drive",
+      "layers": [
+        {
+          "image-name": "light.svg",
+          "name": "light"
+        },
+        {
+          "image-name": "band.svg",
+          "name": "band"
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.2
+      },
+      "specular": true
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  },
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "srgb:0.63529,0.45490,1.00000,1.00000",
+          "srgb:0.60000,0.42745,0.94510,1.00000"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.5,
+            "y": 0
+          },
+          "stop": {
+            "x": 0.5,
+            "y": 1
+          }
+        }
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.63529,0.45490,1.00000,1.00000",
+          "srgb:0.60000,0.42745,0.94510,1.00000"
+        ],
+        "orientation": {
+          "start": {
+            "x": 0.5,
+            "y": 0
+          },
+          "stop": {
+            "x": 0.5,
+            "y": 1
+          }
+        }
+      }
+    }
+  ]
+}
