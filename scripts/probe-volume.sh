@@ -208,11 +208,17 @@ if [[ "$("$RUN/probe-script.sh" 2>&1)" == "script-ok" ]]; then
 else
     fail "script does not run (mode $(stat -f %Sp "$RUN/probe-script.sh"))"
 fi
-cp /bin/echo "$RUN/probe-echo"
-if [[ "$("$RUN/probe-echo" program-ok 2>&1)" == "program-ok" ]]; then
-    pass "program runs"
+# A program built here: a copy of a system binary (such as /bin/echo) is
+# refused anywhere outside the system volume (AMFI launch constraints).
+printf '#include <stdio.h>\nint main(int c, char **v) { puts(c > 1 ? v[1] : "ok"); return 0; }\n' > "$LOCAL/probe.c"
+if clang -O2 -o "$LOCAL/probe-program" "$LOCAL/probe.c" 2>/dev/null && cp "$LOCAL/probe-program" "$RUN/probe-program"; then
+    if [[ "$("$RUN/probe-program" program-ok 2>&1)" == "program-ok" ]]; then
+        pass "program runs"
+    else
+        fail "program does not run (mode $(stat -f %Sp "$RUN/probe-program"))"
+    fi
 else
-    fail "program does not run (mode $(stat -f %Sp "$RUN/probe-echo"))"
+    fail "could not build or copy the test program (clang needed)"
 fi
 # A minimal app whose executable writes a marker; opened like a double-click.
 APPDIR="$RUN/JottaFSProbe-$RANDOM.app"
