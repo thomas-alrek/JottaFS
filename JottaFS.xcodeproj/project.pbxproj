@@ -21,6 +21,7 @@
 		A10000000000000000000039 /* LoopbackCallbackServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000039 /* LoopbackCallbackServer.swift */; };
 		A10000000000000000000038 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000038 /* AppModel.swift */; };
 		A10000000000000000000002 /* RemoteAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* RemoteAPI.swift */; };
+		A10000000000000000000054 /* LocationRemoval.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000052 /* LocationRemoval.swift */; };
 		A10000000000000000000003 /* DirectoryCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* DirectoryCache.swift */; };
 		A10000000000000000000004 /* FSItems.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* FSItems.swift */; };
 		A10000000000000000000005 /* JottaFSVolume.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* JottaFSVolume.swift */; };
@@ -207,6 +208,7 @@
 		A20000000000000000000039 /* LoopbackCallbackServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackCallbackServer.swift; sourceTree = "<group>"; };
 		A20000000000000000000038 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* RemoteAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteAPI.swift; sourceTree = "<group>"; };
+		A20000000000000000000052 /* LocationRemoval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationRemoval.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* DirectoryCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DirectoryCache.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* FSItems.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FSItems.swift; sourceTree = "<group>"; };
 		A20000000000000000000005 /* JottaFSVolume.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JottaFSVolume.swift; sourceTree = "<group>"; };
@@ -362,6 +364,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000002 /* RemoteAPI.swift */,
+				A20000000000000000000052 /* LocationRemoval.swift */,
 				A20000000000000000000013 /* Storage.swift */,
 				A20000000000000000000019 /* WriteSupport.swift */,
 				A20000000000000000000022 /* ProgressService.swift */,
@@ -734,6 +737,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000002 /* RemoteAPI.swift in Sources */,
+				A10000000000000000000054 /* LocationRemoval.swift in Sources */,
 				A10000000000000000000015 /* Storage.swift in Sources */,
 				A10000000000000000000026 /* WriteSupport.swift in Sources */,
 				A10000000000000000000029 /* ProgressService.swift in Sources */,

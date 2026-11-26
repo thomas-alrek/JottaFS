@@ -178,7 +178,7 @@ enum RemoteAPIChecks {
         var response = device("ac68", "My Mac mini", "/backup/ac68")
         response.append(device("x", "Not a backup", "/archive"))
         let devices = JottacloudClient.decodeDeviceList([UInt8](response))
-        precondition(devices == [JottacloudBackupDevice(id: "ac68", name: "My Mac mini", path: "/backup/ac68")])
+        precondition(devices == [JottacloudBackupDevice(id: "ac68", name: "My Mac mini", path: "/backup/ac68", type: 2)])
     }
 
     private static func buildsBrowserLoginChallenges() throws {

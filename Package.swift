@@ -27,6 +27,11 @@ let package = Package(
             path: "Sources/JottaFSKitExtension"
         ),
         .testTarget(
+            name: "JottaFSCoreTests",
+            dependencies: ["JottaFSCore"],
+            path: "Tests/JottaFSCoreTests"
+        ),
+        .testTarget(
             name: "JottaFSKitExtensionTests",
             dependencies: ["JottaFSKitExtension", "JottaFSCore"],
             path: "Tests/JottaFSKitExtensionTests"

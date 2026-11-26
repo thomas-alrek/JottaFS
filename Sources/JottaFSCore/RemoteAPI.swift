@@ -1050,6 +1050,7 @@ private final class JottacloudLocationParser: NSObject, XMLParserDelegate {
     private var elements: [String] = []
     private var currentDeviceName: String?
     private var currentMountpointName: String?
+    private var currentMountpointDeleted = false
     private var capturing: Capturing?
     private var text = ""
 
@@ -1077,6 +1078,9 @@ private final class JottacloudLocationParser: NSObject, XMLParserDelegate {
                   elementName == "mountPoint",
                   parent == "mountPoints" {
             currentMountpointName = ""
+            // A mountpoint moved to the trash (FileService.Delete) is still
+            // listed, marked like a deleted file or folder.
+            currentMountpointDeleted = attributeDict["deleted"] != nil
         } else if elementName == "name" {
             if currentMountpointName != nil {
                 capturing = .mountpointName
@@ -1124,10 +1128,11 @@ private final class JottacloudLocationParser: NSObject, XMLParserDelegate {
         } else if collection == .mountpoints,
                   elementName == "mountPoint",
                   let name = currentMountpointName {
-            if validName(name) {
+            if validName(name), !currentMountpointDeleted {
                 names.append(name)
             }
             currentMountpointName = nil
+            currentMountpointDeleted = false
         }
         if !elements.isEmpty {
             elements.removeLast()
@@ -2195,6 +2200,16 @@ public struct JottacloudBackupDevice: Sendable, Equatable {
     public let id: String
     public let name: String
     public let path: String
+    /// `DeviceType` (WORKSTATION 1, MACBOOK 3, JOTTA 6, CLI 12, …); 0 when
+    /// the listing has none.
+    public var type: UInt64 = 0
+
+    public init(id: String, name: String, path: String, type: UInt64 = 0) {
+        self.id = id
+        self.name = name
+        self.path = path
+        self.type = type
+    }
 }
 
 extension JottacloudClient {
@@ -2211,11 +2226,13 @@ extension JottacloudClient {
                 return nil
             }
             var id = "", name = "", path = ""
+            var type: UInt64 = 0
             for f in protobufFields(message) {
                 let text = f.bytes.map { String(decoding: $0, as: UTF8.self) } ?? ""
                 switch f.number {
                 case 1: id = text
                 case 3: name = text
+                case 4: type = f.varint ?? 0
                 case 5: path = text
                 default: break
                 }
@@ -2223,8 +2240,60 @@ extension JottacloudClient {
             guard !id.isEmpty, !name.isEmpty, path.lowercased().hasPrefix("/backup/") else {
                 return nil
             }
-            return JottacloudBackupDevice(id: id, name: name, path: path)
+            return JottacloudBackupDevice(id: id, name: name, path: path, type: type)
         }
+    }
+}
+
+// MARK: - Creating and removing backup devices and mountpoints
+//
+// docs/jottacloud-api-internals.md, "Devices and mountpoints" (verified live
+// 2026-11-26). Tests create only devices named `testDevicePrefix…`.
+
+extension JottacloudClient {
+    /// Names of the backup devices that tests create (and may delete).
+    public static let testDevicePrefix = "JottaFS-Test-"
+
+    /// Creates a backup device (JFS: `POST /jfs/<user>/<name>?type=<type>`).
+    /// It stays out of the JFS account listing until it has a mountpoint.
+    public func createDevice(named name: String, type: String = "CLI") async throws {
+        let url = try Self.jfsMutationURL(
+            try Self.makeJFSPathURL([credentials.username, name]),
+            trailingSlash: false,
+            query: ("type", type)
+        )
+        try await sendMutation(url: url)
+    }
+
+    /// Creates a mountpoint on a device (JFS: `POST
+    /// /jfs/<user>/<device>/<name>`, no body).
+    public func createMountpoint(device: String, named name: String) async throws {
+        try await sendMutation(url: try Self.makeJFSPathURL([credentials.username, device, name]))
+    }
+
+    /// Moves a mountpoint of a backup device, with its files, to the trash:
+    /// `FileService.Delete` on its service path `/backup/<id>/<name>`
+    /// (DeleteRequest: path 1), as the desktop app removes a backup set.
+    /// (JFS `dlDir=true` on a mountpoint returns success and does nothing.)
+    public func removeMountpoint(_ name: String, of device: JottacloudBackupDevice) async throws {
+        guard !name.isEmpty, !name.contains("/") else {
+            throw JottacloudError.invalidPath
+        }
+        var message = Data()
+        Self.appendProtobufString(field: 1, Self.requestPath(device.path + "/" + name), to: &message)
+        _ = try await grpcCall("Delete", message)
+    }
+
+    /// Deletes a whole backup device by its id (`DeviceService.Delete`,
+    /// DeleteDeviceRequest: id 1): its mountpoints and files are gone for
+    /// good, nothing goes to the trash. Never the built-in device.
+    public func deleteDevice(_ device: JottacloudBackupDevice) async throws {
+        guard device.name != JottacloudRemoteVolume.builtInDevice, !device.id.isEmpty else {
+            throw JottacloudError.invalidPath
+        }
+        var message = Data()
+        Self.appendProtobufString(field: 1, device.id, to: &message)
+        _ = try await grpcCall("Delete", message, service: "no.jotta.openapi.device.v2.DeviceService")
     }
 }
 
