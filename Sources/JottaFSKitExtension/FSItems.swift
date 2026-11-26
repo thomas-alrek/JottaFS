@@ -171,8 +171,16 @@ final class ItemStore {
     private let lock = NSLock()
     private let rootRole: JottacloudItemRole
 
-    init(rootRole: JottacloudItemRole) {
+    /// Whether a file has a local copy (being written, or written and not
+    /// yet uploaded or discarded). Its size and date then come from that
+    /// copy, never from a listing: listings and overlays can be older than
+    /// the writes (a listing during an upload once reset a just-copied file
+    /// to the size recorded at its creation, 0 bytes; 1.1.2).
+    private let isStaged: @Sendable (UInt64) -> Bool
+
+    init(rootRole: JottacloudItemRole, isStaged: @escaping @Sendable (UInt64) -> Bool = { _ in false }) {
         self.rootRole = rootRole
+        self.isStaged = isStaged
     }
     private var nextIdentifier: UInt64 = 3
     private var itemsByPath: [String: JottacloudItem] = [:]
@@ -199,6 +207,18 @@ final class ItemStore {
         parent.path.isEmpty ? name : "\(parent.path)/\(name)"
     }
 
+    /// A file's entry after an upload: the size, MD5 and (when Jottacloud
+    /// reports one) date that the upload verified, under the item's name.
+    static func uploadedEntry(_ current: RemoteEntry, verified: RemoteEntry, modified: Date) -> RemoteEntry {
+        RemoteEntry(
+            name: current.name,
+            kind: .file,
+            size: verified.size,
+            modified: verified.modified ?? modified,
+            md5: verified.md5
+        )
+    }
+
     func rootItem() -> JottacloudItem {
         lock.withLock {
             root
@@ -221,7 +241,11 @@ final class ItemStore {
         try lock.withLock {
             let path = Self.childPath(parent, entry.entry.name)
             if let item = itemsByPath[Self.key(path)] {
-                item.entry = entry.entry
+                if item.entry.kind == .file, entry.entry.kind == .file, isStaged(item.identifier) {
+                    // Keep the written size and date (see `isStaged`).
+                } else {
+                    item.entry = entry.entry
+                }
                 item.role = entry.role
                 return item
             }

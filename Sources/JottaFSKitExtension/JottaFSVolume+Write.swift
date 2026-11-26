@@ -185,7 +185,8 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             _ = try await staging.stage(item.identifier) { _ in }
             staging.markModified(item.identifier, size: 0, modified: now)
         }
-        await directoryCache.recordPresent(entry, inDirectory: parent.path)
+        // A new file stays listed until its upload records it again.
+        await directoryCache.recordPresent(entry, inDirectory: parent.path, untilReplaced: kind == .file)
         writeLogger.info("Created a \(kind == .directory ? "folder" : "file", privacy: .public).")
 
         guard let result = FSCreateItemResult(
@@ -337,6 +338,17 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         guard grantsWritePermission(item) else {
             throw POSIXError(.EPERM)
         }
+        // A creation date is kept and reported back (see `CreationDates`;
+        // Safari marks its download bundles this way). The volume root and
+        // trashed items keep theirs.
+        if request.isValid(.birthTime) {
+            switch item.role {
+            case .remote, .localFile:
+                creationDates.set(request.birthTime, for: item.path)
+            default:
+                break
+            }
+        }
         switch item.role {
         case .trashLocal(let url):
             if request.isValid(.size) {
@@ -443,45 +455,59 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             fileURLWithPath: "\(mountPath)/\(item.path)",
             isDirectory: false
         )
-        let uploaded = UploadFlag()
-        try await staging.serializeUpload(id) {
-            guard let staged = staging.file(id), staged.dirty else {
-                return
+        let uploaded = UploadResult()
+        do {
+            try await staging.serializeUpload(id) {
+                guard let staged = staging.file(id), staged.dirty else {
+                    return
+                }
+                let clock = PhaseClock()
+                let (snapshot, md5, hashedWhileWriting) = try staging.snapshot(id)
+                defer { try? FileManager.default.removeItem(at: snapshot) }
+                let size = try JottaFSStagingFile.size(of: snapshot)
+                clock.mark("snapshot of \(size) bytes and md5 (\(size - min(size, hashedWhileWriting)) bytes hashed now)")
+                let progress = UploadProgress(anchorName: anchorName, volumePath: volumePath, fileURL: mountedURL, totalBytes: size)
+                defer {
+                    progress.finish()
+                    writeLogger.info("Upload progress: \(progress.summary, privacy: .public)")
+                }
+                let verified: RemoteEntry
+                do {
+                    verified = try await client.upload(
+                        volume: location.volume,
+                        path: location.path,
+                        from: snapshot,
+                        size: size,
+                        md5: md5,
+                        created: staged.created,
+                        modified: staged.modified,
+                        progress: { sent in progress.update(bytesSent: sent) },
+                        phase: { name in clock.mark(name) }
+                    )
+                } catch {
+                    writeLogger.error("Upload phases before the failure: \(clock.summary, privacy: .public)")
+                    throw error
+                }
+                staging.markUploaded(id, generation: staged.generation)
+                uploaded.set(verified, generation: staged.generation, modified: staged.modified)
+                writeLogger.info("Upload phases: \(clock.summary, privacy: .public)")
             }
-            let clock = PhaseClock()
-            let (snapshot, md5, hashedWhileWriting) = try staging.snapshot(id)
-            defer { try? FileManager.default.removeItem(at: snapshot) }
-            let size = try JottaFSStagingFile.size(of: snapshot)
-            clock.mark("snapshot of \(size) bytes and md5 (\(size - min(size, hashedWhileWriting)) bytes hashed now)")
-            let progress = UploadProgress(anchorName: anchorName, volumePath: volumePath, fileURL: mountedURL, totalBytes: size)
-            defer {
-                progress.finish()
-                writeLogger.info("Upload progress: \(progress.summary, privacy: .public)")
-            }
-            do {
-                _ = try await client.upload(
-                    volume: location.volume,
-                    path: location.path,
-                    from: snapshot,
-                    size: size,
-                    md5: md5,
-                    created: staged.created,
-                    modified: staged.modified,
-                    progress: { sent in progress.update(bytesSent: sent) },
-                    phase: { name in clock.mark(name) }
-                )
-            } catch {
-                writeLogger.error("Upload phases before the failure: \(clock.summary, privacy: .public)")
-                throw error
-            }
-            staging.markUploaded(id, generation: staged.generation)
-            uploaded.set()
-            writeLogger.info("Upload phases: \(clock.summary, privacy: .public)")
+        } catch {
+            // Sync and reclaim pause before trying this file again.
+            staging.uploadFailed(id)
+            throw error
         }
-        guard uploaded.isSet else {
+        guard let result = uploaded.value else {
             return
         }
-        // The remote file changed.
+        staging.uploadSucceeded(id)
+        // The remote file changed. Unless it was written again meanwhile
+        // (the staged copy then gives size and date), the item takes what
+        // Jottacloud verified: the size, date and MD5 of the upload, never an
+        // older entry from a listing (1.1.2: files showed 0 bytes).
+        if let current = staging.file(id), current.generation == result.generation, !current.dirty {
+            item.entry = ItemStore.uploadedEntry(item.entry, verified: result.entry, modified: result.modified)
+        }
         await readAhead.invalidate(item.identifier)
         writeLogger.info("Uploaded a file.")
         if let parent = itemStore.item(identifier: item.parentIdentifier) {
@@ -492,11 +518,17 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         }
     }
 
-    /// Uploads every dirty file; used by sync and on deactivation.
-    func flushAll() async throws {
+    /// Uploads every dirty file; used by sync and on deactivation. Sync
+    /// (`includingBackingOff` false) leaves files whose upload failed
+    /// recently alone, so a poor connection does not tie up every sync.
+    func flushAll(includingBackingOff: Bool = true) async throws {
         var firstError: Error?
         for id in staging.dirtyIdentifiers {
-            guard let item = itemStore.item(identifier: id) else {
+            // Sync does not queue behind an upload that is running (it
+            // uploads the file anyway; waiting would pile up callers).
+            guard let item = itemStore.item(identifier: id),
+                  includingBackingOff || (!staging.isBackingOff(id) && !staging.isUploading(id))
+            else {
                 continue
             }
             do {
@@ -623,6 +655,9 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             // An upload that has not started finds nothing to send; wait for
             // one that is running.
             staging.discard(item.identifier)
+            // A running upload (possibly crawling over a poor connection)
+            // is stopped rather than waited for.
+            staging.cancelUpload(item.identifier)
             await staging.waitForUpload(item.identifier)
         }
         let started = Date()
@@ -885,16 +920,23 @@ final class PhaseClock: @unchecked Sendable {
     }
 }
 
-final class UploadFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-
-    func set() {
-        lock.withLock { value = true }
+/// What an upload verified, handed out of the serialized upload task.
+final class UploadResult: @unchecked Sendable {
+    struct Value {
+        let entry: RemoteEntry
+        let generation: UInt64
+        let modified: Date
     }
 
-    var isSet: Bool {
-        lock.withLock { value }
+    private let lock = NSLock()
+    private var stored: Value?
+
+    func set(_ entry: RemoteEntry, generation: UInt64, modified: Date) {
+        lock.withLock { stored = Value(entry: entry, generation: generation, modified: modified) }
+    }
+
+    var value: Value? {
+        lock.withLock { stored }
     }
 }
 

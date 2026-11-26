@@ -29,6 +29,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     let blockCache: BlockCache
     /// Finder's own files (`.DS_Store`, `._*`), kept on this Mac.
     let localFiles: LocalFinderFiles
+    /// Creation dates set on items, reported back (Safari needs this).
+    let creationDates = CreationDates()
     private let statistics: FSStatFSResult
     private let capabilities: FSVolume.SupportedCapabilities
     private let volumeIconData: Data
@@ -83,9 +85,10 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         self.volumeIconData = try Self.loadVolumeIcon()
         self.client = client
         self.target = target
-        self.itemStore = ItemStore(rootRole: target.rootRole)
+        let staging = try StagingArea(key: target.storageKey)
+        self.staging = staging
+        self.itemStore = ItemStore(rootRole: target.rootRole, isStaged: { staging.file($0) != nil })
         self.volumeName = target.volumeName
-        self.staging = try StagingArea(key: target.storageKey)
         self.blockCache = BlockCache(key: target.storageKey)
         self.readAhead = ReadAhead(cache: blockCache)
         self.trash = try TrashStore(client: client, locationPrefix: target.trashPrefix, key: target.storageKey)
@@ -156,7 +159,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
     /// returned: macOS syncs before unmounting, and an upload that keeps
     /// failing must not make the volume impossible to unmount.
     func synchronize(flags: FSSyncFlags) async throws {
-        try? await flushAll()
+        try? await flushAll(includingBackingOff: false)
     }
 
     func lookupItem(
@@ -203,8 +206,10 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             throw POSIXError(.EINVAL)
         }
         if let staged = staging.file(item.identifier) {
-            if staged.dirty {
-                // Last chance to upload before the item is forgotten.
+            // Last chance to upload before the item is forgotten, unless an
+            // upload of it failed just now: retrying at once would hold up
+            // the kernel (and Finder) for another full upload attempt.
+            if staged.dirty, !staging.isBackingOff(item.identifier) {
                 try? await flush(item)
             }
             if staging.file(item.identifier)?.dirty == false {
@@ -253,13 +258,21 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         overItem: FSItem?,
         context: FSContext
     ) async throws -> FSRenameItemResult {
-        try await rename(
+        let oldPath = (item as? JottacloudItem)?.path
+        let result = try await rename(
             item,
             from: sourceDirectory,
             to: destinationName,
             in: destinationDirectory,
             over: overItem
         )
+        if let oldPath, let item = item as? JottacloudItem {
+            if let over = overItem as? JottacloudItem, over !== item {
+                creationDates.remove(item.path)
+            }
+            creationDates.move(from: oldPath, to: item.path)
+        }
+        return result
     }
 
     func removeItem(
@@ -268,7 +281,12 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         from directory: FSItem,
         context: FSContext
     ) async throws -> FSRemoveItemResult {
-        try await remove(item, from: directory)
+        let path = (item as? JottacloudItem)?.path
+        let result = try await remove(item, from: directory)
+        if let path {
+            creationDates.remove(path)
+        }
+        return result
     }
 
     func attributes(
@@ -507,7 +525,8 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         attributes.modifyTime = time
         attributes.changeTime = time
         attributes.accessTime = time
-        attributes.birthTime = time
+        // A creation date set on the item wins (see `CreationDates`).
+        attributes.birthTime = creationDates.date(for: item.path) ?? time
         attributes.addedTime = time
         // Finder's "Date Added" in the Trash is when the item was trashed.
         if case .trashed(let trashed, true) = item.role, trashed.deletedAtMillis > 0 {

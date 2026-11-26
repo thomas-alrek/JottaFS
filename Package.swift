@@ -25,6 +25,11 @@ let package = Package(
             name: "JottaFSKitExtension",
             dependencies: ["JottaFSCore"],
             path: "Sources/JottaFSKitExtension"
+        ),
+        .testTarget(
+            name: "JottaFSKitExtensionTests",
+            dependencies: ["JottaFSKitExtension", "JottaFSCore"],
+            path: "Tests/JottaFSKitExtensionTests"
         )
     ],
     swiftLanguageModes: [.v5]

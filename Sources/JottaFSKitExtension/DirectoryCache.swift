@@ -77,6 +77,7 @@ actor DirectoryCache {
         let expires: Date
     }
     private let overlayLifetime: TimeInterval = 60
+    private let pendingLifetime: TimeInterval = 30 * 60
     private var overlays: [String: [String: Overlay]] = [:]
 
     private let localFiles: LocalFinderFiles
@@ -98,7 +99,6 @@ actor DirectoryCache {
         return applyOverlay(to: try await fetch(path: path, role: role), path: path)
     }
 
-    /// Records a created, uploaded or moved-in item in `directoryPath`.
     /// The folder's local Finder files, after removing those whose items
     /// are no longer in the folder's (complete) Jottacloud listing.
     private nonisolated func localEntries(inFolder folder: String, remote: [RemoteEntry]) -> [JottacloudDirectoryEntry] {
@@ -109,8 +109,13 @@ actor DirectoryCache {
         return localFiles.entries(inFolder: folder)
     }
 
-    func recordPresent(_ entry: JottacloudDirectoryEntry, inDirectory directoryPath: String) {
-        record(name: entry.entry.name, entry: entry, inDirectory: directoryPath)
+    /// Records a created, uploaded or moved-in item in `directoryPath`.
+    /// `untilReplaced` keeps it until the next record for the name, for up
+    /// to `pendingLifetime` (a file created here, which Jottacloud cannot
+    /// list until its upload is done; that can take longer than
+    /// `overlayLifetime`).
+    func recordPresent(_ entry: JottacloudDirectoryEntry, inDirectory directoryPath: String, untilReplaced: Bool = false) {
+        record(name: entry.entry.name, entry: entry, inDirectory: directoryPath, untilReplaced: untilReplaced)
     }
 
     /// Records a removed or moved-out item in `directoryPath`.
@@ -123,10 +128,10 @@ actor DirectoryCache {
         cache.removeValue(forKey: path)
     }
 
-    private func record(name: String, entry: JottacloudDirectoryEntry?, inDirectory directoryPath: String) {
+    private func record(name: String, entry: JottacloudDirectoryEntry?, inDirectory directoryPath: String, untilReplaced: Bool = false) {
         overlays[directoryPath.lowercased(), default: [:]][name.lowercased()] = Overlay(
             entry: entry,
-            expires: Date().addingTimeInterval(overlayLifetime)
+            expires: Date().addingTimeInterval(untilReplaced ? pendingLifetime : overlayLifetime)
         )
         // New verifier on the next listing, so FSKit re-enumerates.
         cache.removeValue(forKey: directoryPath)

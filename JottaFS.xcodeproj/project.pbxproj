@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000050 /* LocalFinderFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004E /* LocalFinderFiles.swift */; };
+		A10000000000000000000052 /* CreationDates.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000050 /* CreationDates.swift */; };
 		A10000000000000000000051 /* JottaFSVolume+LocalFiles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004F /* JottaFSVolume+LocalFiles.swift */; };
 		A1000000000000000000004A /* Localization.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000048 /* Localization.swift */; };
 		A1000000000000000000004B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000049 /* Localizable.xcstrings */; };
@@ -193,6 +194,7 @@
 
 /* Begin PBXFileReference section */
 		A2000000000000000000004E /* LocalFinderFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalFinderFiles.swift; sourceTree = "<group>"; };
+		A20000000000000000000050 /* CreationDates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreationDates.swift; sourceTree = "<group>"; };
 		A2000000000000000000004F /* JottaFSVolume+LocalFiles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JottaFSVolume+LocalFiles.swift"; sourceTree = "<group>"; };
 		A20000000000000000000048 /* Localization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Localization.swift; sourceTree = "<group>"; };
 		A20000000000000000000049 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
@@ -383,6 +385,7 @@
 				A20000000000000000000037 /* JottaFSVolume+Trash.swift */,
 				A20000000000000000000036 /* Trash.swift */,
 				A2000000000000000000004E /* LocalFinderFiles.swift */,
+				A20000000000000000000050 /* CreationDates.swift */,
 				A2000000000000000000004F /* JottaFSVolume+LocalFiles.swift */,
 			);
 			path = JottaFSKitExtension;
@@ -709,6 +712,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000050 /* LocalFinderFiles.swift in Sources */,
+				A10000000000000000000052 /* CreationDates.swift in Sources */,
 				A10000000000000000000051 /* JottaFSVolume+LocalFiles.swift in Sources */,
 				A10000000000000000000003 /* DirectoryCache.swift in Sources */,
 				A10000000000000000000004 /* FSItems.swift in Sources */,

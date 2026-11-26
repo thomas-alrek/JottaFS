@@ -23,6 +23,14 @@ final class StagingArea: @unchecked Sendable {
     private var files: [UInt64: StagedFile] = [:]
     private var loading: [UInt64: Task<StagedFile, Error>] = [:]
     private var uploading: [UInt64: Task<Void, Error>] = [:]
+    /// Which registration `uploading[id]` is (see `serializeUpload`).
+    private var uploadTokens: [UInt64: UUID] = [:]
+    /// Files whose last upload failed: how many times in a row, and until
+    /// when `synchronize` and reclaim leave them alone (close and rename
+    /// still upload, as the app waiting for them asked to).
+    private var failures: [UInt64: (count: Int, retryAfter: Date)] = [:]
+    /// Longest pause after repeated failures.
+    static let maximumBackoff: TimeInterval = 15 * 60
     /// The MD5 of each staged file's first `bytes` bytes, kept up to date by
     /// writes that continue exactly where the hashed part ends, so an upload
     /// hashes only the rest (a whole copy written in order needs no extra
@@ -225,6 +233,12 @@ final class StagingArea: @unchecked Sendable {
 
     /// Runs `upload` unless an upload of this file is already running, in
     /// which case it waits for that one first.
+    ///
+    /// The upload task removes its own registration before it completes, so
+    /// a waiter never finds a finished upload still registered. (Before
+    /// 1.1.3 the caller removed it afterwards; waiters looping on the
+    /// finished task, which does not give up the thread, could take every
+    /// thread of the pool before that caller ran again: a livelock.)
     func serializeUpload(_ id: UInt64, _ upload: @escaping @Sendable () async throws -> Void) async throws {
         while true {
             // Check for a running upload and register ours in one step.
@@ -232,8 +246,15 @@ final class StagingArea: @unchecked Sendable {
                 if let running = uploading[id] {
                     return (running, nil)
                 }
-                let task = Task { try await upload() }
+                let token = UUID()
+                let task = Task {
+                    // Runs before the task completes; takes the lock, so it
+                    // also waits until the registration below is done.
+                    defer { self.finishUpload(id, token: token) }
+                    try await upload()
+                }
                 uploading[id] = task
+                uploadTokens[id] = token
                 return (nil, task)
             }
             if let running {
@@ -243,21 +264,54 @@ final class StagingArea: @unchecked Sendable {
             guard let task else {
                 return
             }
-            defer {
-                lock.withLock {
-                    if uploading[id] == task {
-                        uploading.removeValue(forKey: id)
-                    }
-                }
-            }
             try await task.value
             return
         }
     }
 
+    private func finishUpload(_ id: UInt64, token: UUID) {
+        lock.withLock {
+            if uploadTokens[id] == token {
+                uploading.removeValue(forKey: id)
+                uploadTokens.removeValue(forKey: id)
+            }
+        }
+    }
+
+    /// Records a failed upload of the file; the pause before automatic
+    /// retries doubles with each failure in a row (30 s, 1 min, 2 min… up
+    /// to `maximumBackoff`).
+    func uploadFailed(_ id: UInt64, now: Date = Date()) {
+        lock.withLock {
+            let count = (failures[id]?.count ?? 0) + 1
+            let pause = min(30 * pow(2, Double(count - 1)), Self.maximumBackoff)
+            failures[id] = (count, now.addingTimeInterval(pause))
+        }
+    }
+
+    func uploadSucceeded(_ id: UInt64) {
+        _ = lock.withLock { failures.removeValue(forKey: id) }
+    }
+
+    /// Whether automatic uploads of the file wait because one failed recently.
+    func isBackingOff(_ id: UInt64, now: Date = Date()) -> Bool {
+        lock.withLock { failures[id].map { $0.retryAfter > now } ?? false }
+    }
+
+    func isUploading(_ id: UInt64) -> Bool {
+        lock.withLock { uploading[id] != nil }
+    }
+
+    /// Stops a running upload of the file (it is being deleted).
+    func cancelUpload(_ id: UInt64) {
+        lock.withLock { uploading[id] }?.cancel()
+    }
+
     /// Waits until no upload of this file is running (used before deleting
     /// it, so a background upload cannot recreate a just-deleted file).
     func waitForUpload(_ id: UInt64) async {
+        // A finished upload is no longer registered (`serializeUpload`), so
+        // this loop does not spin.
         while let running = lock.withLock({ uploading[id] }) {
             _ = try? await running.value
         }
@@ -289,6 +343,7 @@ final class StagingArea: @unchecked Sendable {
     func discard(_ id: UInt64) {
         let url = lock.withLock {
             digests.removeValue(forKey: id)
+            failures.removeValue(forKey: id)
             return files.removeValue(forKey: id)?.url
         }
         if let url {
