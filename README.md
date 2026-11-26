@@ -82,8 +82,12 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   trash. Refer to [The Trash](#the-trash).
 - **Mount at login.** JottaFS can mount the locations that you select
   automatically when you log in. No window opens.
-- **Custom disk name.** In **Advanced**, you can give a location a different
-  name in Finder.
+- **Custom disk name.** Control-click a location and choose **Rename** to
+  give its disk a different name in Finder.
+- **Backup devices.** Create a backup device, the same kind that holds the
+  backup of a computer, and add locations to it or to any other backup
+  device. Move a location to the Jottacloud trash, or delete a whole backup
+  device. Refer to [Backup devices and locations](#backup-devices-and-locations).
 - **Updates.** JottaFS tells you when a new version is available. Click
   **Update** to install it. JottaFS opens again with the new version.
 - **Fast folders.** JottaFS keeps folder lists for a short time. Large folders
@@ -210,13 +214,38 @@ locations, select a different location and click **Mount** again.
 
 ### Give the disk a different name
 
-1. Select the location in the list.
-2. Click **Advanced**.
-3. Type a name in **Name in Finder**. Then click **Save**.
+1. Control-click the location in the list and choose **Rename**.
+2. Type a name in **Name in Finder**. Then click **Save**.
 
 The disk gets the new name the next time you mount it. To use the name of the
 location again, delete the name and click **Save**. You cannot change the name
 while the location is mounted.
+
+### Backup devices and locations
+
+Jottacloud keeps the backup of each computer as a *backup device* with one
+location for each backed-up folder. You can make backup devices of your own
+and use their locations as disks. They show under **Backup** on
+jottacloud.com.
+
+- **New backup device:** click **New Backup Device**. Type a name for the
+  backup device and for its first location (a backup device needs at least
+  one location). Then click **Create**. JottaFS selects the new location, so
+  you can mount it at once.
+- **New location:** click **+** in the header of a backup device in the list,
+  or Control-click one of its locations and choose **New Location**.
+- **Move a location to the trash:** Control-click the location and choose
+  **Move to Trash**. The location and its files move to the Jottacloud trash.
+  You can restore them on jottacloud.com.
+- **Delete a backup device:** click the trash button in the header of the
+  backup device. The backup device, all its locations and all their files
+  are deleted permanently. They do not go to the Jottacloud trash and you
+  cannot restore them.
+
+A mounted location is unmounted first. If it cannot be unmounted (for
+example, a file on the disk is open), nothing is removed. Jottacloud's own
+locations (Archive, Sync, Shared and Photos) cannot get new locations and
+cannot be removed.
 
 ### Unmount
 
@@ -305,7 +334,12 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
 
 ## Limits
 
-- You cannot rename the disk in Finder. Use **Advanced** in JottaFS instead.
+- You cannot rename the disk in Finder. Control-click the location in
+  JottaFS and choose **Rename** instead.
+- A backup device without locations does not show in JottaFS, because
+  Jottacloud lists a backup device only when it has a location. If you move
+  the last location of a backup device to the trash, the backup device stays
+  in Jottacloud. To remove it too, delete the backup device instead.
 - You cannot open files that are in the Trash.
 - Symbolic links and hard links are not supported.
 - Jottacloud stores no file permissions, so every file on a Jottacloud disk

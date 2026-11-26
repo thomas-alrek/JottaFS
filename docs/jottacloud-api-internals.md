@@ -116,9 +116,37 @@ descriptors, strings in `jottad`).
   device appears in the desktop app's setup list, where linking it would
   change its `installation_id`; `DeviceService.Delete` removes a whole
   device and must only ever use the exact `id` of a device JottaFS created.
-- Not tested (JottaFS does not create devices or mountpoints): accepted
-  device types, whether `FileService.CreateFolder` on `/backup/<id>/<name>`
-  creates a mountpoint, and whether deleting a device trashes or removes it.
+- Tested live 2026-11-26 with one test device, `JottaFS-Test-EAEB` (owner's
+  approval; `JottacloudClient.createDevice`, `createMountpoint`,
+  `deleteDevice`):
+  - `POST /jfs/<user>/<name>?type=CLI` creates a backup device at once.
+    `DeviceService.List` lists it right away (type 12, path
+    `/backup/<uuid>`), and jottacloud.com shows it under Backup. Type 12
+    (`CLI`) is not unique to JottaFS: the owner's jotta-cli backup has it
+    too, so the type cannot tell who made a device.
+  - The JFS device listing fails while the device has no mountpoint, so a
+    new device is missing from the JFS account listing (and so from the
+    location list) until its first mountpoint exists.
+  - `POST /jfs/<user>/<device>/<mountpoint>` creates a mountpoint at once.
+    Folders and uploads in it work like in any location, and jottacloud.com
+    shows the files.
+  - `?dlDir=true` on a mountpoint returns success but does nothing: the
+    mountpoint stays and nothing reaches the trash.
+  - `DeviceService.Delete{id}` deletes the device with its mountpoints and
+    files **permanently**: both device lists drop it at once, and nothing
+    appears in the trash (checked on jottacloud.com too).
+  - Second test device `JottaFS-Test-F13B`: `FileService.Delete{path}` on
+    `/backup/<uuid>/<mountpoint>` moves the mountpoint with its files to the
+    trash (GetPath: trashed, folder; jottacloud.com shows it in the trash
+    and no longer under the device), so it can be restored
+    (`JottacloudClient.removeMountpoint`). The JFS device listing still
+    lists the trashed mountpoint afterwards (the location parser does not
+    skip trashed mountpoints yet; the XML for it has not been captured).
+    Deleting the device afterwards also removed the trashed mountpoint
+    from the trash for good.
+  - Still open: the JFS XML of a trashed mountpoint, and whether
+    mountpoints added to a device made by Jottacloud's desktop app are
+    reported as orphaned.
 
 ## JFS paths and directory listings
 

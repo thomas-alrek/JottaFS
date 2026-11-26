@@ -25,7 +25,11 @@ location as a read-write volume.
   delete (soft or permanent), restore or otherwise touch files the project
   did not create; create test files under `Jotta/Archive/JottaFS-Test` with
   unique names; never trigger Empty Trash yourself; and never use
-  whole-account operations such as `files/v1/purge_trash`.
+  whole-account operations such as `files/v1/purge_trash`. Backup
+  devices and their locations: in your own testing create only backup
+  devices named `JottaFS-Test-<unique>`, and only remove or delete what
+  your tests created; never remove or delete any other device or
+  mountpoint.
 - Make network I/O asynchronous and bounded. Use ranged downloads, short
   bounded directory caches, and avoid buffering whole files.
 - FSKit callbacks can run concurrently. Protect shared item, directory, and
@@ -40,7 +44,9 @@ location as a read-write volume.
   fallback, and every new text needs a Norwegian (`nb`) translation. Use
   `String(localized:)` for texts that are not SwiftUI literals (JottaFSCore:
   `bundle: .jottaFSCore`). Norwegian uses "Aktiver / Deaktiver" for mount and
-  unmount, and Jottacloud's own terms ("personlig login-token", "backup").
+  unmount, "Mat ut" for eject, Jottacloud's own terms ("personlig
+  login-token", "backup", "backup-enhet"), «…» around names, and no space
+  before an ellipsis ("Logg ut…", not "Logg ut …").
 - Run `make check` for local checks: the Xcode project check, the
   extension build, `jottafs-checks` and the regression tests (`swift test`).
   Every fixed bug gets a regression test. The Swift package compilation
@@ -78,8 +84,12 @@ location as a read-write volume.
 - OAuth refresh tokens rotate; concurrent refreshes must be serialized.
 - Each mounted volume is one Jottacloud location (a device's mountpoint, or
   one backed-up folder of a computer backup); the app lists the locations
-  from the account's devices and mountpoints. JottaFS never creates or
-  deletes devices or mountpoints.
+  from the account's devices and mountpoints. The user can create a
+  *backup device* ("Backup Device" in the app, Jottacloud's term) with its first location, add locations to
+  any backup device, move a location to the trash and delete a whole
+  backup device permanently (verified 2026-11-26; see the API notes). The
+  built-in `Jotta` device cannot get new mountpoints and is never deleted.
+  Locations are unmounted before they are removed or deleted.
 - XML listing entries without a completed current revision are not exposed.
 - Only the official `id.jottacloud.com` identity host is supported.
 - Keep research and unresolved API assumptions in
