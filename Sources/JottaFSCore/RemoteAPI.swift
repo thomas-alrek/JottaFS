@@ -1410,7 +1410,9 @@ extension JottacloudClient {
                     phase: phase
                 )
                 confirmed = Self.uploadConfirmed(response, size: size, md5: md5)
-                phase?(confirmed ? "transferred (completed, confirmed by the response)" : "transferred")
+                phase?(confirmed
+                    ? "transferred (confirmed by the response)"
+                    : "transferred (response \(Self.uploadResponseSummary(response)))")
                 break
             } catch {
                 attemptsWithoutProgress = watchdog.bytesSent > 0 ? 0 : attemptsWithoutProgress + 1
@@ -1542,24 +1544,34 @@ extension JottacloudClient {
         return response.data
     }
 
-    /// Whether an upload response confirms the upload: state COMPLETED, and
-    /// the size and MD5 it reports (when it reports them) match. Anything
-    /// else (another state, no JSON) is not a confirmation.
+    /// Whether an upload response confirms the upload: it reports the
+    /// stored file's MD5 and size and both match, or it says COMPLETED and
+    /// whatever MD5 and size it reports match. Anything else (no JSON, a
+    /// mismatch, neither) is not a confirmation.
     static func uploadConfirmed(_ data: Data, size: UInt64, md5: String) -> Bool {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              (object["state"] as? String)?.uppercased() == "COMPLETED"
-        else {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return false
         }
-        if let reported = object["md5"] as? String, reported.lowercased() != md5.lowercased() {
+        let reportedMD5 = (object["md5"] as? String)?.lowercased()
+        let reportedSize = ["bytes", "size"].lazy.compactMap { (object[$0] as? NSNumber)?.uint64Value }.first
+        if let reportedMD5, reportedMD5 != md5.lowercased() {
             return false
         }
-        for key in ["bytes", "size"] {
-            if let reported = (object[key] as? NSNumber)?.uint64Value, reported != size {
-                return false
-            }
+        if let reportedSize, reportedSize != size {
+            return false
         }
-        return true
+        let completed = (object["state"] as? String)?.uppercased() == "COMPLETED"
+        return completed || (reportedMD5 != nil && reportedSize != nil)
+    }
+
+    /// For logs: the upload response's key names and its state, never the
+    /// values (paths and ids).
+    static func uploadResponseSummary(_ data: Data) -> String {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "not a JSON object (\(data.count) bytes)"
+        }
+        let state = (object["state"] as? String).map { ", state \($0)" } ?? ""
+        return "keys \(object.keys.sorted().joined(separator: ","))\(state)"
     }
 
     /// Jottacloud's error id and cause (an exception name) from an error

@@ -84,6 +84,8 @@ struct UploadConfirmationTests {
     @Test func completedResponsesConfirm() {
         #expect(JottacloudClient.uploadConfirmed(Data(#"{"state":"COMPLETED"}"#.utf8), size: 10, md5: md5))
         #expect(JottacloudClient.uploadConfirmed(Data(#"{"state":"COMPLETED","bytes":10,"md5":"D41D8CD98F00B204E9800998ECF8427E"}"#.utf8), size: 10, md5: md5))
+        // rclone's upload response: the stored file's MD5 and size, no state.
+        #expect(JottacloudClient.uploadConfirmed(Data(#"{"path":"/x","content_id":"c","modified":1,"md5":"d41d8cd98f00b204e9800998ecf8427e","bytes":10}"#.utf8), size: 10, md5: md5))
     }
 
     /// Anything else falls back to asking for the revision.
@@ -93,5 +95,8 @@ struct UploadConfirmationTests {
         #expect(!JottacloudClient.uploadConfirmed(Data(#"{"state":"COMPLETED","md5":"0000"}"#.utf8), size: 10, md5: md5))
         #expect(!JottacloudClient.uploadConfirmed(Data("<file/>".utf8), size: 10, md5: md5))
         #expect(!JottacloudClient.uploadConfirmed(Data(), size: 10, md5: md5))
+        // Only one of MD5 and size, without a state: not enough.
+        #expect(!JottacloudClient.uploadConfirmed(Data(#"{"md5":"d41d8cd98f00b204e9800998ecf8427e"}"#.utf8), size: 10, md5: md5))
+        #expect(!JottacloudClient.uploadConfirmed(Data(#"{"bytes":10}"#.utf8), size: 10, md5: md5))
     }
 }
