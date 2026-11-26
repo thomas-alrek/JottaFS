@@ -242,7 +242,7 @@ JottaFS uses a background item for this. If macOS asks, allow **JottaFS** in
 
 ### Settings
 
-Click the gear button in the lower-left corner of the JottaFS window, or
+Click the gear button in the upper-right corner of the JottaFS window, or
 choose **JottaFS → Settings**.
 
 - **Download cache:** set the size of the download cache, see how much of it
@@ -397,6 +397,12 @@ copies, downloads and attributes on the real volume (in `JottaFS-Test`):
 ```sh
 make probe VOLUME=/Volumes/<disk name>
 ```
+
+The app icon is the layered Icon Composer file `Resources/JottaFS.icon`
+(open it in Icon Composer, which comes with Xcode). `Tools/make-app-icon.swift`
+draws the flat `Resources/JottaFS.icns` that the DMG uses as its disk icon.
+For the screenshots in this README, a Debug build can start at the sign-in
+screen without signing out: run it with `--preview-signed-out`.
 
 These commands do not make or sign the app. Use Xcode to build, sign and test
 the app and the extension.
