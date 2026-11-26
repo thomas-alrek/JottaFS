@@ -9,9 +9,13 @@
 #   make sandboxed       build a fully sandboxed app for testing (no JottaFSService:
 #                        no self-update, eject in Finder) in build/sandboxed.
 #                        Releases always include JottaFSService.
-#   make check           build the extension code and run the checks
+#   make check           build the extension code and run the checks and the
+#                        regression tests (release.sh runs this first)
+#   make probe VOLUME=/Volumes/<name>
+#                        live write probe on a mounted JottaFS volume with the
+#                        build to be released installed (needed by make ship)
 
-.PHONY: release release-minor release-major publish ship ship-minor ship-major sandboxed check
+.PHONY: release release-minor release-major publish ship ship-minor ship-major sandboxed check probe
 
 release:
 	scripts/build-release.sh
@@ -41,5 +45,11 @@ sandboxed:
 	@echo "App: build/sandboxed/Build/Products/Release/JottaFS.app (delete build/sandboxed when done)"
 
 check:
+	scripts/check-xcode-sources.sh
 	swift build --target JottaFSKitExtension
 	swift run jottafs-checks
+	swift test
+
+probe:
+	@test -n "$(VOLUME)" || { echo "Usage: make probe VOLUME=/Volumes/<JottaFS volume>"; exit 2; }
+	scripts/probe-volume.sh "$(VOLUME)"

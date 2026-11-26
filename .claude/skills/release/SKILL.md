@@ -34,13 +34,29 @@ Never commit `dist/`, `build/` or credentials.
    account). Leave out internal changes users cannot notice.
 4. Commit it: `docs: add the <version> release notes`.
 
-## 3. Build, notarize and publish
+## 3. Tests
+
+Run `make check` (checks and regression tests). Then make sure there is a
+passed live probe of a test build of this version:
+`build/probe/$NEXT.passed`. If there is none, stop and ask the owner to
+install a test build (`SKIP_NOTARIZE=1 make release`, then reset
+`VERSION`) and run `make probe VOLUME=/Volumes/<volume>`. See
+`docs/releasing.md`, "Tests".
+
+**If a regression test or the probe fails, a fixed bug is back.** Stop
+the release and tell the owner which test failed. Then fix the bug, run
+the tests again, rebuild, install, probe and verify. Publish only when the
+regression is confirmed fixed. `scripts/release.sh` refuses to publish in
+that case anyway.
+
+## 4. Build, notarize and publish
 
 Run `scripts/release.sh <bump>` in the background (Bash
 `run_in_background`), logging to the scratchpad. It takes several minutes
 (notarization). Do not edit sources while it runs. It:
 
-1. checks the tree is clean, the notes are committed and the tag is free;
+1. checks the tree is clean, the notes are committed and the tag is free,
+   runs `make check` and requires the probe record;
 2. builds, exports with Developer ID, checks provisioning profiles for app
    groups, notarizes and staples the app and the DMG, and checks the app
    with Gatekeeper (`scripts/build-release.sh`);
@@ -53,7 +69,7 @@ Run `scripts/release.sh <bump>` in the background (Bash
 5. checks that the asset's checksum, the casks and the latest release
    match, and runs `brew style` on the casks.
 
-## 4. Report
+## 5. Report
 
 When it finishes, read the end of the log. On success, tell the owner the
 release URL, the commits pushed (`git log --oneline` since the previous

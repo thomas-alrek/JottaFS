@@ -68,7 +68,47 @@ blocks it on other Macs.
 The version number in the project (`MARKETING_VERSION`) stays 1.0.0 for local
 builds; the release build sets the real version.
 
-## Test
+## Tests
+
+Two kinds of tests must pass before a release is published.
+`scripts/release.sh` (`make ship`) checks both and stops otherwise.
+
+- **Checks and regression tests**, `make check`: checks that every source
+  file is in the Xcode project (`scripts/check-xcode-sources.sh`; SwiftPM
+  finds new files by itself, Xcode does not), builds the extension and
+  runs `jottafs-checks` (JottaFSCore) and `swift test`
+  (`Tests/JottaFSKitExtensionTests`, the extension's write path). Each bug
+  that was fixed gets a regression test that fails if the bug comes back.
+  The release script runs `make check` first.
+- **Live probe**, `make probe VOLUME=/Volumes/<volume>`: runs
+  `scripts/probe-volume.sh` against a mounted location with the build to be
+  released installed. It works only in a new, uniquely named folder under
+  `JottaFS-Test` and deletes it at the end. It copies files the way Finder
+  does while the folder is listed, and checks sizes and contents right
+  away, after 20 s and after 75 s (1.1.2: files showed 0 bytes). It also
+  tries a Safari-style download, a move from the Mac's disk and a quarantine
+  attribute. When everything passes, it writes `build/probe/<version>.passed`
+  with a hash of the source files (`scripts/source-hash.sh`; committed or
+  not). The release script needs that file for the version it releases,
+  with the same source hash, so the release is built from the probed
+  sources.
+
+If a regression test or the probe fails, a fixed bug is back. Do not
+publish. Tell the owner, fix the bug, run `make check` again, make a new
+build, install it, probe it, and only then release.
+
+Flow for a release: commit the fix, then `SKIP_NOTARIZE=1 make release`
+(or `make release` for a build to hand out for testing). Install the DMG,
+mount the location and run `make probe`. Reset `VERSION` to the previous
+version and delete the test DMG from `dist/`. Write the release notes and
+run `make ship`.
+
+Not covered by the probe: uploads over a poor connection. Test those by
+hand with a throttled network (Network Link Conditioner, "Very Bad
+Network"), or by turning off Wi-Fi during a large copy. The copy must fail
+within about a minute, and Finder must stay responsive.
+
+## Manual test
 
 1. Open the DMG. Check the window, the background and the icons.
 2. Drag JottaFS to Applications, open it, sign in and mount a location.

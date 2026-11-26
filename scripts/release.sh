@@ -11,7 +11,9 @@
 #
 # Steps:
 #   1. checks the working tree is clean, the release notes exist and the
-#      tag is free;
+#      tag is free; runs the checks and regression tests (`make check`) and
+#      requires a passed live probe (`make probe`) of a <next version> test
+#      build made from the same sources;
 #   2. scripts/build-release.sh: archive, Developer ID export, provisioning
 #      check, notarize and staple the app and the DMG, Gatekeeper check;
 #   3. removes build/release (extra app copies confuse ExtensionKit);
@@ -71,6 +73,20 @@ git ls-files --error-unmatch "$NOTES" >/dev/null 2>&1 || fail "$NOTES is not com
 ! git rev-parse -q --verify "refs/tags/v$NEXT" >/dev/null || fail "The tag v$NEXT already exists."
 gh auth status >/dev/null 2>&1 || fail "Sign in to GitHub first: gh auth login"
 [[ ! -e "dist/JottaFS-$NEXT.dmg" ]] || fail "dist/JottaFS-$NEXT.dmg already exists. Delete it to build again."
+
+# Regression tests guard bugs that were fixed once. A failure means one is
+# back: nothing is published until it is fixed, the checks pass again, and
+# a new build has been installed and probed (docs/releasing.md, "Tests").
+step "Running the checks and regression tests"
+make check || fail "A check or regression test failed. Do not publish: tell the owner, fix the bug, run make check again, rebuild, install and probe the build, and only then release."
+
+# The live probe (scripts/probe-volume.sh) of a test build of this version,
+# from the same source files (only notes and docs may have changed since;
+# whether they were committed then does not matter).
+PROBE="build/probe/$NEXT.passed"
+[[ -f "$PROBE" ]] || fail "No passed live probe for $NEXT. Make a test build (SKIP_NOTARIZE=1 make release, then reset VERSION), install it, run make probe VOLUME=/Volumes/<volume>, and release again."
+[[ "$(sed -n 's/^sources=//p' "$PROBE")" == "$(scripts/source-hash.sh)" ]] \
+    || fail "The sources changed since the probe of $NEXT. Build, install and probe again."
 
 step "Building and notarizing"
 scripts/build-release.sh "$BUMP"
