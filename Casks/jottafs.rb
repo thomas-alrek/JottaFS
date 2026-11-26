@@ -1,6 +1,6 @@
 cask "jottafs" do
-  version "1.1.3"
-  sha256 "8a5ad69e247421cb8a0df2794cb01a628fd92e1768dcd5f03f4c4b75dae084f1"
+  version "1.2.0"
+  sha256 "1b11074994e9429158cc6475b40db76d257b8ff1ad7cf353a61651d9ac50d71d"
 
   url "https://github.com/thomas-alrek/JottaFS/releases/download/v#{version}/JottaFS-#{version}.dmg"
   name "JottaFS"
