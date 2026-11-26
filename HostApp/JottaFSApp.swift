@@ -436,9 +436,13 @@ private struct RootView: View {
                 SignedInView()
             }
         }
-        .padding(32)
+        // Apple's usual 20 pt margins; little at the top, where the title
+        // bar and toolbar already leave room.
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 20)
         // A fixed size per screen; the window is not resizable.
-        .frame(width: windowSize.width - 64, height: windowSize.height - 64)
+        .frame(width: windowSize.width - 48, height: windowSize.height - 28)
         // Every button is Liquid Glass unless it says otherwise (primary
         // actions use .glassProminent, text links stay links).
         .buttonStyle(.glass)
@@ -669,8 +673,10 @@ private struct WaitingForBrowserView: View {
 private struct SignedInView: View {
     @EnvironmentObject private var model: AppModel
     @State private var confirmsSignOut = false
-    /// The location the Advanced sheet is open for.
-    @State private var advancedLocation: JottacloudRemoteVolume?
+    /// The location being renamed (Rename in its context menu).
+    @State private var renaming: JottacloudRemoteVolume?
+    /// The "new backup device / new location" sheet.
+    @State private var locationSheet: LocationSheet?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -711,7 +717,7 @@ private struct SignedInView: View {
             }
 
             Group {
-                LocationPicker()
+                LocationPicker(renaming: $renaming, sheet: $locationSheet)
 
                 // Settings of the selected location.
                 HStack {
@@ -728,10 +734,6 @@ private struct SignedInView: View {
                     .help(model.selectedLocation.map { String(localized: "Mount “\(model.displayName(of: $0))” automatically when you log in.") } ?? "")
                     .disabled(model.selectedLocation == nil)
                     Spacer()
-                    Button("Advanced…") {
-                        advancedLocation = model.selectedLocation
-                    }
-                    .disabled(model.selectedLocation == nil)
                 }
                 .disabled(model.isBusy)
             }
@@ -757,8 +759,24 @@ private struct SignedInView: View {
                 )
             }
 
-            FinderStatus()
-                .disabled(model.extensionEnabled == false && model.mounts.isEmpty)
+            HStack {
+                // A new backup device; a new location is the "+" in a
+                // backup device's section header.
+                Button {
+                    locationSheet = .newBackupDevice
+                } label: {
+                    Label("New Backup Device", systemImage: "plus")
+                }
+                .controlSize(.large)
+                .help("New Backup Device…")
+                .disabled(model.isBusy || model.locations.isEmpty || model.extensionEnabled == false)
+                FinderStatus()
+                    .disabled(model.extensionEnabled == false && model.mounts.isEmpty)
+            }
+        }
+        .sheet(item: $locationSheet) { sheet in
+            NewLocationView(kind: sheet)
+                .environmentObject(model)
         }
         .toolbar {
             // In the window's toolbar (the Liquid Glass layer); the label is
@@ -773,8 +791,8 @@ private struct SignedInView: View {
                 .help("Settings")
             }
         }
-        .sheet(item: $advancedLocation) { location in
-            AdvancedSettingsView(location: location)
+        .sheet(item: $renaming) { location in
+            RenameView(location: location)
                 .environmentObject(model)
         }
         .alert("Copy Jottacloud links from Finder?", isPresented: $model.offersFinderExtension) {
@@ -799,11 +817,133 @@ private struct SignedInView: View {
     }
 }
 
+/// A removal waiting for its confirmation.
+private struct RemovalRequest: Identifiable {
+    enum Kind {
+        case moveToTrash
+        case deleteBackupDevice
+    }
+
+    let location: JottacloudRemoteVolume
+    let kind: Kind
+
+    var id: String {
+        location.id + (kind == .moveToTrash ? "|trash" : "|delete")
+    }
+}
+
+/// The confirmations for moving a location to the trash and deleting a
+/// backup device, with what will happen (a location's context menu and a
+/// backup device's section header); runs the removal once confirmed.
+private struct RemovalConfirmation: ViewModifier {
+    @EnvironmentObject private var model: AppModel
+    @Binding var request: RemovalRequest?
+    var started: () -> Void = {}
+    /// nil when it worked, else the error to show.
+    var finished: (String?) -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(
+            title,
+            isPresented: Binding(get: { request != nil }, set: { if !$0 { request = nil } }),
+            presenting: request
+        ) { request in
+            Button(request.kind == .moveToTrash ? "Move to Trash" : "Delete", role: .destructive) {
+                run(request)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { request in
+            Text(message(for: request))
+        }
+    }
+
+    private var title: String {
+        guard let request else {
+            return ""
+        }
+        switch request.kind {
+        case .moveToTrash:
+            return String(localized: "Move “\(AppModel.ownName(of: request.location))” to the Trash?")
+        case .deleteBackupDevice:
+            return String(localized: "Delete the backup device “\(request.location.device)”?")
+        }
+    }
+
+    private func message(for request: RemovalRequest) -> String {
+        let location = request.location
+        switch request.kind {
+        case .moveToTrash:
+            var text = String(localized: "The location and its files move to the Jottacloud trash. You can restore them on jottacloud.com.")
+            if model.isMounted(location) {
+                text += " " + String(localized: "It is unmounted first.")
+            }
+            // A backup device without locations stays in Jottacloud but does
+            // not show in the list (Jottacloud only lists devices with a
+            // location).
+            if model.locations(on: location.device).count == 1 {
+                text += " " + String(localized: "It is the last location in “\(location.device)”: the backup device stays in Jottacloud without locations and no longer shows here. To remove the backup device too, use Delete Backup Device instead.")
+            }
+            return text
+        case .deleteBackupDevice:
+            let all = Self.names(model.locations(on: location.device), model: model, finder: false)
+            var text = String(localized: "The backup device and everything in it are deleted for good: \(all). Nothing goes to the Jottacloud trash, and it can’t be restored.")
+            let mounted = model.mountedLocations(on: location.device)
+            if !mounted.isEmpty {
+                text += " " + String(localized: "These are unmounted first: \(Self.names(mounted, model: model, finder: true)).")
+            }
+            return text
+        }
+    }
+
+    private func run(_ request: RemovalRequest) {
+        started()
+        Task {
+            do {
+                switch request.kind {
+                case .moveToTrash:
+                    try await model.moveLocationToTrash(request.location)
+                case .deleteBackupDevice:
+                    try await model.deleteBackupDevice(request.location.device)
+                }
+                finished(nil)
+            } catch {
+                finished(error.localizedDescription)
+            }
+        }
+    }
+
+    /// "“A”, “B” and “C”" for messages.
+    static func names(_ locations: [JottacloudRemoteVolume], model: AppModel, finder: Bool) -> String {
+        locations.map { location in
+            let name = finder ? model.finderName(of: location) : AppModel.ownName(of: location)
+            return String(localized: "“\(name)”", comment: "A name in quotation marks")
+        }
+        .formatted(.list(type: .and))
+    }
+}
+
 private struct LocationPicker: View {
     @EnvironmentObject private var model: AppModel
+    @Binding var renaming: JottacloudRemoteVolume?
+    @Binding var sheet: LocationSheet?
     @State private var scrollRequest = 0
+    /// The location whose Unmount (from the context menu) is being confirmed.
+    @State private var confirmsUnmount: JottacloudRemoteVolume?
+    @State private var removal: RemovalRequest?
+    /// The list has keyboard focus when the window opens (arrow keys and
+    /// Return work at once; the selection shows in the accent colour).
+    @FocusState private var listFocused: Bool
 
     var body: some View {
+        unmountConfirmation(listContent)
+            .modifier(RemovalConfirmation(request: $removal) { failure in
+                if let failure {
+                    model.alert = AppAlert(title: String(localized: "JottaFS couldn’t remove the location."), message: failure)
+                }
+            })
+    }
+
+    private var listContent: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Choose what to mount")
                 .font(.headline)
@@ -833,7 +973,7 @@ private struct LocationPicker: View {
                     ScrollViewReader { proxy in
                         List(selection: selection) {
                             ForEach(groups, id: \.title) { group in
-                                Section(group.title) {
+                                Section {
                                     ForEach(group.locations) { location in
                                         LocationRow(
                                             location: location,
@@ -844,15 +984,21 @@ private struct LocationPicker: View {
                                         .tag(location.id)
                                         .id(location.id)
                                     }
+                                } header: {
+                                    sectionHeader(group)
                                 }
                             }
                         }
                         .listStyle(.inset)
+                        .focused($listFocused)
+                        .defaultFocus($listFocused, true)
                         // Double-click (or Return) on a location mounts it,
                         // like the Mount button (a mounted one opens in
                         // Finder).
-                        .contextMenu(forSelectionType: String.self) { _ in
-                            EmptyView()
+                        .contextMenu(forSelectionType: String.self) { ids in
+                            if let id = ids.first, let location = model.locations.first(where: { $0.id == id }) {
+                                contextMenu(for: location)
+                            }
                         } primaryAction: { ids in
                             guard !model.isBusy, model.extensionEnabled != false, let id = ids.first else {
                                 return
@@ -867,7 +1013,11 @@ private struct LocationPicker: View {
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { _ in
                             scrollToSelection(proxy)
                         }
-                        .onAppear { scrollToSelection(proxy) }
+                        .onAppear {
+                            scrollToSelection(proxy)
+                            // After the window has become key.
+                            DispatchQueue.main.async { listFocused = true }
+                        }
                         .onChange(of: model.locations.count) { _, _ in scrollToSelection(proxy) }
                     }
                 }
@@ -881,6 +1031,69 @@ private struct LocationPicker: View {
     }
 
     private static let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(12)), isUniform: true)
+
+    /// Right-click on a location: mount or unmount, mount at login, a new
+    /// location, rename, move to the trash.
+    @ViewBuilder
+    private func contextMenu(for location: JottacloudRemoteVolume) -> some View {
+        let mounted = model.isMounted(location)
+        if mounted {
+            Button("Show in Finder") {
+                model.selectedLocationID = location.id
+                Task { await model.mountSelected() }
+            }
+            Button("Unmount…") {
+                confirmsUnmount = location
+            }
+            .disabled(!model.canUnmount || model.isBusy)
+        } else {
+            Button("Mount") {
+                model.selectedLocationID = location.id
+                Task { await model.mountSelected() }
+            }
+            .disabled(model.isBusy || model.extensionEnabled == false)
+        }
+        Toggle("Mount automatically when I log in", isOn: Binding(
+            get: { model.mountsAtLogin(location) },
+            set: { model.setMountAtLogin($0, for: location) }
+        ))
+        .disabled(model.isBusy)
+        Divider()
+        if !location.isBuiltIn {
+            Button("New Location in “\(location.device)”…") {
+                sheet = .newLocation(device: location.device)
+            }
+            .disabled(model.isBusy)
+        }
+        Button("Rename…") {
+            renaming = location
+        }
+        if !location.isBuiltIn {
+            Divider()
+            Button("Move to Trash…", role: .destructive) {
+                removal = RemovalRequest(location: location, kind: .moveToTrash)
+            }
+            .disabled(model.isBusy)
+        }
+    }
+
+    /// The context menu's Unmount confirmation (same texts as the main
+    /// button's).
+    private func unmountConfirmation<Content: View>(_ content: Content) -> some View {
+        content.confirmationDialog(
+            "Unmount “\(confirmsUnmount.map(model.finderName) ?? "Jottacloud")”?",
+            isPresented: Binding(get: { confirmsUnmount != nil }, set: { if !$0 { confirmsUnmount = nil } }),
+            presenting: confirmsUnmount
+        ) { location in
+            Button("Unmount", role: .destructive) {
+                model.selectedLocationID = location.id
+                Task { await model.unmountSelected() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("It will be removed from Finder. Your files stay in Jottacloud. Close any files you have open from it first.")
+        }
+    }
 
     private var selection: Binding<String?> {
         Binding(
@@ -905,6 +1118,37 @@ private struct LocationPicker: View {
             }
             withAnimation {
                 proxy.scrollTo(id, anchor: .center)
+            }
+        }
+    }
+
+    /// A section's title; a backup device's section also has a delete button
+    /// and "+" for a new location in it (Jottacloud's own device can neither
+    /// be deleted nor get new locations).
+    private func sectionHeader(_ group: (title: String, locations: [JottacloudRemoteVolume])) -> some View {
+        HStack {
+            Text(group.title)
+            Spacer()
+            if let first = group.locations.first, !first.isBuiltIn {
+                let device = first.device
+                Button {
+                    removal = RemovalRequest(location: first, kind: .deleteBackupDevice)
+                } label: {
+                    Label("Delete Backup Device…", systemImage: "trash")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("Delete the backup device “\(device)”…")
+                .disabled(model.isBusy)
+                Button {
+                    sheet = .newLocation(device: device)
+                } label: {
+                    Label("New Location in “\(device)”…", systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .help("New Location in “\(device)”…")
+                .disabled(model.isBusy)
             }
         }
     }
@@ -1054,8 +1298,134 @@ private struct FinderStatus: View {
     }
 }
 
-/// Advanced options for the selected location: the name it has in Finder.
-private struct AdvancedSettingsView: View {
+/// What the "+" menu's sheet creates.
+private enum LocationSheet: Identifiable {
+    case newBackupDevice
+    case newLocation(device: String)
+
+    var id: String {
+        switch self {
+        case .newBackupDevice: "device"
+        case .newLocation(let device): "location:" + device
+        }
+    }
+}
+
+/// Creates a backup device (with its first location) or a location on a
+/// backup device; the new location is selected, ready to mount.
+private struct NewLocationView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let kind: LocationSheet
+    @State private var name = ""
+    @State private var firstLocation = String(localized: "Files")
+    @State private var failure: String?
+    @State private var isCreating = false
+
+    private var canCreate: Bool {
+        !isCreating
+            && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (kind.isLocation || !firstLocation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 4) {
+                switch kind {
+                case .newBackupDevice:
+                    Text("New Backup Device")
+                        .font(.title2.bold())
+                    Text("A backup device holds locations that you can mount, like the backup of a computer. It shows under Backup on jottacloud.com.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                case .newLocation(let device):
+                    Text("New Location")
+                        .font(.title2.bold())
+                    Text("In the backup device “\(device)”.")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Name")
+                    .font(.headline)
+                TextField("Name", text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .labelsHidden()
+                    .onSubmit(create)
+                if !kind.isLocation {
+                    Text("First location")
+                        .font(.headline)
+                        .padding(.top, 4)
+                    TextField("First location", text: $firstLocation)
+                        .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .onSubmit(create)
+                }
+                if let failure {
+                    Text(failure)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            HStack {
+                if isCreating {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Creating…")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Cancel", role: .cancel) {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Create", action: create)
+                    .buttonStyle(.glassProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canCreate)
+            }
+        }
+        .padding(24)
+        .frame(width: 380)
+        .buttonStyle(.glass)
+        .disabled(isCreating)
+    }
+
+    private func create() {
+        guard canCreate else {
+            return
+        }
+        failure = nil
+        isCreating = true
+        Task {
+            defer { isCreating = false }
+            do {
+                switch kind {
+                case .newBackupDevice:
+                    try await model.createBackupDevice(named: name, firstLocation: firstLocation)
+                case .newLocation(let device):
+                    try await model.createLocation(named: name, on: device)
+                }
+                dismiss()
+            } catch {
+                failure = error.localizedDescription
+            }
+        }
+    }
+}
+
+private extension LocationSheet {
+    var isLocation: Bool {
+        if case .newLocation = self { return true }
+        return false
+    }
+}
+
+/// Renames a location: the name its disk has in Finder.
+private struct RenameView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.dismiss) private var dismiss
     let location: JottacloudRemoteVolume
@@ -1078,7 +1448,7 @@ private struct AdvancedSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Advanced")
+                Text("Rename")
                     .font(.title2.bold())
                 Text(location.isBuiltIn ? AppModel.ownName(of: location) : String(localized: "\(location.mountpoint) · Backup from \(location.device)", comment: "A backed-up folder and the computer it is backed up from"))
                     .foregroundStyle(.secondary)

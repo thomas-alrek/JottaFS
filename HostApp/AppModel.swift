@@ -27,12 +27,15 @@ final class AppModel: ObservableObject {
         case mounting(locationID: String)
         /// nil: every mounted location (signing out).
         case unmounting(locationID: String?)
+        /// Creating or removing a backup device or a location.
+        case changingLocations
 
-        /// True if this is work on the location `id`.
+        /// True if this is work on the location `id` (shown in its button).
         func concerns(_ id: String?) -> Bool {
             switch self {
             case .mounting(let locationID): locationID == id
             case .unmounting(let locationID): locationID == nil || locationID == id
+            case .changingLocations: false
             }
         }
     }
@@ -834,6 +837,185 @@ final class AppModel: ObservableObject {
             return failure ?? UnmountError.volumeStillMounted
         }
         return nil
+    }
+
+    // MARK: Backup devices and locations
+
+    /// The backup devices in the list (not Jottacloud's own device), in list
+    /// order.
+    var backupDeviceNames: [String] {
+        var seen = Set<String>()
+        return locations.filter { !$0.isBuiltIn }.map(\.device).filter { seen.insert($0.lowercased()).inserted }
+    }
+
+    func locations(on device: String) -> [JottacloudRemoteVolume] {
+        locations.filter { $0.device.caseInsensitiveCompare(device) == .orderedSame }
+    }
+
+    func mountedLocations(on device: String) -> [JottacloudRemoteVolume] {
+        locations(on: device).filter(isMounted)
+    }
+
+    /// Creates a backup device with its first location (a device without a
+    /// location does not show in Jottacloud's listing) and selects it.
+    func createBackupDevice(named rawName: String, firstLocation rawLocation: String) async throws {
+        guard let client, !isBusy else {
+            return
+        }
+        let name = try Self.validLocationName(rawName)
+        let location = try Self.validLocationName(rawLocation)
+        let existing = Set(((try? await client.listBackupDevices()) ?? []).map { $0.name.lowercased() })
+            .union(locations.map { $0.device.lowercased() })
+            .union([JottacloudRemoteVolume.builtInDevice.lowercased()])
+        guard !existing.contains(name.lowercased()) else {
+            throw LocationChangeError.nameInUse(name)
+        }
+        alert = nil
+        activity = .changingLocations
+        defer { activity = nil }
+        try await client.createDevice(named: name)
+        try await client.createMountpoint(device: name, named: location)
+        await loadLocations()
+        selectedLocationID = JottacloudRemoteVolume(device: name, mountpoint: location).id
+    }
+
+    /// Creates a location on a backup device and selects it.
+    func createLocation(named rawName: String, on device: String) async throws {
+        guard let client, !isBusy else {
+            return
+        }
+        guard device != JottacloudRemoteVolume.builtInDevice else {
+            throw LocationChangeError.builtInDevice
+        }
+        let name = try Self.validLocationName(rawName)
+        guard !locations(on: device).contains(where: { $0.mountpoint.caseInsensitiveCompare(name) == .orderedSame }) else {
+            throw LocationChangeError.nameInUse(name)
+        }
+        alert = nil
+        activity = .changingLocations
+        defer { activity = nil }
+        try await client.createMountpoint(device: device, named: name)
+        await loadLocations()
+        selectedLocationID = JottacloudRemoteVolume(device: device, mountpoint: name).id
+    }
+
+    /// Moves a location of a backup device, with its files, to the Jottacloud
+    /// trash; unmounted first (nothing is removed if that fails).
+    func moveLocationToTrash(_ location: JottacloudRemoteVolume) async throws {
+        guard let client, !isBusy else {
+            return
+        }
+        guard !location.isBuiltIn else {
+            throw LocationChangeError.builtInDevice
+        }
+        alert = nil
+        activity = .changingLocations
+        defer { activity = nil }
+        let device = try await backupDevice(named: location.device, client: client)
+        try await LocationRemoval.run(
+            unmounting: isMounted(location) ? [location] : [],
+            unmount: unmount,
+            remove: { try await client.removeMountpoint(location.mountpoint, of: device) }
+        )
+        forget(location)
+        await loadLocations()
+    }
+
+    /// Deletes a backup device with all its locations and files, for good;
+    /// its mounted locations are unmounted first (nothing is deleted if one
+    /// of them can't be unmounted).
+    func deleteBackupDevice(_ name: String) async throws {
+        guard let client, !isBusy else {
+            return
+        }
+        guard name != JottacloudRemoteVolume.builtInDevice else {
+            throw LocationChangeError.builtInDevice
+        }
+        alert = nil
+        activity = .changingLocations
+        defer { activity = nil }
+        let device = try await backupDevice(named: name, client: client)
+        let affected = locations(on: name)
+        try await LocationRemoval.run(
+            unmounting: affected.filter(isMounted),
+            unmount: unmount,
+            remove: { try await client.deleteDevice(device) }
+        )
+        affected.forEach(forget)
+        await loadLocations()
+    }
+
+    private func backupDevice(named name: String, client: JottacloudClient) async throws -> JottacloudBackupDevice {
+        guard let device = try await client.listBackupDevices().first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else {
+            throw LocationChangeError.deviceNotFound(name)
+        }
+        return device
+    }
+
+    /// Unmounts one location; throws (naming it) if it stays mounted.
+    private func unmount(_ location: JottacloudRemoteVolume) async throws {
+        guard let mounted = mounts[location.id] else {
+            return
+        }
+        guard canUnmount else {
+            throw LocationChangeError.ejectFirst(finderName(of: location))
+        }
+        var failure: Error?
+        do {
+            try await requestUnmountFromService(anchorName: mounted.anchorName)
+        } catch {
+            failure = error
+        }
+        refreshMountState()
+        if mounts[location.id] != nil {
+            throw LocationChangeError.couldNotUnmount(finderName(of: location), (failure ?? UnmountError.volumeStillMounted).localizedDescription)
+        }
+    }
+
+    /// Drops a removed location's own settings: mount at login and the name
+    /// in Finder.
+    private func forget(_ location: JottacloudRemoteVolume) {
+        if mountsAtLogin(location) {
+            setMountAtLogin(false, for: location)
+        }
+        if customName(of: location) != nil {
+            setCustomName(nil, for: location)
+        }
+    }
+
+    /// A trimmed name Jottacloud can store (JottaFSNames rules), or an error.
+    static func validLocationName(_ raw: String) throws -> String {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, (try? JottaFSNames.validate(name)) != nil else {
+            throw LocationChangeError.invalidName
+        }
+        return name
+    }
+
+    enum LocationChangeError: LocalizedError {
+        case invalidName
+        case nameInUse(String)
+        case builtInDevice
+        case deviceNotFound(String)
+        case ejectFirst(String)
+        case couldNotUnmount(String, String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidName:
+                String(localized: "This name can’t be used in Jottacloud. Avoid the characters \" * : < > ? | % \\ /.")
+            case .nameInUse(let name):
+                String(localized: "“\(name)” already exists.")
+            case .builtInDevice:
+                String(localized: "New locations can only be added to backup devices.")
+            case .deviceNotFound(let name):
+                String(localized: "The backup device “\(name)” wasn’t found. Try again in a moment.")
+            case .ejectFirst(let name):
+                String(localized: "Eject “\(name)” in Finder first, then try again.")
+            case .couldNotUnmount(let name, let reason):
+                String(localized: "“\(name)” couldn’t be unmounted, so nothing was removed. \(reason)")
+            }
+        }
     }
 
     /// Opens a Finder window on the mounted volume. This only asks Finder to

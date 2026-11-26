@@ -50,6 +50,16 @@
         }
       }
     },
+    "A backup device holds locations that you can mount, like the backup of a computer. It shows under Backup on jottacloud.com." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En backup-enhet inneholder plasseringer som du kan aktivere, på samme måte som backupen av en datamaskin. Den vises under Backup på jottacloud.com."
+          }
+        }
+      }
+    },
     "A token works once. After that, JottaFS keeps you signed in, so you don’t need to keep the token." : {
       "localizations" : {
         "nb" : {
@@ -60,22 +70,22 @@
         }
       }
     },
-    "Advanced" : {
+    "Add" : {
       "localizations" : {
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avansert"
+            "value" : "Legg til"
           }
         }
       }
     },
-    "Advanced…" : {
+    "Add a backup device, or a location to the selected backup device" : {
       "localizations" : {
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Avansert …"
+            "value" : "Legg til en backup-enhet, eller en plassering i den valgte backup-enheten"
           }
         }
       }
@@ -227,7 +237,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Tøm buffer …"
+            "value" : "Tøm buffer…"
           }
         }
       }
@@ -272,6 +282,66 @@
         }
       }
     },
+    "Create" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opprett"
+          }
+        }
+      }
+    },
+    "Creating…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppretter…"
+          }
+        }
+      }
+    },
+    "Delete" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slett"
+          }
+        }
+      }
+    },
+    "Delete Backup Device…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slett backup-enheten…"
+          }
+        }
+      }
+    },
+    "Delete the backup device “%@”?" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slette backup-enheten «%@»?"
+          }
+        }
+      }
+    },
+    "Delete the backup device “%@”…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slett backup-enheten «%@»…"
+          }
+        }
+      }
+    },
     "Download Cache" : {
       "localizations" : {
         "nb" : {
@@ -287,7 +357,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Laster ned JottaFS %@ …"
+            "value" : "Laster ned JottaFS %@…"
           }
         }
       }
@@ -302,12 +372,32 @@
         }
       }
     },
+    "Eject “%@” in Finder first, then try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mat ut «%@» i Finder først, og prøv igjen."
+          }
+        }
+      }
+    },
     "File System" : {
       "localizations" : {
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Filsystem"
+          }
+        }
+      }
+    },
+    "Files" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filer"
           }
         }
       }
@@ -352,6 +442,16 @@
         }
       }
     },
+    "First location" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Første plassering"
+          }
+        }
+      }
+    },
     "Folders shared with others" : {
       "localizations" : {
         "nb" : {
@@ -372,12 +472,42 @@
         }
       }
     },
+    "In the backup device “%@”." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I backup-enheten «%@»."
+          }
+        }
+      }
+    },
     "Installing JottaFS %@…" : {
       "localizations" : {
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Installerer JottaFS %@ …"
+            "value" : "Installerer JottaFS %@…"
+          }
+        }
+      }
+    },
+    "It is the last location in “%@”: the backup device stays in Jottacloud without locations and no longer shows here. To remove the backup device too, use Delete Backup Device instead." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det er den siste plasseringen i «%@»: backup-enheten blir værende i Jottacloud uten plasseringer og vises ikke lenger her. Bruk «Slett backup-enheten» i stedet for å fjerne backup-enheten også."
+          }
+        }
+      }
+    },
+    "It is unmounted first." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den deaktiveres først."
           }
         }
       }
@@ -488,6 +618,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "JottaFS kunne ikke klargjøre lagringen sin."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t remove the location." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke fjerne plasseringen."
           }
         }
       }
@@ -637,7 +777,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Laster inn plasseringene dine …"
+            "value" : "Laster inn plasseringene dine…"
           }
         }
       }
@@ -707,7 +847,47 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Aktiverer …"
+            "value" : "Aktiverer…"
+          }
+        }
+      }
+    },
+    "Move to Trash" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytt til papirkurven"
+          }
+        }
+      }
+    },
+    "Move to Trash…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytt til papirkurven…"
+          }
+        }
+      }
+    },
+    "Move “%@” to the Trash?" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Flytte «%@» til papirkurven?"
+          }
+        }
+      }
+    },
+    "Name" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navn"
           }
         }
       }
@@ -718,6 +898,66 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Navn i Finder"
+          }
+        }
+      }
+    },
+    "New Backup Device" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny backup-enhet"
+          }
+        }
+      }
+    },
+    "New Backup Device…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny backup-enhet…"
+          }
+        }
+      }
+    },
+    "New Location" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny plassering"
+          }
+        }
+      }
+    },
+    "New Location in “%@”…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny plassering i «%@»…"
+          }
+        }
+      }
+    },
+    "New Location…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ny plassering…"
+          }
+        }
+      }
+    },
+    "New locations can only be added to backup devices." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nye plasseringer kan bare legges til i backup-enheter."
           }
         }
       }
@@ -873,6 +1113,26 @@
         }
       }
     },
+    "Rename" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gi nytt navn"
+          }
+        }
+      }
+    },
+    "Rename…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gi nytt navn…"
+          }
+        }
+      }
+    },
     "Return to JottaFS and sign in again." : {
       "localizations" : {
         "nb" : {
@@ -964,6 +1224,16 @@
         }
       }
     },
+    "Show in Finder" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis i Finder"
+          }
+        }
+      }
+    },
     "Shown in Finder as “%@”" : {
       "localizations" : {
         "nb" : {
@@ -1009,7 +1279,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Logg ut …"
+            "value" : "Logg ut…"
           }
         }
       }
@@ -1129,7 +1399,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Logger inn …"
+            "value" : "Logger inn…"
           }
         }
       }
@@ -1161,6 +1431,26 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dette ser ikke ut som et personlig login-token. Kopier hele tokenet fra Jottacloud og lim det inn på nytt."
+          }
+        }
+      }
+    },
+    "The backup device and everything in it are deleted for good: %@. Nothing goes to the Jottacloud trash, and it can’t be restored." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Backup-enheten og alt i den slettes for godt: %@. Ingenting havner i papirkurven i Jottacloud, og det kan ikke gjenopprettes."
+          }
+        }
+      }
+    },
+    "The backup device “%@” wasn’t found. Try again in a moment." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fant ikke backup-enheten «%@». Prøv igjen om litt."
           }
         }
       }
@@ -1205,6 +1495,16 @@
         }
       }
     },
+    "The location and its files move to the Jottacloud trash. You can restore them on jottacloud.com." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plasseringen og filene i den flyttes til papirkurven i Jottacloud. Du kan gjenopprette dem på jottacloud.com."
+          }
+        }
+      }
+    },
     "The sign-in didn’t match this window. Please try again." : {
       "localizations" : {
         "nb" : {
@@ -1225,12 +1525,32 @@
         }
       }
     },
+    "These are unmounted first: %@." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disse deaktiveres først: %@."
+          }
+        }
+      }
+    },
     "This location isn’t available any more." : {
       "localizations" : {
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Denne plasseringen er ikke tilgjengelig lenger."
+          }
+        }
+      }
+    },
+    "This name can’t be used in Jottacloud. Avoid the characters \" * : < > ? | % \\ /." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette navnet kan ikke brukes i Jottacloud. Unngå tegnene \" * : < > ? | % \\ /."
           }
         }
       }
@@ -1290,7 +1610,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Slå på …"
+            "value" : "Slå på…"
           }
         }
       }
@@ -1380,7 +1700,17 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deaktiverer …"
+            "value" : "Deaktiverer…"
+          }
+        }
+      }
+    },
+    "Unmount…" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deaktiver…"
           }
         }
       }
@@ -1400,7 +1730,7 @@
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Venter på nettverkstilkobling …"
+            "value" : "Venter på nettverkstilkobling…"
           }
         }
       }
@@ -1521,6 +1851,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "disken"
+          }
+        }
+      }
+    },
+    "“%@”" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@»"
+          }
+        }
+      }
+    },
+    "“%@” already exists." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» finnes allerede."
+          }
+        }
+      }
+    },
+    "“%@” couldn’t be unmounted, so nothing was removed. %@" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%1$@» kunne ikke deaktiveres, så ingenting ble fjernet. %2$@"
           }
         }
       }
