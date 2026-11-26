@@ -219,6 +219,23 @@ make mounts fail with ExtensionKit error 2.
   the volume is mounted again. Changing the folder's time through the volume
   might make Finder reread it; this was considered and not built.
 
+- **Rename flags.** FSKit fails `renamex_np(2)` with flags (`RENAME_EXCL`,
+  `RENAME_SWAP`) with `ENOTSUP` before the extension sees it, and the volume
+  reports no exclusive or swap renaming. Apple's own FSKit msdos module
+  does the same, so apps cope (Safari's downloads do).
+- **Creation dates.** Apps can depend on a creation date they set being
+  read back: Safari's download helper marks `name.download` bundles that
+  way and calls a bundle with another date invalid ("Refusing to move files
+  out of an invalid download bundle", seen in its log as "Refusing to
+  update the fraction completed an invalid download bundle"). JottaFS keeps
+  set creation dates in memory (`CreationDates`;
+  [write design](write-support-design.md)).
+- **Volume owner.** `fskitd` mounts the volume, so `statfs` reports root
+  as its owner (`f_owner` 0, no "mounted by" in `mount`); Apple's FAT disks
+  mounted by DiskArbitration report the user. Safari's check of the
+  download location is about the folder's owner, which JottaFS reports as
+  the user, so this does not matter for downloads.
+
 ## Rule: never touch the volume from inside its own extension
 
 The extension (and the progress agent) must never call an API that accesses
@@ -380,8 +397,8 @@ use Advanced in the app. Findings for a later attempt (macOS 27.3):
 
 ## Development workflow
 
-- Checks: `swift build --target JottaFSKitExtension` and
-  `swift run jottafs-checks`. These do not build or sign the app; use
+- Checks: `make check` (Xcode project check, extension build,
+  `jottafs-checks`, `swift test`). These do not build or sign the app; use
   `JottaFS.xcodeproj` (or `make release` for a signed, notarized build).
 - A shell cannot mount: mounting needs the app's
   `com.apple.developer.fskit.mount` entitlement.

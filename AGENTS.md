@@ -41,11 +41,16 @@ location as a read-write volume.
   `String(localized:)` for texts that are not SwiftUI literals (JottaFSCore:
   `bundle: .jottaFSCore`). Norwegian uses "Aktiver / Deaktiver" for mount and
   unmount, and Jottacloud's own terms ("personlig login-token", "backup").
-- Run `swift build --target JottaFSKitExtension` and
-  `swift run jottafs-checks` for local checks. The Swift package
-  compilation does not validate app-extension packaging or mounting; use the
+- Run `make check` for local checks: the Xcode project check, the
+  extension build, `jottafs-checks` and the regression tests (`swift test`).
+  Every fixed bug gets a regression test. The Swift package compilation
+  does not validate app-extension packaging or mounting; use the
   `JottaFS.xcodeproj` with Xcode to build and validate the signed app and
-  FSKit extension.
+  FSKit extension, and `make probe VOLUME=/Volumes/<volume>` (live write
+  probe in `JottaFS-Test`) with that build installed.
+- A failing regression test or probe means a fixed bug is back: stop, tell
+  the owner, fix it, test, rebuild, install, probe and verify; publish only
+  when it is confirmed fixed (docs/releasing.md, "Tests").
 
 ## Releases
 

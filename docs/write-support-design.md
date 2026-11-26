@@ -55,9 +55,42 @@ MD5).
   copy and its "done" sound then mean the file is on Jottacloud, and a failed
   upload is returned from close (Finder reports the copy as failed). The upload
   uses an APFS clone of the copy, so later writes do not change the bytes
-  being sent. Deleting a file waits for its running upload; renames flush
-  first; `synchronize` uploads changed files; unmounting waits for pending and
-  running uploads.
+  being sent. Deleting a file stops its running upload (1.1.3; it waited
+  for it before); renames flush first; `synchronize` uploads changed files;
+  unmounting waits for pending and running uploads.
+- **Bounded uploads (1.1.3).** Because close(2) waits, an upload must not
+  take long when it is not getting anywhere (1.1.2: one 32 MB upload over a
+  poor connection held close for 13 minutes, and Finder stopped responding).
+  An attempt ends when no bytes go out for 30 s, or when no response comes
+  for 120 s after the whole body was sent. The upload gives up after two
+  attempts in a row that sent nothing (`UploadRetryPolicy`), so a dead
+  connection fails in about a minute. A slow connection that keeps sending
+  gets all five attempts.
+- **Waiting for an upload (1.1.3).** Only one upload of a file runs at a
+  time (`StagingArea.serializeUpload`); other callers wait for it. The
+  upload task removes its own registration before it completes, so a
+  waiter never finds a finished upload still registered. Before, the caller
+  removed it afterwards, and waiters that looped on the finished task (which
+  does not give up the thread) could take every thread of the pool first:
+  the extension hung after a large upload, with all threads busy. Sync also
+  skips a file whose upload is running instead of waiting for it.
+- **Creation dates (1.1.3).** Jottacloud keeps no creation date for
+  folders, and listings carry only the modification time. A creation date
+  set on an item (setattrlist, utimes) is kept in memory by path
+  (`CreationDates`), moved with renames, dropped with deletes and reported
+  back until the volume is unmounted. Safari's download helper needs this:
+  it marks each `name.download` bundle with a creation date and tags, and
+  refuses to update or move files out of a bundle whose date differs
+  ("invalid download bundle"). Before 1.1.3 the date was accepted but not
+  kept, so every Safari download ended with "Cannot move file".
+- **Size after upload (1.1.3).** A file's size, date and MD5 come from its
+  staged copy while it has one, and from what Jottacloud verified right
+  after the upload. They never come from a listing or overlay entry, which
+  can be older: `ItemStore.child` does not change a staged file's entry. In
+  1.1.2 a listing during the upload put back the 0 bytes that `create`
+  recorded, and the upload then recorded that 0. The overlay entry of a
+  created file stays until its upload records it again (at most 30
+  minutes), so a long upload does not drop the file from listings.
 - **After upload.** The local copy is deleted once the upload succeeded and
   the file is closed for writing and unchanged
   (`StagingArea.discardIfUploaded`), so copying many files needs local space
@@ -67,7 +100,9 @@ MD5).
   bytes).
 - **Failure.** If an upload fails, the copy stays and the item stays dirty:
   reads return the new data, the next close or sync retries, and the failure
-  is logged with a safe cause. A failing sync does not fail, because macOS
+  is logged with a safe cause. After a failure, sync and reclaim leave the
+  file alone for a while (30 s, doubling up to 15 minutes); close and rename
+  still try, because an app waits for them. A failing sync does not fail, because macOS
   syncs before unmounting and a permanently failing upload must not block the
   unmount (data still staged then is lost).
 - **Space.** There is no size limit of its own (the volume reports 64-bit file

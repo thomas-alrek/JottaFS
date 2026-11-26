@@ -308,6 +308,10 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
 - You cannot rename the disk in Finder. Use **Advanced** in JottaFS instead.
 - You cannot open files that are in the Trash.
 - Symbolic links and hard links are not supported.
+- Names with the characters `" * : < > ? | % \` cannot be used, because
+  Jottacloud cannot store them. Finder then shows "an unknown error
+  occurred (error code -50)". Images that you save from websites often
+  have a `?` in the name. Rename the file, then copy it again.
 - JottaFS keeps a full copy of a file on your Mac before the upload starts.
   Jottacloud must know the checksum of the complete file before the upload.
   Your Mac must have free space for the file that is uploading. JottaFS
@@ -381,11 +385,17 @@ Extensions** (step 2 above). JottaFS finds the change automatically.
 
 ## Development
 
-Build the extension code and run the checks:
+Build the extension code and run the checks and regression tests:
 
 ```sh
-swift build --target JottaFSKitExtension
-swift run jottafs-checks
+make check
+```
+
+With a build installed and a location mounted, the live write probe checks
+copies, downloads and attributes on the real volume (in `JottaFS-Test`):
+
+```sh
+make probe VOLUME=/Volumes/<disk name>
 ```
 
 These commands do not make or sign the app. Use Xcode to build, sign and test
