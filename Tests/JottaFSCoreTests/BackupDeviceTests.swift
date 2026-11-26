@@ -74,3 +74,24 @@ struct BackupDeviceListingTests {
         #expect(devices == [JottacloudBackupDevice(id: "a251", name: "JottaFS-Test-EAEB", path: "/backup/a251", type: 12)])
     }
 }
+
+@Suite("Upload confirmation")
+struct UploadConfirmationTests {
+    private let md5 = "d41d8cd98f00b204e9800998ecf8427e"
+
+    /// A response that says COMPLETED (with matching size and MD5, if
+    /// given) confirms the upload; no separate revision request is needed.
+    @Test func completedResponsesConfirm() {
+        #expect(JottacloudClient.uploadConfirmed(Data(#"{"state":"COMPLETED"}"#.utf8), size: 10, md5: md5))
+        #expect(JottacloudClient.uploadConfirmed(Data(#"{"state":"COMPLETED","bytes":10,"md5":"D41D8CD98F00B204E9800998ECF8427E"}"#.utf8), size: 10, md5: md5))
+    }
+
+    /// Anything else falls back to asking for the revision.
+    @Test func otherResponsesDoNotConfirm() {
+        #expect(!JottacloudClient.uploadConfirmed(Data(#"{"state":"INCOMPLETE"}"#.utf8), size: 10, md5: md5))
+        #expect(!JottacloudClient.uploadConfirmed(Data(#"{"state":"COMPLETED","bytes":9}"#.utf8), size: 10, md5: md5))
+        #expect(!JottacloudClient.uploadConfirmed(Data(#"{"state":"COMPLETED","md5":"0000"}"#.utf8), size: 10, md5: md5))
+        #expect(!JottacloudClient.uploadConfirmed(Data("<file/>".utf8), size: 10, md5: md5))
+        #expect(!JottacloudClient.uploadConfirmed(Data(), size: 10, md5: md5))
+    }
+}

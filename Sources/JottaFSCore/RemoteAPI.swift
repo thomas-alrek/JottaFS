@@ -1387,15 +1387,21 @@ extension JottacloudClient {
         // so Finder) waits for this, so attempts that send nothing end the
         // upload early (`UploadRetryPolicy`).
         var attemptsWithoutProgress = 0
+        // Jottacloud checks the body against the allocated size and MD5 and
+        // fails the upload otherwise (421, see the API notes), so a response
+        // that says COMPLETED needs no separate check afterwards.
+        var confirmed = false
         for attempt in 1...policy.maximumAttempts {
             let watchdog = UploadStallWatchdog(limit: policy.stallLimit, responseLimit: policy.responseLimit)
             do {
                 let allocated = try await allocateUpload(url: allocateURL, body: body, phase: phase)
                 phase?("allocated (state \(allocated.state ?? "none"), resume \(allocated.resumePosition ?? 0))")
                 if allocated.state == "COMPLETED" {
+                    // Identical content already there: nothing to send.
+                    confirmed = true
                     break
                 }
-                try await sendUpload(
+                let response = try await sendUpload(
                     allocated,
                     from: fileURL,
                     size: size,
@@ -1403,7 +1409,8 @@ extension JottacloudClient {
                     progress: progress,
                     phase: phase
                 )
-                phase?("transferred")
+                confirmed = Self.uploadConfirmed(response, size: size, md5: md5)
+                phase?(confirmed ? "transferred (completed, confirmed by the response)" : "transferred")
                 break
             } catch {
                 attemptsWithoutProgress = watchdog.bytesSent > 0 ? 0 : attemptsWithoutProgress + 1
@@ -1417,7 +1424,18 @@ extension JottacloudClient {
             }
         }
 
-        // The listing can lag slightly behind the upload; poll briefly.
+        if confirmed {
+            return RemoteEntry(
+                name: path.split(separator: "/").last.map(String.init) ?? path,
+                kind: .file,
+                size: size,
+                modified: modified,
+                md5: md5
+            )
+        }
+
+        // Not confirmed by the response: ask for the revision, polling
+        // briefly because the listing can lag slightly behind the upload.
         for attempt in 0..<8 {
             if let revision = try await fileRevision(volume: volume, path: path),
                revision.entry.size == size,
@@ -1461,7 +1479,7 @@ extension JottacloudClient {
         watchdog: UploadStallWatchdog,
         progress: (@Sendable (_ bytesSent: Int64) -> Void)?,
         phase: (@Sendable (String) -> Void)?
-    ) async throws {
+    ) async throws -> Data {
         guard let uploadURLString = allocated.uploadURL else {
             throw JottacloudError.unexpectedAllocateResponse(keys: ["missing upload_url"])
         }
@@ -1521,6 +1539,27 @@ extension JottacloudClient {
             phase?("upload rejected: HTTP \(response.statusCode)\(Self.errorSummary(response.data))")
         }
         try Self.checkSuccess(response.statusCode)
+        return response.data
+    }
+
+    /// Whether an upload response confirms the upload: state COMPLETED, and
+    /// the size and MD5 it reports (when it reports them) match. Anything
+    /// else (another state, no JSON) is not a confirmation.
+    static func uploadConfirmed(_ data: Data, size: UInt64, md5: String) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              (object["state"] as? String)?.uppercased() == "COMPLETED"
+        else {
+            return false
+        }
+        if let reported = object["md5"] as? String, reported.lowercased() != md5.lowercased() {
+            return false
+        }
+        for key in ["bytes", "size"] {
+            if let reported = (object[key] as? NSNumber)?.uint64Value, reported != size {
+                return false
+            }
+        }
+        return true
     }
 
     /// Jottacloud's error id and cause (an exception name) from an error
