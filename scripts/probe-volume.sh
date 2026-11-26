@@ -23,6 +23,8 @@
 #   3. A move from this Mac's disk onto the volume (NSFileManager), as
 #      Safari and other apps do with downloads.
 #   4. Setting and reading back a quarantine attribute on the volume.
+#   5. Running a script, a program and an app from the volume (files must
+#      be executable: before 1.2.1 apps on a Jottacloud disk did not open).
 
 set -uo pipefail
 
@@ -195,6 +197,44 @@ if xattr -w com.apple.quarantine "$value" "$RUN/quarantine.txt" 2>"$LOCAL/xattr.
 else
     fail "could not set the quarantine attribute: $(cat "$LOCAL/xattr.err")"
 fi
+
+# --- 5. Programs on the volume run ---------------------------------------------
+
+echo
+echo "5. A script, a program and an app on the volume run"
+printf '#!/bin/sh\necho script-ok\n' > "$RUN/probe-script.sh"
+if [[ "$("$RUN/probe-script.sh" 2>&1)" == "script-ok" ]]; then
+    pass "script runs"
+else
+    fail "script does not run (mode $(stat -f %Sp "$RUN/probe-script.sh"))"
+fi
+cp /bin/echo "$RUN/probe-echo"
+if [[ "$("$RUN/probe-echo" program-ok 2>&1)" == "program-ok" ]]; then
+    pass "program runs"
+else
+    fail "program does not run (mode $(stat -f %Sp "$RUN/probe-echo"))"
+fi
+# A minimal app whose executable writes a marker; opened like a double-click.
+APPDIR="$RUN/JottaFSProbe-$RANDOM.app"
+mkdir -p "$APPDIR/Contents/MacOS"
+cat > "$APPDIR/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>probe</string>
+<key>CFBundleIdentifier</key><string>no.alrek.jottafs.probe.$RANDOM</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSBackgroundOnly</key><true/>
+</dict></plist>
+PLIST
+printf '#!/bin/sh\ntouch "%s"\n' "$LOCAL/app-ran" > "$APPDIR/Contents/MacOS/probe"
+open -W -n "$APPDIR" 2>"$LOCAL/open.err"
+if [[ -f "$LOCAL/app-ran" ]]; then
+    pass "app opens"
+else
+    fail "app does not open: $(head -c 200 "$LOCAL/open.err")"
+fi
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u "$APPDIR" >/dev/null 2>&1
 
 echo
 if (( FAILURES == 0 )); then
