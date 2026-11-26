@@ -14,6 +14,8 @@ public enum JottacloudError: Error, LocalizedError {
     case tokenRefreshDisabled
     case untrustedUploadURL(host: String)
     case uploadNotVerified
+    /// An upload sent nothing for too long (`UploadRetryPolicy.stallLimit`).
+    case uploadStalled
     case unexpectedAllocateResponse(keys: [String])
     case grpcStatus(Int)
     case notInTrash
@@ -49,6 +51,8 @@ public enum JottacloudError: Error, LocalizedError {
             String(localized: "Jottacloud returned an upload URL on an untrusted host (\(host)).", bundle: .jottaFSCore)
         case .uploadNotVerified:
             String(localized: "Jottacloud did not confirm the uploaded file's size and checksum.", bundle: .jottaFSCore)
+        case .uploadStalled:
+            String(localized: "The upload to Jottacloud stopped making progress.", bundle: .jottaFSCore)
         case .unexpectedAllocateResponse(let keys):
             String(localized: "Unexpected upload allocation response (keys: \(keys.joined(separator: ", "))).", bundle: .jottaFSCore)
         case .grpcStatus(let status):
@@ -1356,7 +1360,8 @@ extension JottacloudClient {
         created: Date,
         modified: Date,
         progress: (@Sendable (_ bytesSent: Int64) -> Void)? = nil,
-        phase: (@Sendable (_ name: String) -> Void)? = nil
+        phase: (@Sendable (_ name: String) -> Void)? = nil,
+        policy: UploadRetryPolicy = .standard
     ) async throws -> RemoteEntry {
         let allocation = AllocateRequest(
             device: volume.device,
@@ -1371,11 +1376,14 @@ extension JottacloudClient {
         let allocateURL = Self.apiRoot.appending(path: "files/v1/allocate")
 
         // Allocate and send; on a transient failure (dropped connection,
-        // timeout, 5xx/429) allocate again with the same MD5 and send only
-        // what Jottacloud has not kept (it keeps interrupted uploads in
-        // 32 MiB blocks, reported as resume_pos).
-        let maximumAttempts = 5
-        for attempt in 1...maximumAttempts {
+        // timeout, stall, 5xx/429) allocate again with the same MD5 and send
+        // only what Jottacloud has not kept (it keeps interrupted uploads in
+        // 32 MiB blocks, reported as resume_pos). The caller (close(2), and
+        // so Finder) waits for this, so attempts that send nothing end the
+        // upload early (`UploadRetryPolicy`).
+        var attemptsWithoutProgress = 0
+        for attempt in 1...policy.maximumAttempts {
+            let watchdog = UploadStallWatchdog(limit: policy.stallLimit, responseLimit: policy.responseLimit)
             do {
                 let allocated = try await allocateUpload(url: allocateURL, body: body, phase: phase)
                 phase?("allocated (state \(allocated.state ?? "none"), resume \(allocated.resumePosition ?? 0))")
@@ -1386,14 +1394,20 @@ extension JottacloudClient {
                     allocated,
                     from: fileURL,
                     size: size,
+                    watchdog: watchdog,
                     progress: progress,
                     phase: phase
                 )
                 phase?("transferred")
                 break
-            } catch where attempt < maximumAttempts && Self.isTransientUploadFailure(error) {
-                let delay = 1 << attempt
-                phase?("transient failure on attempt \(attempt); retrying in \(delay)s")
+            } catch {
+                attemptsWithoutProgress = watchdog.bytesSent > 0 ? 0 : attemptsWithoutProgress + 1
+                guard policy.shouldRetry(after: error, attempt: attempt, attemptsWithoutProgress: attemptsWithoutProgress) else {
+                    phase?("gave up on attempt \(attempt) (\(attemptsWithoutProgress) without progress)")
+                    throw error
+                }
+                let delay = policy.delay(afterAttempt: attempt)
+                phase?("transient failure on attempt \(attempt); retrying in \(Int(delay))s")
                 try await Task.sleep(for: .seconds(delay))
             }
         }
@@ -1439,6 +1453,7 @@ extension JottacloudClient {
         _ allocated: AllocateResponse,
         from fileURL: URL,
         size: UInt64,
+        watchdog: UploadStallWatchdog,
         progress: (@Sendable (_ bytesSent: Int64) -> Void)?,
         phase: (@Sendable (String) -> Void)?
     ) async throws {
@@ -1457,20 +1472,45 @@ extension JottacloudClient {
         }
         let alreadySent = Int64(resume)
         progress?(alreadySent)
-        let delegate = progress.map { report in
-            UploadProgressDelegate { sent in report(alreadySent + sent) }
+        watchdog.start(expectedBytes: Int64(size - resume))
+        let delegate = UploadProgressDelegate { sent in
+            watchdog.progressed(to: sent)
+            progress?(alreadySent + sent)
         }
-        let response = try await authorizedSend(bodyFile: bodyFile, delegate: delegate) { token in
-            var request = Self.mutationRequest(
-                url: uploadURL,
-                accessToken: token,
-                contentType: "application/octet-stream",
-                body: nil
-            )
-            if resume > 0, size > 0 {
-                request.setValue("bytes=\(resume)-\(size - 1)", forHTTPHeaderField: "Range")
+        // The upload races a watchdog that ends it when no bytes go out for
+        // `stallLimit` (a poor connection can otherwise hold an attempt, and
+        // the close(2) waiting for it, for many minutes).
+        let response = try await withThrowingTaskGroup(of: (data: Data, statusCode: Int)?.self) { group in
+            group.addTask {
+                try await self.authorizedSend(bodyFile: bodyFile, delegate: delegate) { token in
+                    var request = Self.mutationRequest(
+                        url: uploadURL,
+                        accessToken: token,
+                        contentType: "application/octet-stream",
+                        body: nil
+                    )
+                    if resume > 0, size > 0 {
+                        request.setValue("bytes=\(resume)-\(size - 1)", forHTTPHeaderField: "Range")
+                    }
+                    return request
+                }
             }
-            return request
+            group.addTask {
+                while true {
+                    try await Task.sleep(for: .seconds(1))
+                    if watchdog.isStalled() {
+                        phase?("stalled after \(watchdog.bytesSent) bytes")
+                        throw JottacloudError.uploadStalled
+                    }
+                }
+            }
+            defer { group.cancelAll() }
+            while let result = try await group.next() {
+                if let result {
+                    return result
+                }
+            }
+            throw JottacloudError.uploadStalled
         }
         if !(200..<300).contains(response.statusCode) {
             phase?("upload rejected: HTTP \(response.statusCode)\(Self.errorSummary(response.data))")
@@ -1507,6 +1547,9 @@ extension JottacloudClient {
             default:
                 return false
             }
+        }
+        if case JottacloudError.uploadStalled = error {
+            return true
         }
         if case JottacloudError.httpStatus(let status) = error {
             // Overload and temporary server errors; 507 (quota full) and
@@ -1630,6 +1673,85 @@ extension JottacloudClient {
             try writer.write(contentsOf: chunk)
         }
         return (tail, true)
+    }
+}
+
+/// How long an upload may take while close(2) waits for it: attempts end when
+/// nothing is sent for `stallLimit`, and the upload gives up once
+/// `maximumAttemptsWithoutProgress` attempts in a row sent nothing. A slow
+/// connection that keeps sending is never cut off; a dead one fails in about
+/// a minute instead of after many (seen: 13 minutes, Finder unresponsive).
+public struct UploadRetryPolicy: Sendable {
+    public var maximumAttempts = 5
+    public var maximumAttemptsWithoutProgress = 2
+    /// Longest time without a byte sent while the body is being sent.
+    public var stallLimit: TimeInterval = 30
+    /// Longest wait for the response once the whole body is sent.
+    public var responseLimit: TimeInterval = 120
+    /// Delay before attempt `n + 1`.
+    public var baseDelay: TimeInterval = 1
+
+    public static let standard = UploadRetryPolicy()
+
+    public init() {}
+
+    /// Whether to try again after attempt `attempt` failed with `error`;
+    /// `attemptsWithoutProgress` counts the failed attempts in a row
+    /// (including this one) that sent nothing.
+    public func shouldRetry(after error: Error, attempt: Int, attemptsWithoutProgress: Int) -> Bool {
+        attempt < maximumAttempts
+            && attemptsWithoutProgress < maximumAttemptsWithoutProgress
+            && JottacloudClient.isTransientUploadFailure(error)
+    }
+
+    public func delay(afterAttempt attempt: Int) -> TimeInterval {
+        baseDelay * Double(1 << min(attempt, 6))
+    }
+}
+
+/// Notices when an upload attempt stops sending (see `UploadRetryPolicy`).
+public final class UploadStallWatchdog: @unchecked Sendable {
+    private let limit: TimeInterval
+    private let responseLimit: TimeInterval
+    private let lock = NSLock()
+    private var lastProgress: Date
+    private var sent: Int64 = 0
+    private var expected: Int64 = .max
+
+    public init(limit: TimeInterval, responseLimit: TimeInterval, now: Date = Date()) {
+        self.limit = limit
+        self.responseLimit = responseLimit
+        lastProgress = now
+    }
+
+    /// The body is about to be sent (`expectedBytes` long).
+    public func start(expectedBytes: Int64, now: Date = Date()) {
+        lock.withLock {
+            expected = expectedBytes
+            lastProgress = now
+        }
+    }
+
+    /// Bytes of the body sent so far in this attempt.
+    public var bytesSent: Int64 {
+        lock.withLock { sent }
+    }
+
+    public func progressed(to bytes: Int64, now: Date = Date()) {
+        lock.withLock {
+            guard bytes > sent else {
+                return
+            }
+            sent = bytes
+            lastProgress = now
+        }
+    }
+
+    public func isStalled(now: Date = Date()) -> Bool {
+        lock.withLock {
+            let allowed = sent >= expected ? responseLimit : limit
+            return now.timeIntervalSince(lastProgress) > allowed
+        }
     }
 }
 

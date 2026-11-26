@@ -207,6 +207,16 @@
         }
       }
     },
+    "The upload to Jottacloud stopped making progress." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opplastingen til Jottacloud stoppet opp."
+          }
+        }
+      }
+    },
     "Unexpected upload allocation response (keys: %@)." : {
       "localizations" : {
         "nb" : {

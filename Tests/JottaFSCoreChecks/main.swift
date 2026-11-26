@@ -19,6 +19,8 @@ enum RemoteAPIChecks {
         try reservesSpaceForStagedFiles()
         try encodesUploadRequestsAndParsesResponses()
         try classifiesTransientUploadFailures()
+        try boundsUploadsOnADeadConnection()
+        try detectsStalledUploads()
         try decodesTrashListingsAndMapsServicePaths()
         try parsesCompleteListingsAndSkipsDeletedOrIncompleteItems()
         try parsesDevicesAndTheirMountpoints()
@@ -403,6 +405,48 @@ enum RemoteAPIChecks {
         precondition(!JottacloudClient.isTransientUploadFailure(URLError(.cancelled)))
         precondition(!JottacloudClient.isTransientUploadFailure(JottacloudError.uploadNotVerified))
         precondition(!JottacloudClient.isTransientUploadFailure(JottacloudError.untrustedUploadURL(host: "x")))
+        precondition(JottacloudClient.isTransientUploadFailure(JottacloudError.uploadStalled))
+    }
+
+    /// Regression (1.1.2): an upload over a poor connection kept close(2),
+    /// and Finder with it, waiting for 13 minutes. Attempts that send nothing
+    /// now end the upload after two tries; a slow connection that keeps
+    /// sending still gets every attempt.
+    private static func boundsUploadsOnADeadConnection() throws {
+        let policy = UploadRetryPolicy.standard
+        let dropped = URLError(.networkConnectionLost)
+        precondition(policy.shouldRetry(after: dropped, attempt: 1, attemptsWithoutProgress: 1))
+        precondition(!policy.shouldRetry(after: dropped, attempt: 2, attemptsWithoutProgress: 2))
+        precondition(!policy.shouldRetry(after: JottacloudError.uploadStalled, attempt: 2, attemptsWithoutProgress: 2))
+        for attempt in 1..<policy.maximumAttempts {
+            precondition(policy.shouldRetry(after: dropped, attempt: attempt, attemptsWithoutProgress: 0))
+        }
+        precondition(!policy.shouldRetry(after: dropped, attempt: policy.maximumAttempts, attemptsWithoutProgress: 0))
+        precondition(!policy.shouldRetry(after: JottacloudError.httpStatus(403), attempt: 1, attemptsWithoutProgress: 0))
+        // Worst case for a connection that sends nothing: two stalled
+        // attempts and one pause, well under two minutes.
+        let worstCase = Double(policy.maximumAttemptsWithoutProgress) * policy.stallLimit
+            + policy.delay(afterAttempt: 1)
+        precondition(worstCase < 90, "\(worstCase)")
+        precondition(policy.delay(afterAttempt: 1) == 2 && policy.delay(afterAttempt: 4) == 16)
+    }
+
+    private static func detectsStalledUploads() throws {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let watchdog = UploadStallWatchdog(limit: 30, responseLimit: 120, now: start)
+        watchdog.start(expectedBytes: 1_000, now: start)
+        precondition(!watchdog.isStalled(now: start.addingTimeInterval(29)))
+        precondition(watchdog.isStalled(now: start.addingTimeInterval(31)))
+        // Progress resets the clock; repeating a count is not progress.
+        watchdog.progressed(to: 500, now: start.addingTimeInterval(31))
+        watchdog.progressed(to: 500, now: start.addingTimeInterval(55))
+        precondition(!watchdog.isStalled(now: start.addingTimeInterval(60)))
+        precondition(watchdog.isStalled(now: start.addingTimeInterval(62)))
+        precondition(watchdog.bytesSent == 500)
+        // Whole body sent: the server may take longer to answer.
+        watchdog.progressed(to: 1_000, now: start.addingTimeInterval(62))
+        precondition(!watchdog.isStalled(now: start.addingTimeInterval(62 + 100)))
+        precondition(watchdog.isStalled(now: start.addingTimeInterval(62 + 121)))
     }
 
     private static func parsesCompleteListingsAndSkipsDeletedOrIncompleteItems() throws {
