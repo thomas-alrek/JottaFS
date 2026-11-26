@@ -117,6 +117,14 @@ final class AppModel: ObservableObject {
         guard phase == .starting else {
             return
         }
+        #if DEBUG
+        // Debug builds only: start at the sign-in screen without touching
+        // the saved sign-in (for the README screenshots).
+        if CommandLine.arguments.contains("--preview-signed-out") {
+            phase = .signedOut
+            return
+        }
+        #endif
         observeVolumeChanges()
         do {
             credentialsDirectory = try JottaFSStorage.prepareCredentialsDirectory()

@@ -20,6 +20,81 @@ struct JottaFSApp: App {
 
 /// App-wide settings: the size of the download cache, which the file system
 /// extension reads from the shared settings, and clearing it.
+/// A Settings section like System Settings': a heading, a grey box with the
+/// controls, and an optional footnote.
+private struct SettingsSection<Content: View, Footer: View>: View {
+    let title: LocalizedStringKey
+    @ViewBuilder var content: Content
+    @ViewBuilder var footer: Footer
+
+    init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
+        self.title = title
+        self.content = content()
+        self.footer = footer()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            VStack(alignment: .leading, spacing: 10) {
+                content
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Like System Settings: a grey box on the window background,
+            // without a border, a little darker than a grouped Form's box
+            // (which nearly disappears in light mode).
+            .background(Color.primary.opacity(0.05), in: shape)
+            footer
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+        }
+    }
+
+    private var shape: ConcentricRectangle {
+        ConcentricRectangle(corners: .concentric(minimum: .fixed(12)), isUniform: true)
+    }
+}
+
+extension SettingsSection where Footer == EmptyView {
+    init(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) {
+        self.init(title, content: content, footer: { EmptyView() })
+    }
+}
+
+/// A switch with a title and a line of explanation, like System Settings.
+/// It only shows a state: switching it runs `action` (which opens System
+/// Settings, where the user decides).
+private struct SettingsSwitch: View {
+    let isOn: Bool
+    let title: LocalizedStringKey
+    let detail: LocalizedStringKey
+    let action: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Toggle(isOn: Binding(get: { isOn }, set: { _ in action() })) {
+                Text(title)
+            }
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+        }
+    }
+}
+
 private struct SettingsView: View {
     /// In MB; 0 is off.
     private static let sizes = [0, 256, 512, 1024, 2048, 4096, 8192]
@@ -37,12 +112,22 @@ private struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Cache size", selection: $limit) {
-                    ForEach(Self.sizes, id: \.self) { size in
-                        Text(Self.title(for: size)).tag(size)
+        // Sections laid out like System Settings: solid boxes that stand out
+        // from the window background in light and dark mode (a grouped
+        // Form's boxes are a faint fill that nearly disappears in light
+        // mode, and the Settings window cannot show a blurred background).
+        VStack(alignment: .leading, spacing: 20) {
+            SettingsSection("Download Cache") {
+                HStack {
+                    Text("Cache size")
+                    Spacer()
+                    Picker("Cache size", selection: $limit) {
+                        ForEach(Self.sizes, id: \.self) { size in
+                            Text(Self.title(for: size)).tag(size)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
                 .onChange(of: limit) { _, newValue in
                     do {
@@ -51,57 +136,40 @@ private struct SettingsView: View {
                         failure = String(localized: "JottaFS couldn’t save the setting.")
                     }
                 }
+                Divider()
                 usage
-            } header: {
-                Text("Download Cache")
             } footer: {
                 Text("JottaFS keeps recently downloaded file data on your Mac, so files you open again open immediately. When the cache is full, the oldest data is removed. A disk’s data is removed when you unmount it, and all of it when you restart your Mac.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            Section {
+            SettingsSection("File System") {
                 // macOS does not let an app turn its own extensions on or
                 // off: the switch opens System Settings and then shows what
                 // the user chose there (read every two seconds below).
-                Toggle(isOn: Binding(
-                    get: { fileSystemExtensionEnabled ?? false },
-                    set: { _ in _ = FSClient.shared.openFileSystemExtensionsSettings() }
-                )) {
-                    Text("Jottacloud disks")
-                    if fileSystemExtensionEnabled == false {
-                        Text("Turn on JottaFS under File System Extensions to mount Jottacloud locations as disks.")
-                    } else {
-                        Text("JottaFS can mount Jottacloud locations as disks in Finder.")
-                    }
-                }
+                SettingsSwitch(
+                    isOn: fileSystemExtensionEnabled ?? false,
+                    title: "Jottacloud disks",
+                    detail: fileSystemExtensionEnabled == false
+                        ? "Turn on JottaFS under File System Extensions to mount Jottacloud locations as disks."
+                        : "JottaFS can mount Jottacloud locations as disks in Finder.",
+                    action: { _ = FSClient.shared.openFileSystemExtensionsSettings() }
+                )
                 .disabled(fileSystemExtensionEnabled == nil)
                 .help("Opens File System Extensions in System Settings. Turn JottaFS on or off there.")
-            } header: {
-                Text("File System")
             }
-            Section {
-                Toggle(isOn: Binding(
-                    get: { finderExtensionEnabled },
-                    set: { _ in FIFinderSyncController.showExtensionManagementInterface() }
-                )) {
-                    Text("Share links in Finder")
-                    if finderExtensionEnabled {
-                        Text("Control-click a file or folder on a Jottacloud disk to copy its link.")
-                    } else {
-                        Text("Turn on JottaFS under Finder extensions to copy Jottacloud links from Finder.")
-                    }
-                }
+            SettingsSection("Finder") {
+                SettingsSwitch(
+                    isOn: finderExtensionEnabled,
+                    title: "Share links in Finder",
+                    detail: finderExtensionEnabled
+                        ? "Control-click a file or folder on a Jottacloud disk to copy its link."
+                        : "Turn on JottaFS under Finder extensions to copy Jottacloud links from Finder.",
+                    action: { FIFinderSyncController.showExtensionManagementInterface() }
+                )
                 .help("Opens the Finder extensions in System Settings. Turn JottaFS on or off there.")
-            } header: {
-                Text("Finder")
             }
         }
-        .formStyle(.grouped)
-        // The window is sized to fit the form, so it never scrolls; the
-        // Settings window would otherwise show an empty scroller track.
-        .scrollDisabled(true)
-        .scrollIndicators(.never)
+        .padding(20)
+        .buttonStyle(.glass)
         .frame(width: 460)
         .fixedSize(horizontal: false, vertical: true)
         .task {
@@ -138,12 +206,11 @@ private struct SettingsView: View {
     private var usage: some View {
         VStack(alignment: .leading, spacing: 8) {
             if limit > 0 {
-                Gauge(value: Double(min(used, limitBytes)), in: 0...Double(max(limitBytes, 1))) {
-                    EmptyView()
-                }
-                .gaugeStyle(.linearCapacity)
-                .clipShape(Capsule())
-                .tint(used * 10 >= limitBytes * 9 ? .orange : .accentColor)
+                // A progress bar: its track stays visible in light mode,
+                // also when the cache is empty.
+                ProgressView(value: Double(min(used, limitBytes)), total: Double(max(limitBytes, 1)))
+                    .progressViewStyle(.linear)
+                    .tint(used * 10 >= limitBytes * 9 ? .orange : .accentColor)
                 .accessibilityLabel("Cache used")
                 .accessibilityValue("\(Self.bytes(used)) of \(Self.bytes(limitBytes))")
             }
@@ -160,11 +227,11 @@ private struct SettingsView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 Spacer()
-                // Red, like Unmount: it deletes data.
+                // Red glass, like Unmount: it deletes data.
                 Button("Clear Cache…", role: .destructive) {
                     confirmsClear = true
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .tint(.red)
                 .disabled(used == 0)
             }
@@ -273,10 +340,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let hosting = NSHostingController(rootView: RootView().environmentObject(model).environmentObject(updater))
         // The window follows the fixed size of each screen.
         hosting.sizingOptions = [.preferredContentSize]
+        // SwiftUI toolbar items (Settings, account) go to the window's
+        // toolbar, in the Liquid Glass layer above the content.
+        hosting.sceneBridgingOptions = [.toolbars]
         let window = NSWindow(contentViewController: hosting)
         window.title = "JottaFS"
         // Only the close button: no minimize, and no zoom (fixed size).
-        window.styleMask = [.titled, .closable]
+        // The content reaches under the transparent title bar, so the
+        // window's blurred background (`WindowBackground`) fills it all.
+        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
         window.isReleasedWhenClosed = false
@@ -364,6 +439,14 @@ private struct RootView: View {
         .padding(32)
         // A fixed size per screen; the window is not resizable.
         .frame(width: windowSize.width - 64, height: windowSize.height - 64)
+        // Every button is Liquid Glass unless it says otherwise (primary
+        // actions use .glassProminent, text links stay links).
+        .buttonStyle(.glass)
+        // What is behind the window shows through, blurred.
+        .background {
+            WindowBackground()
+                .ignoresSafeArea()
+        }
         // Errors show in an alert, so the window layout never changes.
         .alert(
             model.alert?.title ?? "",
@@ -383,6 +466,24 @@ private struct RootView: View {
         }
 
     }
+}
+
+/// The window's background: what is behind the window, blurred (the
+/// material macOS uses for window backgrounds that let the desktop show
+/// through). Liquid Glass stays for the toolbar and the buttons on top.
+private struct WindowBackground: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .underWindowBackground
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        // Like other windows: less see-through while inactive.
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 private struct AppIcon: View {
@@ -425,7 +526,7 @@ private struct SignInView: View {
                         Text("Sign In with Jottacloud")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
                     Text("You sign in on jottacloud.com in your browser. JottaFS never sees your password.")
@@ -506,7 +607,7 @@ private struct TokenSignInView: View {
                     Text("Sign In")
                         .frame(minWidth: 100)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -593,6 +694,7 @@ private struct SignedInView: View {
                 Button("Sign Out…") {
                     confirmsSignOut = true
                 }
+                .buttonStyle(.glass)
                 .disabled(model.isBusy)
             }
 
@@ -655,19 +757,21 @@ private struct SignedInView: View {
                 )
             }
 
-            HStack {
+            FinderStatus()
+                .disabled(model.extensionEnabled == false && model.mounts.isEmpty)
+        }
+        .toolbar {
+            // In the window's toolbar (the Liquid Glass layer); the label is
+            // for VoiceOver, the icon is what shows.
+            ToolbarItem(placement: .primaryAction) {
                 // Opens the Settings window, like JottaFS → Settings….
                 SettingsLink {
                     Label("Settings", systemImage: "gearshape")
-                        .labelStyle(.iconOnly)
-                        .imageScale(.large)
                 }
-                .buttonStyle(.borderless)
+                // The toolbar's own glass, not a glass button on top of it.
+                .buttonStyle(.automatic)
                 .help("Settings")
-                FinderStatus()
-                    .disabled(model.extensionEnabled == false && model.mounts.isEmpty)
             }
-
         }
         .sheet(item: $advancedLocation) { location in
             AdvancedSettingsView(location: location)
@@ -734,7 +838,8 @@ private struct LocationPicker: View {
                                         LocationRow(
                                             location: location,
                                             isOpen: model.isMounted(location),
-                                            finderName: model.finderNameIfDifferent(of: location)
+                                            finderName: model.finderNameIfDifferent(of: location),
+                                            isSelected: model.selectedLocationID == location.id
                                         )
                                         .tag(location.id)
                                         .id(location.id)
@@ -767,10 +872,15 @@ private struct LocationPicker: View {
                     }
                 }
             }
-            .background(.background, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator))
+            // Rounded like the window and its controls (concentric with the
+            // window's corners, at least 12 pt), not a fixed radius.
+            .background(.background, in: Self.shape)
+            .clipShape(Self.shape)
+            .overlay(Self.shape.stroke(.separator, lineWidth: 1))
         }
     }
+
+    private static let shape = ConcentricRectangle(corners: .concentric(minimum: .fixed(12)), isUniform: true)
 
     private var selection: Binding<String?> {
         Binding(
@@ -823,12 +933,17 @@ private struct LocationRow: View {
     let isOpen: Bool
     /// The name in Finder, when it is not the location's own name.
     var finderName: String?
+    /// The selected row: its icon takes the text colour.
+    var isSelected = false
 
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: symbol)
                 .frame(width: 20)
-                .foregroundStyle(.tint)
+                // The accent colour; in the selected row the text colour
+                // (white on the accent-coloured selection, where an
+                // accent-coloured icon would disappear).
+                .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
             VStack(alignment: .leading, spacing: 1) {
                 Text(AppModel.ownName(of: location))
                 if let detail {
@@ -893,7 +1008,7 @@ private struct FinderStatus: View {
                 Button {} label: {
                     ButtonLabel(title: "Mount", activity: nil)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .controlSize(.large)
                 .disabled(true)
                 .help("Mounted. To unmount, eject “\(selectedName ?? String(localized: "the disk"))” in Finder.")
@@ -903,7 +1018,8 @@ private struct FinderStatus: View {
                 } label: {
                     ButtonLabel(title: "Unmount", activity: model.selectedActivity)
                 }
-                .buttonStyle(.borderedProminent)
+                // Red glass: it removes the location from Finder.
+                .buttonStyle(.glassProminent)
                 .tint(.red)
                 .controlSize(.large)
                 .help("Removes this location from Finder. Your files stay in Jottacloud.")
@@ -913,7 +1029,7 @@ private struct FinderStatus: View {
                 } label: {
                     ButtonLabel(title: "Mount", activity: model.selectedActivity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .disabled(model.selectedLocation == nil || model.extensionEnabled == false)
@@ -997,13 +1113,14 @@ private struct AdvancedSettingsView: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 Button("Save", action: save)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(isMounted || !isValid)
             }
         }
         .padding(24)
         .frame(width: 380)
+        .buttonStyle(.glass)
         .onAppear {
             name = model.customName(of: location) ?? ""
         }
@@ -1036,7 +1153,7 @@ private struct UpdateBanner: View {
                 Spacer()
                 Button("Later", action: updater.dismiss)
                 Button("Update", action: updater.install)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
             }
         case .downloading(let release, let progress):
             banner(systemImage: "arrow.down.circle.fill", title: "Downloading JottaFS \(release.version)…") {
@@ -1081,7 +1198,7 @@ private struct UpdateBanner: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.accentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.accentColor.opacity(0.08), in: ConcentricRectangle(corners: .concentric(minimum: .fixed(12)), isUniform: true))
     }
 }
 
@@ -1132,6 +1249,6 @@ private struct Notice: View {
             Spacer(minLength: 0)
         }
         .padding(14)
-        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .background(.orange.opacity(0.08), in: ConcentricRectangle(corners: .concentric(minimum: .fixed(12)), isUniform: true))
     }
 }
