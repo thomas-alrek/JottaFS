@@ -234,3 +234,27 @@ struct CreationDateRegression {
         #expect(dates.date(for: "a/folder-other") != nil)
     }
 }
+
+@Suite("Apps and scripts on a Jottacloud disk must run")
+struct ExecutePermissionRegression {
+    /// The bug: every file reported mode 0644 (Jottacloud keeps no
+    /// permissions), so macOS refused to run programs on the disk:
+    /// FileZilla.app in the root of a Jottacloud disk failed with
+    /// "access(…/Contents/MacOS/filezilla, X_OK) failed with errno 13".
+    /// Files in the location must carry the execute bits, like on FAT and
+    /// exFAT disks.
+    @Test func filesInTheLocationAreExecutable() {
+        let mode = JottaFSVolume.permissions(kind: .file, role: .remote(volume, path: "FileZilla.app/Contents/MacOS/filezilla"), writable: true)
+        #expect(mode == 0o755)
+        #expect(mode & 0o111 == 0o111)
+    }
+
+    @Test func otherItemsKeepTheirModes() {
+        // Folders, Finder's own files, read-only items and the Trash.
+        #expect(JottaFSVolume.permissions(kind: .directory, role: .remote(volume, path: "folder"), writable: true) == 0o755)
+        #expect(JottaFSVolume.permissions(kind: .file, role: .localFile(path: ".DS_Store"), writable: true) == 0o644)
+        #expect(JottaFSVolume.permissions(kind: .file, role: .volumeIcon, writable: false) == 0o444)
+        #expect(JottaFSVolume.permissions(kind: .directory, role: .trashes, writable: true) == 0o1333)
+        #expect(JottaFSVolume.permissions(kind: .directory, role: .userTrash, writable: true) == 0o700)
+    }
+}

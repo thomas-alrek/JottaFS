@@ -470,24 +470,9 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         attributes.fileID = FSItem.Identifier(item.identifier)
         attributes.parentID = FSItem.Identifier(item.parentIdentifier)
         attributes.type = itemType(item.entry.kind)
-        // Write bits only where writes are allowed, so the kernel rejects
-        // other writes before they reach the extension.
-        let writable = grantsWritePermission(item)
-        switch (item.entry.kind, writable) {
-        case (.directory, true): attributes.mode = 0o755
-        case (.directory, false): attributes.mode = 0o555
-        case (.file, true): attributes.mode = 0o644
-        case (.file, false): attributes.mode = 0o444
-        }
-        switch item.role {
-        case .trashes:
-            // Like a real volume's `.Trashes`: d-wx-wx-wt.
-            attributes.mode = 0o1333
+        attributes.mode = Self.permissions(kind: item.entry.kind, role: item.role, writable: grantsWritePermission(item))
+        if case .trashes = item.role {
             attributes.flags = UInt32(UF_HIDDEN)
-        case .userTrash:
-            attributes.mode = 0o700
-        default:
-            break
         }
         if case .volumeIcon = item.role {
             attributes.flags = UInt32(UF_HIDDEN)
@@ -560,6 +545,36 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
             JottacloudDirectoryEntry(entry: iconEntry, role: .volumeIcon),
             JottacloudDirectoryEntry(entry: markerEntry, role: .timeMachineMarker),
         ]
+    }
+
+    /// The mode bits an item reports. Write bits only where writes are
+    /// allowed, so the kernel rejects other writes before they reach the
+    /// extension.
+    ///
+    /// Jottacloud keeps no Unix permissions, so files in the location are
+    /// all executable (0755), like on FAT and exFAT disks: without the
+    /// execute bit macOS refuses to run apps, scripts and tools on the disk
+    /// (`access(…, X_OK)` fails with EACCES; before 1.2.1 an app such as
+    /// FileZilla.app could not be opened from a Jottacloud disk). Finder's
+    /// own files kept on this Mac (`.DS_Store`, `._*`) stay 0644.
+    static func permissions(kind: RemoteEntry.Kind, role: JottacloudItemRole, writable: Bool) -> UInt32 {
+        switch role {
+        case .trashes:
+            // Like a real volume's `.Trashes`: d-wx-wx-wt.
+            return 0o1333
+        case .userTrash:
+            return 0o700
+        case .localFile, .trashLocal:
+            return writable ? 0o644 : 0o444
+        default:
+            break
+        }
+        switch (kind, writable) {
+        case (.directory, true): return 0o755
+        case (.directory, false): return 0o555
+        case (.file, true): return 0o755
+        case (.file, false): return 0o444
+        }
     }
 
     func isVolumeRoot(_ item: JottacloudItem) -> Bool {
