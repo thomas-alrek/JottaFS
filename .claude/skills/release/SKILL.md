@@ -62,18 +62,22 @@ Run `scripts/release.sh <bump>` in the background (Bash
    with Gatekeeper (`scripts/build-release.sh`);
 3. removes `build/release`;
 4. updates the Homebrew casks (`Casks/jottafs.rb` and the pinned
-   `Casks/jottafs@<version>.rb` through `scripts/update-cask.sh`), commits
-   them with `VERSION` as "Release <version>", tags `v<version>`, pushes the
+   `Casks/jottafs@<version>.rb` through `scripts/update-cask.sh`) and the
+   website's download links (`site/index.html` through
+   `scripts/update-site.sh`, pointing at
+   `releases/download/v<version>/JottaFS-<version>.dmg`), commits them
+   with `VERSION` as "Release <version>", tags `v<version>`, pushes the
    branch and the tag, and creates the GitHub release with the DMG and the
    notes (`scripts/publish-release.sh --yes`);
-5. checks that the asset's checksum, the casks and the latest release
-   match, and runs `brew style` on the casks.
+5. checks that the asset's checksum, the casks, the website's download
+   link and the latest release match, and runs `brew style` on the casks.
 
 ## 5. Report
 
 When it finishes, read the end of the log. On success, tell the owner the
 release URL, the commits pushed (`git log --oneline` since the previous
-release) and anything the script warned about. On failure, report the
+release) and anything the script warned about. Remind them to deploy the
+updated `site/` to jottafs.alrek.no. On failure, report the
 failing step and the error; nothing is tagged or pushed if the build fails.
 If it failed after tagging, do not delete tags or releases without asking.
 
@@ -88,6 +92,9 @@ If it failed after tagging, do not delete tags or releases without asking.
 - Every published release updates the casks (AGENTS.md, "Releases"); the
   script does this. If a release is ever published another way, run
   `scripts/update-cask.sh <version> <sha256>`, commit `Casks/` and push.
+- Every published release also updates the website's download links; the
+  script does this. If a release is ever published another way, run
+  `scripts/update-site.sh <version>`, commit `site/index.html` and push.
 - Use `HOMEBREW_DEVELOPER=1` only per command for Homebrew developer
   commands, so developer mode is not switched on permanently.
 - If notarization or signing fails because of Apple account setup (for

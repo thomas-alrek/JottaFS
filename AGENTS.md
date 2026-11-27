@@ -74,6 +74,10 @@ location as a read-write volume.
   `Casks/`. Check the casks with
   `HOMEBREW_DEVELOPER=1 brew style Casks/*.rb` (the variable keeps
   Homebrew's developer mode from being switched on permanently).
+- The website (`site/`, jottafs.alrek.no) links directly to the latest
+  DMG. `scripts/publish-release.sh` updates the links through
+  `scripts/update-site.sh <version>` and commits `site/index.html` with
+  the release; run it yourself if a release is published by other means.
 - Write `docs/release-notes/<version>.md` before building; the build copies
   it into the changelog of the GitHub release.
 - Do not tag, push or publish a release until the owner asks for it.

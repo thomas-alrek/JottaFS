@@ -170,7 +170,11 @@ make publish
 Then it runs `scripts/update-cask.sh`, which sets the version and the DMG's
 SHA-256 in the Homebrew cask (`Casks/jottafs.rb`) and adds a pinned cask
 for the version (`Casks/jottafs@<version>.rb`, installed with
-`brew install --cask jottafs@<version>`). It commits the casks with
+`brew install --cask jottafs@<version>`). Then it runs
+`scripts/update-site.sh`, which points the download links on the website
+(`site/index.html`, jottafs.alrek.no) at the release's DMG,
+`https://github.com/thomas-alrek/JottaFS/releases/download/v<version>/JottaFS-<version>.dmg`.
+It commits the casks and the page with
 `VERSION`, tags the commit
 `v<version>`, pushes the branch and the tag, and creates the GitHub release
 with the changelog and the DMG.
@@ -180,3 +184,6 @@ https://github.com/thomas-alrek/JottaFS`), so the cask on `main` is what
 `brew install --cask jottafs` and `brew upgrade` use. Check the cask with
 `HOMEBREW_DEVELOPER=1 brew style Casks/jottafs.rb` (the variable keeps
 Homebrew's developer mode from being switched on permanently).
+
+The website in `site/` is deployed separately: after a release, deploy
+the updated `site/` so its download links point at the new DMG.

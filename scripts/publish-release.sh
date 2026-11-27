@@ -1,6 +1,7 @@
 #!/bin/bash
 # Publishes the release that scripts/build-release.sh built last:
-#   1. commits VERSION ("Release <version>"),
+#   1. updates the Homebrew casks and the website's download links, and
+#      commits them with VERSION ("Release <version>"),
 #   2. tags the commit v<version> and pushes the branch and the tag,
 #   3. creates a GitHub release with the changelog and the DMG attached.
 #
@@ -38,7 +39,7 @@ CHANGELOG="dist/$APP_NAME-$VERSION-CHANGELOG.md"
 [[ -f "$DMG" ]] || fail "$DMG does not exist."
 [[ -f "$CHANGELOG" ]] || fail "$CHANGELOG does not exist."
 ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || fail "The tag $TAG already exists."
-[[ -z "$(git status --porcelain | grep -vE ' (VERSION|Casks/[^ ]+\.rb)$' || true)" ]] \
+[[ -z "$(git status --porcelain | grep -vE ' (VERSION|Casks/[^ ]+\.rb|site/index\.html)$' || true)" ]] \
     || fail "The working tree has changes other than VERSION. Commit or stash them first."
 xcrun stapler validate "$DMG" >/dev/null 2>&1 \
     || printf '\033[33mwarning:\033[0m %s has no notarization ticket.\n' "$DMG"
@@ -51,16 +52,18 @@ echo
 cat "$CHANGELOG"
 echo
 if [[ "$ASSUME_YES" != 1 ]]; then
-    read -r -p "Commit VERSION and the Homebrew casks, tag $TAG, push and create the GitHub release? [y/N] " answer
+    read -r -p "Commit VERSION, the Homebrew casks and the website, tag $TAG, push and create the GitHub release? [y/N] " answer
     [[ "$answer" == [yY] ]] || { echo "Cancelled."; exit 1; }
 fi
 
 # The Homebrew casks: Casks/jottafs.rb points at this release's DMG, and
 # Casks/jottafs@<version>.rb keeps this version installable later.
 scripts/update-cask.sh "$VERSION" "$(shasum -a 256 "$DMG" | cut -d ' ' -f 1)"
+# The website's download links point at this release's DMG.
+scripts/update-site.sh "$VERSION"
 
-if [[ -n "$(git status --porcelain VERSION Casks)" ]]; then
-    git add VERSION Casks
+if [[ -n "$(git status --porcelain VERSION Casks site/index.html)" ]]; then
+    git add VERSION Casks site/index.html
     git commit -q -m "Release $VERSION"
 fi
 git tag -a "$TAG" -m "$APP_NAME $VERSION"

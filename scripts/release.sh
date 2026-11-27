@@ -19,8 +19,8 @@
 #      check, notarize and staple the app and the DMG, Gatekeeper check;
 #   3. removes build/release (extra app copies confuse ExtensionKit);
 #   4. scripts/publish-release.sh --yes: updates the Homebrew casks
-#      (Casks/jottafs.rb and Casks/jottafs@<version>.rb), commits them with
-#      VERSION, tags v<version>, pushes the branch and the tag, and creates
+#      (Casks/jottafs.rb and Casks/jottafs@<version>.rb) and the website's
+#      download links (site/index.html), commits them with VERSION, tags v<version>, pushes the branch and the tag, and creates
 #      the GitHub release with the DMG and the notes;
 #   5. checks the published release and the casks.
 #
@@ -111,6 +111,7 @@ LATEST="$(gh api repos/thomas-alrek/JottaFS/releases/latest --jq .tag_name)"
 [[ "$LATEST" == "v$NEXT" ]] || fail "The latest release on GitHub is $LATEST, not v$NEXT."
 grep -q "^  sha256 \"$SHA\"" Casks/jottafs.rb || fail "Casks/jottafs.rb does not have the DMG's checksum."
 grep -q "^  sha256 \"$SHA\"" "Casks/jottafs@$NEXT.rb" || fail "Casks/jottafs@$NEXT.rb does not have the DMG's checksum."
+grep -qF "releases/download/v$NEXT/JottaFS-$NEXT.dmg" site/index.html || fail "site/index.html does not link to the $NEXT DMG."
 if command -v brew >/dev/null; then
     # HOMEBREW_DEVELOPER only for this command, so developer mode stays off.
     HOMEBREW_DEVELOPER=1 HOMEBREW_NO_AUTO_UPDATE=1 brew style Casks/*.rb >/dev/null 2>&1 \
