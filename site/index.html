@@ -8,7 +8,7 @@
 <meta name="color-scheme" content="light dark">
 <meta property="og:title" content="JottaFS">
 <meta property="og:description" content="Your Jottacloud files in Finder on your Mac, as a disk.">
-<meta property="og:image" content="https://jottafs.alrek.no/images/finder.png">
+<meta property="og:image" content="https://jottafs.alrek.no/images/app-icon.png">
 <meta property="og:url" content="https://jottafs.alrek.no/">
 <link rel="canonical" href="https://jottafs.alrek.no/">
 <link rel="icon" type="image/png" href="images/app-icon.png">
@@ -73,7 +73,7 @@
   @media (max-width: 640px) { nav .links a:not(.keep) { display: none; } }
 
   /* Hero */
-  .hero { text-align: center; padding: 0 0 40px; position: relative; overflow: hidden; }
+  .hero { text-align: center; padding: 0; position: relative; overflow: hidden; }
   .hero-intro {
     min-height: calc(100vh - 53px); min-height: calc(100svh - 53px);
     display: flex; flex-direction: column; justify-content: center; padding: 48px 0;
@@ -103,8 +103,6 @@
   .btn.secondary { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
   .btn svg { width: 18px; height: 18px; }
   .meta { margin-top: 16px; font-size: 14px; color: var(--muted); }
-  .hero-shot { margin: 0 auto; max-width: 980px; }
-  .hero-shot img { margin: 0 auto; border-radius: 12px; }
 
   /* Sections */
   section { padding: 88px 0; }
@@ -224,9 +222,6 @@
       <a class="btn secondary" href="#install">Install with Homebrew</a>
     </div>
     <p class="meta">Free and open source · macOS 27 or later · Apple silicon</p>
-    </div>
-    <div class="hero-shot">
-      <img src="images/finder.png" width="1518" height="750" alt="Finder with the Jottacloud location Archive mounted as a disk, in the sidebar and next to Macintosh HD">
     </div>
   </div>
 </header>
