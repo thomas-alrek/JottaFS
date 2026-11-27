@@ -2016,6 +2016,26 @@
           }
         }
       }
+    },
+    "Turn JottaFS off and on in System Settings" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slå JottaFS av og på i Systeminnstillinger"
+          }
+        }
+      }
+    },
+    "macOS uses the file system extension of another copy of JottaFS (%@). Turn JottaFS off and on again under File System Extensions, so that this version is used. If the message stays, delete the other copy." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "macOS bruker filsystemutvidelsen fra en annen kopi av JottaFS (%@). Slå JottaFS av og på igjen under Filsystemutvidelser, slik at denne versjonen brukes. Hvis meldingen ikke forsvinner, sletter du den andre kopien."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

@@ -66,6 +66,12 @@ final class AppModel: ObservableObject {
     @Published var alert: AppAlert?
     /// nil while unknown.
     @Published private(set) var extensionEnabled: Bool?
+    /// The file system extension macOS uses, when it is not the one in this
+    /// app (another copy of JottaFS, such as an older version or a
+    /// development build); nil when it is this app's own.
+    @Published private(set) var otherExtensionURL: URL?
+    /// The extension paths last logged.
+    private var reportedExtensionPaths: [String]?
     @Published private(set) var progressAgentNeedsApproval = false
     /// The locations to mount at login, in the order they were turned on.
     @Published private(set) var loginLocations: [JottacloudRemoteVolume] = []
@@ -193,7 +199,18 @@ final class AppModel: ObservableObject {
         extensionWatch?.cancel()
         extensionWatch = nil
         if let extensions = try? await FSClient.shared.installedExtensions {
-            let enabled = extensions.first { $0.bundleIdentifier == Self.extensionBundleID }?.isEnabled ?? false
+            let modules = extensions.filter { $0.bundleIdentifier == Self.extensionBundleID }
+            let enabled = modules.first?.isEnabled ?? false
+            let paths = modules.map(\.url.path)
+            if paths != reportedExtensionPaths {
+                reportedExtensionPaths = paths
+                extensionLogger.notice("FSKit reports the JottaFS extension at \(paths.isEmpty ? "(none)" : paths.joined(separator: ", "), privacy: .public); this app's is \(Self.ownExtensionURL.path, privacy: .public)")
+            }
+            let other = JottaFSExtensionCheck.otherExtension(in: modules.map(\.url), own: Self.ownExtensionURL)
+            if other != otherExtensionURL, let other {
+                extensionLogger.notice("macOS uses the extension of another JottaFS copy: \(other.path, privacy: .public)")
+            }
+            otherExtensionURL = other
             let wasDisabled = extensionEnabled == false
             let wasEnabled = extensionEnabled == true
             extensionEnabled = enabled
@@ -217,6 +234,12 @@ final class AppModel: ObservableObject {
             await self.refreshExtensionState()
         }
     }
+
+    /// This app's own file system extension.
+    static var ownExtensionURL: URL {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/Extensions/JottaFSKitExtension.appex", isDirectory: true)
+    }
+
 
     // MARK: Sign in with the browser
 
@@ -1511,6 +1534,7 @@ final class AuthenticationPresenter: NSObject, ASWebAuthenticationPresentationCo
 
 private let signInLogger = Logger(subsystem: "no.alrek.jottafs", category: "SignIn")
 private let loginLogger = Logger(subsystem: "no.alrek.jottafs", category: "Login")
+private let extensionLogger = Logger(subsystem: "no.alrek.jottafs", category: "Extension")
 
 /// Lets a session's completion handler recognise its own session.
 private final class SessionReference: @unchecked Sendable {

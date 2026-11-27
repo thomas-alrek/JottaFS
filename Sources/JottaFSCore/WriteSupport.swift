@@ -201,3 +201,28 @@ struct RemoteFileRevision: Equatable {
     let entry: RemoteEntry
     let md5: String?
 }
+
+/// Whether macOS runs this app's own file system extension. After an
+/// install, macOS can keep using the extension of another copy of JottaFS
+/// (an older version or a development build), and the disks then run old
+/// code (found 2026-11-27: a DerivedData build served the volume).
+public enum JottaFSExtensionCheck {
+    /// The extension macOS reports (`FSModuleIdentity.url`) when none of
+    /// `urls` is `own`; nil when one is, or when there are none (not
+    /// installed or not reported: nothing to compare).
+    public static func otherExtension(in urls: [URL], own: URL) -> URL? {
+        let ownPath = normalized(own)
+        guard !urls.isEmpty, !urls.contains(where: { normalized($0) == ownPath }) else {
+            return nil
+        }
+        return urls.first
+    }
+
+    private static func normalized(_ url: URL) -> String {
+        var path = url.resolvingSymlinksInPath().standardizedFileURL.path
+        while path.count > 1, path.hasSuffix("/") {
+            path.removeLast()
+        }
+        return path
+    }
+}

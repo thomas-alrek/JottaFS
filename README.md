@@ -388,9 +388,12 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
 
 ## Troubleshooting
 
-**"JottaFS couldn't mount the location" with `com.apple.extensionKit.errorDomain
-error 2`.** More than one copy of JottaFS is on your Mac (for example an old
-copy, or a build from Xcode), and macOS uses the extension of a different copy.
+**"Turn JottaFS off and on in System Settings", or "JottaFS couldn't mount
+the location" with `com.apple.extensionKit.errorDomain error 2`.** More than
+one copy of JottaFS is on your Mac (for example an old copy, or a build from
+Xcode), and macOS uses the extension of a different copy. JottaFS shows the
+first message, with the path of the other copy, when it finds this. Your
+disks then do not get the changes of the JottaFS version that you use.
 
 1. Quit JottaFS. Delete the other copies of JottaFS, and empty the Trash.
 2. Quit System Settings. Then open **System Settings → General → Login Items

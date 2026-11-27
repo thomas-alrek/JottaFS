@@ -822,6 +822,17 @@ private struct SignedInView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var window: WindowState
 
+    /// The app that holds an extension, with "~" for the home folder:
+    /// ".../JottaFS.app/Contents/Extensions/X.appex" → "~/…/JottaFS.app".
+    static func shortPath(_ extensionURL: URL) -> String {
+        let app = extensionURL.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let path = app.pathExtension == "app" ? app.path : extensionURL.path
+        // The real home folder (in the sandbox, NSHomeDirectory() is the
+        // app's container).
+        let home = getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
+        return path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             UpdateBanner()
@@ -832,6 +843,18 @@ private struct SignedInView: View {
                     systemImage: "exclamationmark.circle.fill",
                     title: "Allow JottaFS in System Settings",
                     message: "macOS needs your permission once before Jottacloud can appear in Finder. Turn on JottaFS under File System Extensions.",
+                    buttonTitle: "Open System Settings",
+                    action: model.openExtensionSettings
+                )
+            } else if let other = model.otherExtensionURL {
+                // macOS runs the disks with another copy's extension (an
+                // older version or a development build): this version's
+                // changes would not apply.
+                Notice(
+                    style: .warning,
+                    systemImage: "exclamationmark.circle.fill",
+                    title: "Turn JottaFS off and on in System Settings",
+                    message: "macOS uses the file system extension of another copy of JottaFS (\(Self.shortPath(other))). Turn JottaFS off and on again under File System Extensions, so that this version is used. If the message stays, delete the other copy.",
                     buttonTitle: "Open System Settings",
                     action: model.openExtensionSettings
                 )
