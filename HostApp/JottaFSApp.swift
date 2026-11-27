@@ -822,6 +822,22 @@ private struct SignedInView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var window: WindowState
 
+    private var staleNames: String {
+        RemovalConfirmation.names(model.staleMounts, model: model, finder: true)
+    }
+
+    private var staleTitle: String {
+        model.staleMounts.count == 1
+            ? String(localized: "\(staleNames) uses an older version of JottaFS")
+            : String(localized: "Some disks use an older version of JottaFS")
+    }
+
+    private var staleMessage: String {
+        model.staleMounts.count == 1
+            ? String(localized: "The disk was mounted before JottaFS was updated, or by another copy of JottaFS. It gets the changes of this version when it is mounted again.")
+            : String(localized: "\(staleNames) were mounted before JottaFS was updated, or by another copy of JottaFS. They get the changes of this version when they are mounted again.")
+    }
+
     /// The app that holds an extension, with "~" for the home folder:
     /// ".../JottaFS.app/Contents/Extensions/X.appex" → "~/…/JottaFS.app".
     static func shortPath(_ extensionURL: URL) -> String {
@@ -858,6 +874,18 @@ private struct SignedInView: View {
                     buttonTitle: "Open System Settings",
                     action: model.openExtensionSettings
                 )
+            } else if !model.staleMounts.isEmpty {
+                // Disks mounted before an update keep the old extension
+                // until they are mounted again.
+                Notice(
+                    style: .warning,
+                    systemImage: "exclamationmark.circle.fill",
+                    title: Text(staleTitle),
+                    message: Text(staleMessage),
+                    buttonTitle: Text("Mount Again"),
+                    action: { Task { await model.remountStaleLocations() } }
+                )
+                .disabled(model.isBusy)
             }
 
             LocationPicker()
@@ -1726,10 +1754,23 @@ private struct Notice: View {
 
     var style: Style = .warning
     let systemImage: String
-    let title: LocalizedStringKey
-    let message: LocalizedStringKey
-    let buttonTitle: LocalizedStringKey
+    let title: Text
+    let message: Text
+    let buttonTitle: Text
     let action: () -> Void
+
+    init(style: Style = .warning, systemImage: String, title: Text, message: Text, buttonTitle: Text, action: @escaping () -> Void) {
+        self.style = style
+        self.systemImage = systemImage
+        self.title = title
+        self.message = message
+        self.buttonTitle = buttonTitle
+        self.action = action
+    }
+
+    init(style: Style = .warning, systemImage: String, title: LocalizedStringKey, message: LocalizedStringKey, buttonTitle: LocalizedStringKey, action: @escaping () -> Void) {
+        self.init(style: style, systemImage: systemImage, title: Text(title), message: Text(message), buttonTitle: Text(buttonTitle), action: action)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -1738,11 +1779,13 @@ private struct Notice: View {
                 .foregroundStyle(color)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.headline)
-                Text(message)
+                title.font(.headline)
+                message
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button(buttonTitle, action: action)
+                Button(action: action) {
+                    buttonTitle
+                }
             }
             Spacer(minLength: 0)
         }

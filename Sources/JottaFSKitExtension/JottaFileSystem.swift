@@ -12,6 +12,8 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
     )!
     private let logger = Logger.extension("Resource")
     private var activeResourceURL: URL?
+    /// The anchor of the loaded resource (its serving-extension record).
+    private var activeAnchorName: String?
 
     /// A resource this file system mounts: a location's mount anchor (an
     /// empty directory as a path resource, which makes the mount local).
@@ -124,6 +126,8 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
                 accountIdentifier: credentials.username
             )
             activeResourceURL = resourceURL
+            activeAnchorName = anchorName
+            recordServingExtension(anchorName: anchorName)
             containerStatus = .ready
             return volume
         } catch {
@@ -179,6 +183,25 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
             throw POSIXError(.EINVAL)
         }
         activeResourceURL = nil
+        if let activeAnchorName {
+            JottaFSStorage.removeServingExtension(anchorName: activeAnchorName)
+        }
+        activeAnchorName = nil
+    }
+
+    /// Tells the app which extension serves the anchor (this one), so it can
+    /// see a disk that is still served by an older version after an update.
+    private func recordServingExtension(anchorName: String) {
+        let bundle = Bundle.main
+        let record = JottaFSStorage.ServingExtension(
+            path: bundle.bundleURL.path,
+            version: bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        )
+        do {
+            try JottaFSStorage.recordServingExtension(record, anchorName: anchorName)
+        } catch {
+            logger.error("Could not record the serving extension (\((error as NSError).code, privacy: .public)).")
+        }
     }
 }
 

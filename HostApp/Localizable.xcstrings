@@ -2036,6 +2036,56 @@
           }
         }
       }
+    },
+    "Mount Again" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiver på nytt"
+          }
+        }
+      }
+    },
+    "%@ uses an older version of JottaFS" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bruker en eldre versjon av JottaFS"
+          }
+        }
+      }
+    },
+    "Some disks use an older version of JottaFS" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Noen disker bruker en eldre versjon av JottaFS"
+          }
+        }
+      }
+    },
+    "The disk was mounted before JottaFS was updated, or by another copy of JottaFS. It gets the changes of this version when it is mounted again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disken ble aktivert før JottaFS ble oppdatert, eller av en annen kopi av JottaFS. Den får endringene i denne versjonen når den aktiveres på nytt."
+          }
+        }
+      }
+    },
+    "%@ were mounted before JottaFS was updated, or by another copy of JottaFS. They get the changes of this version when they are mounted again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ble aktivert før JottaFS ble oppdatert, eller av en annen kopi av JottaFS. De får endringene i denne versjonen når de aktiveres på nytt."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

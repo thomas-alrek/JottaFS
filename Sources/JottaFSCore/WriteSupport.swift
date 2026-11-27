@@ -218,6 +218,16 @@ public enum JottaFSExtensionCheck {
         return urls.first
     }
 
+    /// Whether a mounted disk is served by the extension `own`. No record
+    /// means an extension from before 1.4.2, which does not record itself:
+    /// not this app's.
+    public static func isServedBy(own: URL, record: JottaFSStorage.ServingExtension?) -> Bool {
+        guard let record else {
+            return false
+        }
+        return normalized(URL(fileURLWithPath: record.path, isDirectory: true)) == normalized(own)
+    }
+
     private static func normalized(_ url: URL) -> String {
         var path = url.resolvingSymlinksInPath().standardizedFileURL.path
         while path.count > 1, path.hasSuffix("/") {

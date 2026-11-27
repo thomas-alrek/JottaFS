@@ -402,6 +402,11 @@ disks then do not get the changes of the JottaFS version that you use.
 
 If the problem continues, restart your Mac.
 
+**"Arkiv uses an older version of JottaFS".** A disk keeps the version of
+JottaFS that mounted it, also after you update JottaFS or turn the extension
+off and on. Click **Mount Again** to unmount the disk and mount it again with
+this version. If a file on the disk is open, close it first.
+
 **The sidebar shows an old icon for a disk, not the drive icon.** Finder
 keeps the old icon after an update. Relaunch Finder: hold Option,
 Control-click the Finder icon in the Dock and choose **Relaunch**.

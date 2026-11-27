@@ -277,6 +277,81 @@ public enum JottaFSStorage {
 
     static let anchorLocationFileName = "Location.plist"
 
+    // MARK: Serving extensions
+
+    /// Which file system extension serves a mounted location. The extension
+    /// records itself when it loads a mount anchor and removes the record
+    /// when it unloads it; the app compares the record with its own
+    /// extension. A disk that stays mounted across an update keeps the
+    /// extension process that mounted it, so it runs the old version until
+    /// it is mounted again (found 2026-11-27).
+    public struct ServingExtension: Codable, Equatable, Sendable {
+        /// The extension bundle's path.
+        public let path: String
+        /// Its `CFBundleShortVersionString`.
+        public let version: String
+
+        public init(path: String, version: String) {
+            self.path = path
+            self.version = version
+        }
+    }
+
+    /// `<app group>/ServingExtensions`, one property list per anchor.
+    public static func servingExtensionsDirectoryURL() -> URL? {
+        FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: applicationGroupIdentifier
+        )?
+        .appendingPathComponent("ServingExtensions", isDirectory: true)
+        .standardizedFileURL
+    }
+
+    private static func servingExtensionURL(anchorName: String, in directory: URL?) -> URL? {
+        guard isValidAnchorName(anchorName) else {
+            return nil
+        }
+        return directory?.appendingPathComponent((anchorName.isEmpty ? "legacy" : anchorName) + ".plist", isDirectory: false)
+    }
+
+    /// Records the extension serving the anchor `anchorName` (the extension
+    /// itself, when it loads the anchor).
+    public static func recordServingExtension(
+        _ record: ServingExtension,
+        anchorName: String,
+        directory: URL? = servingExtensionsDirectoryURL()
+    ) throws {
+        guard let directory, let url = servingExtensionURL(anchorName: anchorName, in: directory) else {
+            throw JottaFSStorageError.applicationGroupUnavailable
+        }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let data = try PropertyListEncoder().encode(record)
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// The extension recorded for `anchorName`; nil if none recorded one
+    /// (an extension older than 1.4.2, or not mounted).
+    public static func servingExtension(
+        anchorName: String,
+        directory: URL? = servingExtensionsDirectoryURL()
+    ) -> ServingExtension? {
+        guard let url = servingExtensionURL(anchorName: anchorName, in: directory),
+              let data = try? Data(contentsOf: url)
+        else {
+            return nil
+        }
+        return try? PropertyListDecoder().decode(ServingExtension.self, from: data)
+    }
+
+    /// Removes the record (the extension, when it unloads the anchor).
+    public static func removeServingExtension(
+        anchorName: String,
+        directory: URL? = servingExtensionsDirectoryURL()
+    ) {
+        if let url = servingExtensionURL(anchorName: anchorName, in: directory) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     /// The anchor name of a location: 32 hexadecimal characters derived from
     /// its device and mountpoint (case-insensitive, like Jottacloud).
     public static func anchorName(device: String, mountpoint: String) -> String {

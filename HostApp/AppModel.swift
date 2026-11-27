@@ -70,6 +70,10 @@ final class AppModel: ObservableObject {
     /// app (another copy of JottaFS, such as an older version or a
     /// development build); nil when it is this app's own.
     @Published private(set) var otherExtensionURL: URL?
+    /// Mounted locations served by an extension other than this app's
+    /// (mounted before an update, or by another copy): they run that
+    /// version's code until they are mounted again.
+    @Published private(set) var staleMounts: [JottacloudRemoteVolume] = []
     /// The extension paths last logged.
     private var reportedExtensionPaths: [String]?
     @Published private(set) var progressAgentNeedsApproval = false
@@ -210,7 +214,8 @@ final class AppModel: ObservableObject {
             if other != otherExtensionURL, let other {
                 extensionLogger.notice("macOS uses the extension of another JottaFS copy: \(other.path, privacy: .public)")
             }
-            otherExtensionURL = other
+            otherExtensionURL = Self.hidesExtensionWarnings ? nil : other
+            refreshServingExtensions()
             let wasDisabled = extensionEnabled == false
             let wasEnabled = extensionEnabled == true
             extensionEnabled = enabled
@@ -233,6 +238,16 @@ final class AppModel: ObservableObject {
             self.extensionWatch = nil
             await self.refreshExtensionState()
         }
+    }
+
+    /// Debug builds started with `--screenshot` (README screenshots): no
+    /// warnings about the extension, which a development build always gets.
+    static var hidesExtensionWarnings: Bool {
+        #if DEBUG
+        CommandLine.arguments.contains("--screenshot")
+        #else
+        false
+        #endif
     }
 
     /// This app's own file system extension.
@@ -1098,6 +1113,52 @@ final class AppModel: ObservableObject {
         if result != mounts {
             mounts = result
         }
+        refreshServingExtensions()
+    }
+
+    /// Finds the mounted locations whose extension is not this app's (each
+    /// extension records itself when it mounts a location).
+    private func refreshServingExtensions() {
+        let own = Self.ownExtensionURL
+        let found = locations.filter { location in
+            guard let mounted = mounts[location.id] else {
+                return false
+            }
+            return !JottaFSExtensionCheck.isServedBy(own: own, record: JottaFSStorage.servingExtension(anchorName: mounted.anchorName))
+        }
+        let stale = Self.hidesExtensionWarnings ? [] : found
+        guard stale.map(\.id) != staleMounts.map(\.id) else {
+            return
+        }
+        for location in stale {
+            let record = mounts[location.id].flatMap { JottaFSStorage.servingExtension(anchorName: $0.anchorName) }
+            extensionLogger.notice("\(location.id, privacy: .public) is served by \(record.map { "\($0.path) (\($0.version))" } ?? "an extension from before 1.4.2", privacy: .public)")
+        }
+        staleMounts = stale
+    }
+
+    /// Unmounts and mounts again the locations served by another extension,
+    /// so they use this version (the notice's Mount Again). Stops at the
+    /// first location that cannot be unmounted (an open file, for example).
+    func remountStaleLocations() async {
+        guard !isBusy else {
+            return
+        }
+        alert = nil
+        for location in staleMounts {
+            activity = .unmounting(locationID: location.id)
+            do {
+                try await unmount(location)
+            } catch {
+                activity = nil
+                alert = AppAlert(title: String(localized: "JottaFS couldn’t unmount the location."), message: error.localizedDescription)
+                refreshServingExtensions()
+                return
+            }
+            activity = nil
+            _ = await mount(location)
+        }
+        refreshServingExtensions()
     }
 
     // MARK: Open at login

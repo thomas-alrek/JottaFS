@@ -435,3 +435,21 @@ use Advanced in the app. Findings for a later attempt (macOS 27.3):
 - [FSVolume.ReadWriteHandler](https://developer.apple.com/documentation/fskit/fsvolume/readwritehandler)
 - [SMAppService](https://developer.apple.com/documentation/servicemanagement/smappservice)
 - [FIFinderSync](https://developer.apple.com/documentation/findersync/fifindersync)
+
+## Which extension copy runs (2026-11-27)
+
+- With several copies of the app on the Mac (an installed release, an Xcode
+  build in DerivedData, an opened installer DMG), pluginkit registers each
+  copy's extension (`pluginkit -m -v -A -D -i no.alrek.jottafs.extension`),
+  and FSKit elects one. `FSClient.installedExtensions` reports the elected
+  copy's `FSModuleIdentity.url`, but only to the extension's own app (a
+  command-line tool does not see third-party modules).
+- A mounted volume keeps the extension process that mounted it, also after
+  FSKit elects another copy (an update, turning the extension off and on).
+  On 2026-11-27 Arkiv was still served by a DerivedData Debug build after
+  1.4.1 was installed, so the new code did not run.
+- Since 1.4.1 the app warns when the elected copy is not its own. Since
+  1.4.2 the extension also records itself per mount anchor
+  (`<app group>/ServingExtensions/<anchor>.plist`, removed when it unloads
+  the anchor), and the app offers Mount Again for volumes served by
+  another extension or by one that records nothing (before 1.4.2).
