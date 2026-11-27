@@ -34,6 +34,42 @@ public enum JottaFSNames {
     }
 }
 
+/// The notification shown when items cannot be created or renamed because
+/// Jottacloud cannot store their names (Finder itself only shows "error
+/// code -50").
+public enum JottaFSNameNotice {
+    /// How many names a notification lists before "and N more".
+    static let listedNames = 3
+
+    /// Whether a rejected name is worth telling the user about: names that
+    /// no one types (empty, "." and "..") are left out.
+    public static func isReportable(_ name: String) -> Bool {
+        !name.isEmpty && name != "." && name != ".."
+    }
+
+    /// The title and text for the names, in the order they were rejected.
+    public static func text(for names: [String]) -> (title: String, body: String) {
+        // Finder shows a ":" in a file system name as "/".
+        let shown = names.map { $0.replacingOccurrences(of: ":", with: "/") }
+        let tooLong = names.allSatisfy { $0.utf8.count > 255 }
+        if shown.count == 1 {
+            let name = shown[0]
+            let title = String(localized: "“\(name)” can’t be saved in Jottacloud", bundle: .jottaFSCore)
+            let body = tooLong
+                ? String(localized: "The name is too long for Jottacloud. Use a shorter name and try again.", bundle: .jottaFSCore)
+                : String(localized: "Jottacloud can’t store names with the characters \" * : / < > ? | % \\. Rename the item and try again.", bundle: .jottaFSCore)
+            return (title, body)
+        }
+        let listed = shown.prefix(listedNames).map { String(localized: "“\($0)”", bundle: .jottaFSCore, comment: "A name in quotation marks") }
+        let list = shown.count > listedNames
+            ? String(localized: "\(listed.joined(separator: ", ")) and \(shown.count - listedNames) more", bundle: .jottaFSCore, comment: "Names, then how many more there are")
+            : listed.formatted(.list(type: .and))
+        let title = String(localized: "\(shown.count) items can’t be saved in Jottacloud", bundle: .jottaFSCore)
+        let body = String(localized: "Their names have characters that Jottacloud can’t store (\" * : / < > ? | % \\) or are too long: \(list). Rename them and try again.", bundle: .jottaFSCore)
+        return (title, body)
+    }
+}
+
 /// Local file operations for staged writes.
 public enum JottaFSStagingFile {
     /// Writes `data` at `offset`, extending the file as needed. Returns the

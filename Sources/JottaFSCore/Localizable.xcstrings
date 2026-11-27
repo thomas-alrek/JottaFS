@@ -236,6 +236,78 @@
           }
         }
       }
+    },
+    "“%@” can’t be saved in Jottacloud" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» kan ikke lagres i Jottacloud"
+          }
+        }
+      }
+    },
+    "The name is too long for Jottacloud. Use a shorter name and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navnet er for langt for Jottacloud. Bruk et kortere navn og prøv igjen."
+          }
+        }
+      }
+    },
+    "Jottacloud can’t store names with the characters \" * : / < > ? | % \\. Rename the item and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottacloud kan ikke lagre navn med tegnene \" * : / < > ? | % \\. Gi det et nytt navn og prøv igjen."
+          }
+        }
+      }
+    },
+    "“%@”" : {
+      "comment" : "A name in quotation marks",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@»"
+          }
+        }
+      }
+    },
+    "%@ and %lld more" : {
+      "comment" : "Names, then how many more there are",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ og %lld til"
+          }
+        }
+      }
+    },
+    "%lld items can’t be saved in Jottacloud" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld objekter kan ikke lagres i Jottacloud"
+          }
+        }
+      }
+    },
+    "Their names have characters that Jottacloud can’t store (\" * : / < > ? | % \\) or are too long: %@. Rename them and try again." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navnene har tegn som Jottacloud ikke kan lagre (\" * : / < > ? | % \\), eller er for lange: %@. Gi dem nye navn og prøv igjen."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

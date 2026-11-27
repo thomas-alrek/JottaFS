@@ -2,6 +2,7 @@ import Foundation
 import FSKit
 import JottaFSCore
 import OSLog
+import UserNotifications
 
 private let writeLogger = Logger.extension("Write")
 
@@ -54,6 +55,8 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         do {
             try JottaFSNames.validate(string)
         } catch {
+            // Finder only shows "error code -50": say why in a notification.
+            RejectedNameReporter.shared.report(string)
             throw POSIXError(.EINVAL)
         }
         return string
@@ -992,5 +995,85 @@ extension JottaFSVolume: FSVolume.PreallocateHandler {
             throw POSIXError(.EIO)
         }
         return result
+    }
+}
+
+/// Tells the user, in a notification, which names Jottacloud cannot store,
+/// because Finder only shows "an unknown error occurred (error code -50)".
+/// Names rejected within a short time (a folder copy) are collected into one
+/// notification, and the same name is not reported again for a while (Finder
+/// may try a name more than once).
+actor RejectedNameReporter {
+    static let shared = RejectedNameReporter(post: RejectedNameReporter.postNotification)
+
+    private let collectFor: Duration
+    private let quietFor: Duration
+    private let post: @Sendable (_ title: String, _ body: String) async -> Void
+    private var pending: [String] = []
+    private var reported: [String: ContinuousClock.Instant] = [:]
+    private var flushTask: Task<Void, Never>?
+
+    init(
+        collectFor: Duration = .seconds(2),
+        quietFor: Duration = .seconds(10),
+        post: @escaping @Sendable (_ title: String, _ body: String) async -> Void
+    ) {
+        self.collectFor = collectFor
+        self.quietFor = quietFor
+        self.post = post
+    }
+
+    /// Reports a rejected name (returns at once).
+    nonisolated func report(_ name: String) {
+        Task { await add(name) }
+    }
+
+    func add(_ name: String) {
+        guard JottaFSNameNotice.isReportable(name) else {
+            return
+        }
+        let now = ContinuousClock.now
+        reported = reported.filter { now - $0.value < quietFor }
+        guard reported[name] == nil, !pending.contains(name) else {
+            return
+        }
+        reported[name] = now
+        pending.append(name)
+        if flushTask == nil {
+            flushTask = Task { [collectFor] in
+                try? await Task.sleep(for: collectFor)
+                await self.flush()
+            }
+        }
+    }
+
+    /// Posts the collected names as one notification.
+    func flush() async {
+        flushTask = nil
+        let names = pending
+        pending = []
+        guard !names.isEmpty else {
+            return
+        }
+        let text = JottaFSNameNotice.text(for: names)
+        writeLogger.info("Rejected \(names.count) name(s) Jottacloud cannot store")
+        await post(text.title, text.body)
+    }
+
+    /// A notification from the extension (macOS shows it as JottaFS's and
+    /// asks the user once whether to allow notifications). Only inside the
+    /// installed extension: not in the package's tests.
+    private static func postNotification(title: String, body: String) async {
+        guard Bundle.main.bundleURL.pathExtension == "appex" else {
+            return
+        }
+        let center = UNUserNotificationCenter.current()
+        guard (try? await center.requestAuthorization(options: [.alert])) == true else {
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        try? await center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 }
