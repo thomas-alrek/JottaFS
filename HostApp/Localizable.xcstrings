@@ -1884,6 +1884,138 @@
           }
         }
       }
+    },
+    "Location" : {
+      "comment" : "Menu bar menu with the actions of the selected location",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plassering"
+          }
+        }
+      }
+    },
+    "Email" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-post"
+          }
+        }
+      }
+    },
+    "Account" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Konto"
+          }
+        }
+      }
+    },
+    "Not signed in. Sign in in the JottaFS window." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ikke logget på. Logg på i JottaFS-vinduet."
+          }
+        }
+      }
+    },
+    "Updates" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppdateringer"
+          }
+        }
+      }
+    },
+    "Check for updates automatically" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se etter oppdateringer automatisk"
+          }
+        }
+      }
+    },
+    "JottaFS looks for a new version when it opens and once a day." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS ser etter en ny versjon når appen åpnes, og én gang om dagen."
+          }
+        }
+      }
+    },
+    "Actions for “%@”" : {
+      "comment" : "Button with the actions of a backup device; the argument is its name",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Handlinger for «%@»"
+          }
+        }
+      }
+    },
+    "“%@” is mounted. The disk gets the new name the next time you mount it." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» er aktivert. Disken får det nye navnet neste gang du aktiverer den."
+          }
+        }
+      }
+    },
+    "Leave it empty to use “%@”." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La feltet stå tomt for å bruke «%@»."
+          }
+        }
+      }
+    },
+    "Mount at login" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiver ved pålogging"
+          }
+        }
+      }
+    },
+    "JottaFS %@ is available" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS %@ er tilgjengelig"
+          }
+        }
+      }
+    },
+    "Open JottaFS to install the new version." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpne JottaFS for å installere den nye versjonen."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

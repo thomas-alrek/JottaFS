@@ -215,11 +215,11 @@ locations, select a different location and click **Mount** again.
 ### Give the disk a different name
 
 1. Control-click the location in the list and choose **Rename**.
-2. Type a name in **Name in Finder**. Then click **Save**.
+2. Type a name in **Name in Finder**. Then click **Rename**.
 
-The disk gets the new name the next time you mount it. To use the name of the
-location again, delete the name and click **Save**. You cannot change the name
-while the location is mounted.
+If the location is mounted, the disk gets the new name the next time you
+mount it. To use the name of the location again, delete the name and click
+**Rename**.
 
 ### Backup devices and locations
 
@@ -228,7 +228,8 @@ location for each backed-up folder. You can make backup devices of your own
 and use their locations as disks. They show under **Backup** on
 jottacloud.com.
 
-- **New backup device:** click **New Backup Device**. Type a name for the
+- **New backup device:** click **+** in the toolbar of the window, or choose
+  **File → New Backup Device**. Type a name for the
   backup device and for its first location (a backup device needs at least
   one location). Then click **Create**. JottaFS selects the new location, so
   you can mount it at once.
@@ -237,8 +238,8 @@ jottacloud.com.
 - **Move a location to the trash:** Control-click the location and choose
   **Move to Trash**. The location and its files move to the Jottacloud trash.
   You can restore them on jottacloud.com.
-- **Delete a backup device:** click the trash button in the header of the
-  backup device. The backup device, all its locations and all their files
+- **Delete a backup device:** click **…** in the header of the backup device
+  and choose **Delete Backup Device**. The backup device, all its locations and all their files
   are deleted permanently. They do not go to the Jottacloud trash and you
   cannot restore them.
 
@@ -260,7 +261,7 @@ Jottacloud.
 
 ### Mount at login
 
-Select a location, then select **Mount automatically when I log in**. Do this
+Select a location, then select **Mount at login**. Do this
 for each location that you want to mount at login. When you log in, JottaFS
 waits for the network connection, mounts these locations and closes. No
 window and no Dock icon open. If a mount still fails after 3 minutes,
@@ -269,10 +270,20 @@ JottaFS opens its window and shows the problem.
 JottaFS uses a background item for this. If macOS asks, allow **JottaFS** in
 **System Settings → General → Login Items & Extensions**.
 
+### Menu commands
+
+The **File** and **Location** menus have the same actions as the context menu
+of a location: New Backup Device (Shift-Command-N), New Location
+(Command-N), Mount or Show in Finder (Command-O), Unmount (Command-E), mount
+at login, Rename, Move to Trash (Command-Delete) and Delete Backup Device.
+They act on the location that is selected in the list.
+
 ### Settings
 
 Click the gear button in the upper-right corner of the JottaFS window, or
 choose **JottaFS → Settings**.
+
+- **Account:** your name and email, and **Sign Out**.
 
 - **Download cache:** set the size of the download cache, see how much of it
   is in use, and click **Clear Cache** to delete it.
@@ -285,9 +296,15 @@ choose **JottaFS → Settings**.
 macOS does not let an app turn its extensions on or off. Make the change in
 System Settings; the switch in JottaFS then shows it.
 
+- **Updates:** turn **Check for updates automatically** off if you do not
+  want JottaFS to check for new versions.
+
 ### Update JottaFS
 
-JottaFS checks for a new version when it opens and one time each day. When
+JottaFS checks for a new version when it opens and one time each day (you
+can turn this off in Settings). While JottaFS is closed, it checks about
+every 12 hours in the background and shows a notification when there is a
+new version. Click the notification to open JottaFS. When
 there is a new version, JottaFS shows it at the top of the window.
 
 1. Click **Update**. JottaFS downloads the new version.
@@ -298,7 +315,8 @@ error.
 
 ### Sign out
 
-Click **Sign Out**, then click **Sign Out** again to confirm. JottaFS unmounts
+Open **Settings**, click **Sign Out**, then click **Sign Out** again to
+confirm. JottaFS unmounts
 all mounted locations first. Then it signs out on Jottacloud and deletes the
 saved sign-in from your Mac. Your files stay in Jottacloud.
 
@@ -349,8 +367,9 @@ the Jottacloud trash. JottaFS never deletes a file that is not in the trash.
   Terminal.
 - Names with the characters `" * : < > ? | % \` cannot be used, because
   Jottacloud cannot store them. Finder then shows "an unknown error
-  occurred (error code -50)". Images that you save from websites often
-  have a `?` in the name. Rename the file, then copy it again.
+  occurred (error code -50)", and JottaFS shows a notification with the
+  names of the items. Images that you save from websites often have a `?`
+  in the name. Rename the file, then copy it again.
 - JottaFS keeps a full copy of a file on your Mac before the upload starts.
   Jottacloud must know the checksum of the complete file before the upload.
   Your Mac must have free space for the file that is uploading. JottaFS

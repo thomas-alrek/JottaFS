@@ -1,5 +1,6 @@
 import AppKit
 import OSLog
+import UserNotifications
 
 /// Checks GitHub for a newer JottaFS release and installs it.
 ///
@@ -37,8 +38,38 @@ final class Updater: ObservableObject {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
-    /// Starts checking (at once, then daily).
+    /// The setting "Check for updates automatically" (on unless the user
+    /// turned it off in Settings).
+    static let automaticChecksKey = "CheckForUpdatesAutomatically"
+
+    static var automaticChecksEnabled: Bool {
+        UserDefaults.standard.object(forKey: automaticChecksKey) as? Bool ?? true
+    }
+
+    /// Turns the automatic checks on (checks at once) or off (also hides an
+    /// offer that is not downloading or installing).
+    func setAutomaticChecks(_ enabled: Bool) {
+        if enabled {
+            start()
+            return
+        }
+        checkTask?.cancel()
+        checkTask = nil
+        if case .available = state {
+            state = .idle
+        }
+    }
+
+    /// Starts checking (at once, then daily), unless the user turned the
+    /// automatic checks off.
     func start() {
+        #if DEBUG
+        startPreviews()
+        #endif
+        guard Self.automaticChecksEnabled else {
+            updateLogger.info("Automatic update checks are off.")
+            return
+        }
         #if DEBUG
         updateLogger.info("Update checks are off in Debug builds.")
         #else
@@ -59,6 +90,83 @@ final class Updater: ObservableObject {
         }
         #endif
     }
+
+    /// The last version a background check showed a notification for, so
+    /// each version is announced once.
+    private static let notifiedVersionKey = "NotifiedUpdateVersion"
+
+    /// A check while JottaFS has no window (the hidden launch that keeps the
+    /// sign-in alive, about every 12 hours): a newer version is announced
+    /// in a notification, once per version. Clicking it opens JottaFS,
+    /// which then offers the update as usual.
+    func checkInBackground() async {
+        #if DEBUG
+        return
+        #else
+        guard Self.automaticChecksEnabled, JottaFSService.isAvailable,
+              let release = try? await latestRelease(),
+              UpdateVersion.isVersion(release.version, newerThan: installedVersion),
+              UserDefaults.standard.string(forKey: Self.notifiedVersionKey) != release.version
+        else {
+            return
+        }
+        updateLogger.info("JottaFS \(release.version, privacy: .public) is available; notifying.")
+        if await Self.postUpdateNotification(version: release.version) {
+            UserDefaults.standard.set(release.version, forKey: Self.notifiedVersionKey)
+        }
+        #endif
+    }
+
+    /// The background check's notification; false if it couldn't be shown
+    /// (notifications not allowed).
+    private static func postUpdateNotification(version: String) async -> Bool {
+        let center = UNUserNotificationCenter.current()
+        guard (try? await center.requestAuthorization(options: [.alert])) == true else {
+            return false
+        }
+        let content = UNMutableNotificationContent()
+        content.title = String(localized: "JottaFS \(version) is available")
+        content.body = String(localized: "Open JottaFS to install the new version.")
+        do {
+            try await center.add(UNNotificationRequest(identifier: "update-\(version)", content: content, trigger: nil))
+            return true
+        } catch {
+            updateLogger.info("The update notification couldn’t be shown.")
+            return false
+        }
+    }
+
+    #if DEBUG
+    /// Previews without a real release (Debug builds only):
+    /// `--preview-update` offers a made-up newer version in the window (its
+    /// Update fails, which shows the failure banner), and
+    /// `--preview-update-notification` shows the background check's
+    /// notification.
+    private var previewsStarted = false
+
+    func startPreviews() {
+        guard !previewsStarted else {
+            return
+        }
+        previewsStarted = true
+        let arguments = CommandLine.arguments
+        let version = "99.0.0"
+        if arguments.contains("--preview-update") {
+            state = .available(Release(
+                version: version,
+                diskImageURL: URL(string: "https://github.com/thomas-alrek/JottaFS/releases/download/v\(version)/JottaFS-\(version).dmg")!,
+                pageURL: URL(string: "https://github.com/thomas-alrek/JottaFS/releases")
+            ))
+        }
+        if arguments.contains("--preview-update-notification") {
+            Task {
+                if await !Self.postUpdateNotification(version: version) {
+                    updateLogger.info("Preview: notifications are not allowed for this build.")
+                }
+            }
+        }
+    }
+    #endif
 
     /// Hides the offer until the next check.
     func dismiss() {

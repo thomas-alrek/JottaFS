@@ -81,6 +81,9 @@ final class AppModel: ObservableObject {
     /// Creates and shows the window (it does not exist after a launch at
     /// login); set by the app delegate.
     var showWindow: (() -> Void)?
+    /// Work for the hidden refresh launch before it quits (the update
+    /// check; set by the app delegate).
+    var backgroundWork: (() async -> Void)?
 
     private var credentialsDirectory: URL?
     private var client: JottacloudClient?
@@ -484,6 +487,10 @@ final class AppModel: ObservableObject {
             // Usually no network: the next run tries again.
             loginLogger.notice("Refreshing the sign-in failed (\(Self.describe(error), privacy: .public)); trying again later.")
         }
+        if launchedToRefresh {
+            await backgroundWork?()
+        }
+        // The user may have opened the window during the update check.
         if launchedToRefresh {
             NSApp.terminate(nil)
         } else {
