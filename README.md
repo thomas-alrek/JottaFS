@@ -6,6 +6,8 @@
 
 <p align="center">
   Use your Jottacloud files in Finder on your Mac, as a disk.
+  <br>
+  <a href="https://jottafs.alrek.no">jottafs.alrek.no</a>
 </p>
 
 <p align="center">
