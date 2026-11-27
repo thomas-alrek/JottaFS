@@ -1079,8 +1079,12 @@ private final class JottacloudLocationParser: NSObject, XMLParserDelegate {
                   parent == "mountPoints" {
             currentMountpointName = ""
             // A mountpoint moved to the trash (FileService.Delete) is still
-            // listed, marked like a deleted file or folder.
+            // listed, with a `<deleted>` child element (seen live
+            // 2026-11-27); a `deleted` attribute, as on files, counts too.
             currentMountpointDeleted = attributeDict["deleted"] != nil
+        } else if collection == .mountpoints, elementName == "deleted", parent == "mountPoint",
+                  currentMountpointName != nil {
+            currentMountpointDeleted = true
         } else if elementName == "name" {
             if currentMountpointName != nil {
                 capturing = .mountpointName

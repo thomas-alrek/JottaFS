@@ -63,6 +63,45 @@ struct BackupDeviceListingTests {
         #expect(try parseDeviceMountpointNames(xml) == ["Files"])
     }
 
+    /// Regression (2026-11-27): the live listing marks a trashed mountpoint
+    /// with a `<deleted>` child element, not an attribute, so trashed
+    /// locations stayed in the location list.
+    @Test func mountpointsWithADeletedElementAreNotLocations() throws {
+        let xml = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <device time="2026-11-27-T15:47:37Z" host="b2-api-jfs">
+          <name xml:space="preserve">JottaFS-Test-1699</name>
+          <type>CLI</type>
+          <mountPoints>
+            <mountPoint>
+              <name xml:space="preserve">Beta</name>
+              <deleted>2026-11-27-T15:47:36Z</deleted>
+              <abspath xml:space="preserve">/user/JottaFS-Test-1699</abspath>
+              <size></size>
+              <modified></modified>
+            </mountPoint>
+            <mountPoint>
+              <name xml:space="preserve">Gamma</name>
+              <size></size>
+              <modified></modified>
+            </mountPoint>
+          </mountPoints>
+          <metadata first="" max="" total="2" num_mountpoints="2"/>
+        </device>
+        """.utf8)
+        #expect(try parseDeviceMountpointNames(xml) == ["Gamma"])
+    }
+
+    /// A device whose mountpoints are all in the trash lists none.
+    @Test func aDeviceWithOnlyTrashedMountpointsListsNone() throws {
+        let xml = Data("""
+        <device><name>JottaFS-Test-1699</name><mountPoints>
+          <mountPoint><name>Beta</name><deleted>2026-11-27-T15:47:37Z</deleted></mountPoint>
+        </mountPoints></device>
+        """.utf8)
+        #expect(try parseDeviceMountpointNames(xml) == [])
+    }
+
     /// Backup devices carry their type (12 is CLI, which jotta-cli also uses).
     @Test func backupDevicesCarryTheirType() {
         func string(_ field: UInt8, _ text: String) -> [UInt8] {
