@@ -91,7 +91,9 @@ Two kinds of tests must pass before a release is published.
   with a hash of the source files (`scripts/source-hash.sh`; committed or
   not). The release script needs that file for the version it releases,
   with the same source hash, so the release is built from the probed
-  sources.
+  sources. Only when the owner decides to release without a probe:
+  `SKIP_PROBE=1 scripts/release.sh …` (it prints a warning; 1.4.0 was
+  released this way).
 
 If a regression test or the probe fails, a fixed bug is back. Do not
 publish. Tell the owner, fix the bug, run `make check` again, make a new

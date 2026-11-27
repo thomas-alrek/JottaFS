@@ -13,7 +13,8 @@
 #   1. checks the working tree is clean, the release notes exist and the
 #      tag is free; runs the checks and regression tests (`make check`) and
 #      requires a passed live probe (`make probe`) of a <next version> test
-#      build made from the same sources;
+#      build made from the same sources (SKIP_PROBE=1 skips the probe,
+#      only when the owner decides so);
 #   2. scripts/build-release.sh: archive, Developer ID export, provisioning
 #      check, notarize and staple the app and the DMG, Gatekeeper check;
 #   3. removes build/release (extra app copies confuse ExtensionKit);
@@ -83,10 +84,15 @@ make check || fail "A check or regression test failed. Do not publish: tell the 
 # The live probe (scripts/probe-volume.sh) of a test build of this version,
 # from the same source files (only notes and docs may have changed since;
 # whether they were committed then does not matter).
+# SKIP_PROBE=1 releases without it, only when the owner decides so.
 PROBE="build/probe/$NEXT.passed"
-[[ -f "$PROBE" ]] || fail "No passed live probe for $NEXT. Make a test build (SKIP_NOTARIZE=1 make release, then reset VERSION), install it, run make probe VOLUME=/Volumes/<volume>, and release again."
-[[ "$(sed -n 's/^sources=//p' "$PROBE")" == "$(scripts/source-hash.sh)" ]] \
-    || fail "The sources changed since the probe of $NEXT. Build, install and probe again."
+if [[ -n "${SKIP_PROBE:-}" ]]; then
+    echo "warning: releasing $NEXT without a live probe (SKIP_PROBE=1, the owner's decision)." >&2
+else
+    [[ -f "$PROBE" ]] || fail "No passed live probe for $NEXT. Make a test build (SKIP_NOTARIZE=1 make release, then reset VERSION), install it, run make probe VOLUME=/Volumes/<volume>, and release again."
+    [[ "$(sed -n 's/^sources=//p' "$PROBE")" == "$(scripts/source-hash.sh)" ]] \
+        || fail "The sources changed since the probe of $NEXT. Build, install and probe again."
+fi
 
 step "Building and notarizing"
 scripts/build-release.sh "$BUMP"
