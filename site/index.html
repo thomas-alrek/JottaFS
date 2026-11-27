@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JottaFS: your Jottacloud files in Finder</title>
-<meta name="description" content="JottaFS mounts your Jottacloud locations as disks in Finder on your Mac. Open, copy, change, move and delete files. Built on Apple FSKit, with no kernel extension.">
+<title>JottaFS: Jottacloud files in Finder</title>
+<meta name="description" content="JottaFS mounts your Jottacloud locations as disks in Finder on your Mac. You can open, copy, change, move and delete files. JottaFS uses Apple FSKit. It does not use a kernel extension.">
 <meta name="color-scheme" content="light dark">
 <meta property="og:title" content="JottaFS">
-<meta property="og:description" content="Your Jottacloud files in Finder on your Mac, as a disk.">
+<meta property="og:description" content="JottaFS shows your Jottacloud files as a disk in Finder on your Mac.">
 <meta property="og:image" content="https://jottafs.alrek.no/images/app-icon.png">
 <meta property="og:url" content="https://jottafs.alrek.no/">
 <link rel="canonical" href="https://jottafs.alrek.no/">
@@ -212,8 +212,8 @@
   <div class="wrap">
     <div class="hero-intro">
     <img class="icon" src="images/app-icon.png" width="128" height="128" alt="JottaFS app icon">
-    <h1>Jottacloud,<br><span>right in Finder.</span></h1>
-    <p class="lead">JottaFS mounts your Jottacloud locations as disks on your Mac. Open, copy, change, move and delete files just like on any other drive.</p>
+    <h1>Jottacloud,<br><span>in Finder.</span></h1>
+    <p class="lead">JottaFS mounts your Jottacloud locations as disks on your Mac. You can open, copy, change, move and delete files, as on other disks.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/thomas-alrek/JottaFS/releases/download/v1.4.2/JottaFS-1.4.2.dmg">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M4 19h16"/></svg>
@@ -229,68 +229,68 @@
 <section id="features">
   <div class="wrap">
     <p class="eyebrow">Features</p>
-    <h2>A real disk, not a sync folder.</h2>
-    <p class="section-lead">Your files stay in Jottacloud and are downloaded only when you open them. Nothing to sync, and no copy of your whole archive filling up your Mac.</p>
+    <h2>A disk, not a sync folder.</h2>
+    <p class="section-lead">Your files stay in Jottacloud. JottaFS downloads a file only when you open it. JottaFS does not sync files, and it does not keep a copy of your full archive on your Mac.</p>
     <div class="grid">
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 15h.01M11 15h6"/></svg></div>
         <h3>Locations as disks</h3>
-        <p>Mount Archive, Sync, Shared, Photos or a folder from a computer backup. Each one shows in Finder as its own disk, and you can mount several at once.</p>
+        <p>Mount Archive, Sync, Shared, Photos or a folder from a computer backup. Each location shows in Finder as a different disk. You can mount more than one location at the same time.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg></div>
         <h3>Read and write</h3>
-        <p>Open, copy, change, rename, move and delete files and folders. JottaFS sends every change to Jottacloud.</p>
+        <p>You can open, copy, change, rename, move and delete files and folders. JottaFS sends each change to Jottacloud.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5l5 5"/><path d="M4 20h16"/></svg></div>
         <h3>Upload progress in Finder</h3>
-        <p>File icons show a progress bar while they upload. A Finder copy finishes only when the upload is complete, so you know your files are safe.</p>
+        <p>The icon of a file shows a progress bar during the upload. A Finder copy operation stops only when the upload is complete. When the copy operation stops, your files are safe in Jottacloud.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></div>
         <h3>Resumable uploads</h3>
-        <p>If the network drops in the middle of a large upload, JottaFS tries again and continues from the last part that was saved.</p>
+        <p>If the network connection stops during a large upload, JottaFS tries again. The upload continues from the last part that Jottacloud saved.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2m-9 0l1 14h8l1-14"/></svg></div>
-        <h3>Works with the Trash</h3>
-        <p>Move to Trash, Put Back and Empty Trash use the Jottacloud trash, so deleted files can be restored on the web and on your other devices.</p>
+        <h3>Use with the Trash</h3>
+        <p>Move to Trash, Put Back and Empty Trash use the Jottacloud trash. Thus, you can restore deleted files on the web and on your other devices.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a5 5 0 007 0l3-3a5 5 0 00-7-7l-1 1"/><path d="M14 10a5 5 0 00-7 0l-3 3a5 5 0 007 7l1-1"/></svg></div>
         <h3>Share links from Finder</h3>
-        <p>Control-click a file or folder and choose Copy Jottacloud Link. Stop sharing it again from the same menu.</p>
+        <p>Control-click a file or folder and select Copy Jottacloud Link. To remove the link, use the same menu.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
         <h3>Mount at login</h3>
-        <p>Choose the locations you want, and JottaFS mounts them quietly every time you log in. No window opens.</p>
+        <p>Select the locations that you want. JottaFS mounts them each time you log in. No window opens.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>
         <h3>Fast folders and cache</h3>
-        <p>Folder lists are kept briefly, so large folders open quickly. Recently opened files are cached on your Mac and open again instantly.</p>
+        <p>JottaFS keeps folder lists for a short time. Thus, large folders open quickly. JottaFS keeps a cache of the files that you open on your Mac. When you open these files again, they open immediately.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
         <h3>Backup devices</h3>
-        <p>Create a backup device and add locations to it or to any other backup device. Move a location to the trash, or delete a whole backup device.</p>
+        <p>Create a backup device. Add locations to it or to other backup devices. You can also move a location to the trash or delete a backup device permanently.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/></svg></div>
         <h3>No clutter on Jottacloud</h3>
-        <p>Finder's own files, such as <code>.DS_Store</code> and the <code>._</code> files with tags and comments, stay on your Mac and never reach your cloud.</p>
+        <p>Finder makes its own files, for example <code>.DS_Store</code> and <code>._</code> files with tags and comments. These files stay on your Mac. JottaFS does not send them to Jottacloud.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg></div>
         <h3>English and Norwegian</h3>
-        <p>The app follows your Mac's language. In Norwegian, Archive, Sync, Shared and Photos become Arkiv, Synk, Delt and Bilder, also as disk names.</p>
+        <p>The app uses the language of your Mac. In Norwegian, the names Archive, Sync, Shared and Photos change to Arkiv, Synk, Delt and Bilder. The disk names also change.</p>
       </div>
       <div class="card">
         <div class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M5 21h14"/></svg></div>
-        <h3>One-click updates</h3>
-        <p>JottaFS tells you when a new version is out, even when the app isn't open. Click Update and it reopens with the new version.</p>
+        <h3>Updates with one click</h3>
+        <p>JottaFS tells you when a new version is available, also when the app is closed. Click Update. The app installs the new version and opens again.</p>
       </div>
     </div>
   </div>
@@ -299,16 +299,16 @@
 <section class="alt">
   <div class="wrap center">
     <p class="eyebrow">The app</p>
-    <h2>Sign in once. Pick your locations.</h2>
-    <p class="section-lead">Sign in on jottacloud.com in your browser, or use a personal login token. JottaFS never sees your password.</p>
+    <h2>Sign in one time. Select your locations.</h2>
+    <p class="section-lead">Sign in on jottacloud.com in your browser, or use a personal login token. JottaFS does not see your password.</p>
     <div class="screens">
       <figure>
         <img src="images/sign-in.png" width="320" height="359" alt="The JottaFS sign-in window with the Sign In with Jottacloud button">
-        <figcaption>Sign in with your browser or a login token.</figcaption>
+        <figcaption>Sign in with your browser or with a login token.</figcaption>
       </figure>
       <figure>
         <img src="images/locations.png" width="320" height="507" alt="The JottaFS window with the list of Jottacloud locations to mount">
-        <figcaption>Mount, rename and manage your locations.</figcaption>
+        <figcaption>Mount, rename, add and remove your locations.</figcaption>
       </figure>
     </div>
   </div>
@@ -317,16 +317,16 @@
 <section id="how">
   <div class="wrap">
     <p class="eyebrow">How it works</p>
-    <h2>Built the modern Mac way.</h2>
-    <p class="section-lead">JottaFS uses Apple FSKit, the file system framework in macOS. No macFUSE, no kernel extension, and no changes to your Mac's security settings.</p>
+    <h2>Made with modern Mac technology.</h2>
+    <p class="section-lead">JottaFS uses Apple FSKit. FSKit is the file system framework in macOS. JottaFS does not use macFUSE or a kernel extension. You do not change the security settings of your Mac.</p>
     <div class="steps">
       <div class="step">
         <h3>Install the app</h3>
         <p>Drag JottaFS to Applications, or install it with Homebrew.</p>
       </div>
       <div class="step">
-        <h3>Turn on the extension</h3>
-        <p>Allow the JottaFS file system extension once in System Settings. The app shows you where.</p>
+        <h3>Allow the extension</h3>
+        <p>In System Settings, allow the JottaFS file system extension. You do this one time. The app shows you where to find the setting.</p>
       </div>
       <div class="step">
         <h3>Sign in</h3>
@@ -334,7 +334,7 @@
       </div>
       <div class="step">
         <h3>Mount</h3>
-        <p>Select a location and click Mount. It opens in Finder as a disk next to Macintosh HD.</p>
+        <p>Select a location. Click Mount. The location opens in Finder as a disk, adjacent to Macintosh HD.</p>
       </div>
     </div>
   </div>
@@ -344,17 +344,17 @@
   <div class="wrap two">
     <div>
       <p class="eyebrow">Trash</p>
-      <h2>Deleted means recoverable.</h2>
-      <p class="section-lead" style="margin-bottom:24px">Finder's Trash shows the items in the Jottacloud trash that come from the mounted location. Before JottaFS deletes anything permanently, it makes sure the item is already in the Jottacloud trash.</p>
-      <div class="note"><strong>Heads up:</strong> Empty Trash also deletes items from this location that you moved to the trash on jottacloud.com or on another device. Permanently deleted items cannot be restored.</div>
+      <h2>You can restore deleted items.</h2>
+      <p class="section-lead" style="margin-bottom:24px">The Finder Trash shows items from the Jottacloud trash. It shows only the items that come from the mounted location. Before JottaFS deletes an item permanently, it makes sure that the item is in the Jottacloud trash.</p>
+      <div class="note"><strong>Caution:</strong> Empty Trash also deletes the items from this location that you moved to the trash on jottacloud.com or on a different device. You cannot restore an item after you delete it permanently.</div>
     </div>
     <table>
       <thead><tr><th>In Finder</th><th>In Jottacloud</th></tr></thead>
       <tbody>
         <tr><td>Move to Trash</td><td>Moves the item to the Jottacloud trash.</td></tr>
-        <tr><td>Put Back</td><td>Restores the item to its original location.</td></tr>
+        <tr><td>Put Back</td><td>Puts the item back in its initial location.</td></tr>
         <tr><td>Delete Immediately</td><td>Deletes the item permanently.</td></tr>
-        <tr><td>Empty Trash</td><td>Deletes all items in the Trash of this disk permanently.</td></tr>
+        <tr><td>Empty Trash</td><td>Permanently deletes all items in the Trash of this disk.</td></tr>
         <tr><td><code>rm</code> in Terminal</td><td>Deletes the item permanently, as on a local disk.</td></tr>
       </tbody>
     </table>
@@ -365,23 +365,23 @@
   <div class="wrap two">
     <div>
       <p class="eyebrow">Privacy</p>
-      <h2>Your account stays yours.</h2>
+      <h2>Your account is private.</h2>
       <ul class="checks">
-        <li><strong>No password in the app.</strong> You sign in on Jottacloud's own site, with the official <code>id.jottacloud.com</code> sign-in.</li>
-        <li><strong>Credentials stay on your Mac.</strong> Sign-in tokens are kept in a private file that only JottaFS and its extensions can read, and never written to logs.</li>
-        <li><strong>No servers in between.</strong> Your files and sign-in go only to Jottacloud. The update check asks GitHub for the latest version. No analytics, no tracking.</li>
-        <li><strong>Sandboxed.</strong> The app and its extensions run in the macOS App Sandbox.</li>
-        <li><strong>Open source.</strong> The whole app is on GitHub under the MIT license.</li>
+        <li><strong>No password in the app.</strong> You sign in on the Jottacloud website, with the official <code>id.jottacloud.com</code> sign-in.</li>
+        <li><strong>Credentials stay on your Mac.</strong> JottaFS keeps sign-in tokens in a private file. Only JottaFS and its extensions can read this file. JottaFS does not write the tokens to logs.</li>
+        <li><strong>No servers between you and Jottacloud.</strong> Your files and sign-in data go only to Jottacloud. To find updates, the app reads the number of the newest version from GitHub. JottaFS does not collect analytics data and does not monitor you.</li>
+        <li><strong>Sandboxed.</strong> The app and its extensions operate in the macOS App Sandbox.</li>
+        <li><strong>Open source.</strong> All of the source code of the app is on GitHub, with the MIT license.</li>
       </ul>
     </div>
     <div>
-      <p class="eyebrow">Good to know</p>
+      <p class="eyebrow">Important information</p>
       <h2>Limits.</h2>
       <ul class="checks">
-        <li>Names with <code>" * : &lt; &gt; ? | % \</code> can't be stored by Jottacloud. JottaFS shows a notification with the names, so you can rename them.</li>
-        <li>A file is copied to your Mac in full before it uploads, so you need free space for the largest file you copy.</li>
-        <li>Changes made on jottacloud.com or other devices show up when Finder reads the folder again.</li>
-        <li>Symbolic links and hard links are not supported.</li>
+        <li>Names with <code>" * : &lt; &gt; ? | % \</code> cannot be kept in Jottacloud. JottaFS shows a notification with these names. You can then rename the items.</li>
+        <li>Before JottaFS uploads a file, it copies the full file to your Mac. Thus, your Mac must have sufficient disk space for the largest file that you copy.</li>
+        <li>Changes that you make on jottacloud.com or on other devices show when Finder reads the folder again.</li>
+        <li>You cannot use symbolic links or hard links.</li>
       </ul>
     </div>
   </div>
@@ -390,21 +390,22 @@
 <section class="alt" id="install">
   <div class="wrap">
     <p class="eyebrow">Install</p>
-    <h2>Get JottaFS.</h2>
-    <p class="section-lead">Requires a Mac with Apple silicon, macOS 27 or later, and a Jottacloud account.</p>
+    <h2>Install JottaFS.</h2>
+    <p class="section-lead">You must have a Mac with Apple silicon, macOS 27 or later, and a Jottacloud account.</p>
     <div class="install">
       <div class="card">
         <h3>Download</h3>
         <ol>
-          <li>Download the latest <a href="https://github.com/thomas-alrek/JottaFS/releases/download/v1.4.2/JottaFS-1.4.2.dmg">JottaFS .dmg</a>.</li>
-          <li>Open it and drag JottaFS to Applications.</li>
+          <li>Download the newest <a href="https://github.com/thomas-alrek/JottaFS/releases/download/v1.4.2/JottaFS-1.4.2.dmg">JottaFS .dmg</a>.</li>
+          <li>Open the .dmg file.</li>
+          <li>Drag JottaFS to Applications.</li>
           <li>Open JottaFS from Applications.</li>
         </ol>
         <p style="margin:20px 0 0"><a class="btn" href="https://github.com/thomas-alrek/JottaFS/releases/download/v1.4.2/JottaFS-1.4.2.dmg">Download for Mac</a></p>
       </div>
       <div class="card">
         <h3>Homebrew</h3>
-        <p style="margin:0;color:var(--muted);font-size:15.5px">Add the tap once, then install the app:</p>
+        <p style="margin:0;color:var(--muted);font-size:15.5px">Add the tap one time. Then install the app:</p>
 <pre>brew tap thomas-alrek/jottafs https://github.com/thomas-alrek/JottaFS
 brew install --cask thomas-alrek/jottafs/jottafs</pre>
       </div>
@@ -415,8 +416,8 @@ brew install --cask thomas-alrek/jottafs/jottafs</pre>
 <section class="final">
   <div class="wrap">
     <img src="images/app-icon.png" width="96" height="96" alt="">
-    <h2>Your cloud, one click away.</h2>
-    <p class="section-lead" style="margin:0 auto 32px">Free, open source and made for the Mac.</p>
+    <h2>Your cloud files, one click away.</h2>
+    <p class="section-lead" style="margin:0 auto 32px">JottaFS is free and open source. It is made for the Mac.</p>
     <div class="cta">
       <a class="btn" href="https://github.com/thomas-alrek/JottaFS/releases/download/v1.4.2/JottaFS-1.4.2.dmg">Download for Mac</a>
       <a class="btn secondary" href="https://github.com/thomas-alrek/JottaFS">View on GitHub</a>
@@ -426,7 +427,7 @@ brew install --cask thomas-alrek/jottafs/jottafs</pre>
 
 <footer>
   <div class="wrap">
-    <p>JottaFS is not an official Jottacloud product. Jottacloud AS does not make, support or approve it. JottaFS uses Jottacloud interfaces without public documentation, which can change at any time.</p>
+    <p>JottaFS is not an official Jottacloud product. Jottacloud AS did not make JottaFS, and does not support or approve it. JottaFS uses Jottacloud interfaces that do not have public documentation. These interfaces can change at any time.</p>
     <nav>
       <a href="https://github.com/thomas-alrek/JottaFS">GitHub</a>
       <a href="https://github.com/thomas-alrek/JottaFS/releases">Releases</a>
