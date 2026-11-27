@@ -149,10 +149,29 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         volumes: [JottacloudRemoteVolume],
         client: JottacloudClient
     ) async throws -> MountTarget {
-        guard let volume = volumes.first(where: {
+        let volume: JottacloudRemoteVolume
+        var builtInLocations: [String] = []
+        if mountpoint.isEmpty {
+            // A whole device. It may have no locations left (all trashed);
+            // then its own listing still loads.
+            let name = volumes.first { JottaFSNames.sameName($0.device, device) }?.device ?? device
+            let locations: [String]
+            do {
+                locations = try await client.listMountpoints(device: name)
+            } catch {
+                logger.error("The chosen Jottacloud device no longer exists.")
+                throw JottacloudError.locationNotFound
+            }
+            volume = .wholeDevice(name)
+            if volume.isBuiltIn {
+                builtInLocations = locations
+            }
+        } else if let found = volumes.first(where: {
             JottaFSNames.sameName($0.device, device)
                 && JottaFSNames.sameName($0.mountpoint, mountpoint)
-        }) else {
+        }) {
+            volume = found
+        } else {
             logger.error("The chosen Jottacloud location no longer exists.")
             throw JottacloudError.locationNotFound
         }
@@ -166,6 +185,7 @@ final class JottaFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         return MountTarget(
             volume: volume,
             deviceServicePath: deviceServicePath,
+            builtInLocations: builtInLocations,
             anchorName: anchorName,
             volumeName: JottaFSStorage.availableVolumeName(
                 JottaFSStorage.volumeName(device: volume.device, mountpoint: volume.mountpoint)

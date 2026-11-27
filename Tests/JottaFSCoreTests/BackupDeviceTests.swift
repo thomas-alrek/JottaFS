@@ -102,6 +102,25 @@ struct BackupDeviceListingTests {
         #expect(try parseDeviceMountpointNames(xml) == [])
     }
 
+    /// A whole-device volume has no mountpoint: no file URL may be made
+    /// from it, or a path would be read as a location's name.
+    @Test func noFileURLWithoutAMountpoint() throws {
+        #expect(throws: JottacloudError.self) {
+            try JottacloudClient.makeJFSURL(username: "u", device: "JottaFS-Test-1699", mountpoint: "", path: "Beta")
+        }
+        let url = try JottacloudClient.makeJFSURL(username: "u", device: "Jotta", mountpoint: "Archive", path: "a b")
+        #expect(url.absoluteString.hasSuffix("/u/Jotta/Archive/a%20b"))
+    }
+
+    /// Whole devices get the device's name as their default disk name.
+    @Test func wholeDeviceVolumeNames() {
+        #expect(JottaFSStorage.defaultVolumeName(device: "Jotta", mountpoint: "") == "Jottacloud")
+        #expect(JottaFSStorage.defaultVolumeName(device: "Thomas sin MacBook", mountpoint: "") == "Thomas sin MacBook")
+        #expect(JottacloudRemoteVolume.wholeDevice("Jotta").isWholeDevice)
+        #expect(JottacloudRemoteVolume.wholeDevice("Jotta").displayName == "Jotta")
+        #expect(JottaFSStorage.anchorName(device: "Jotta", mountpoint: "") != JottaFSStorage.anchorName(device: "Jotta", mountpoint: "Archive"))
+    }
+
     /// Backup devices carry their type (12 is CLI, which jotta-cli also uses).
     @Test func backupDevicesCarryTheirType() {
         func string(_ field: UInt8, _ text: String) -> [UInt8] {

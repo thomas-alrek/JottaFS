@@ -24,12 +24,20 @@ struct JottaFSApp: App {
     }
 }
 
+/// A device, for a sheet that needs only its name.
+struct DeviceReference: Identifiable {
+    let name: String
+    var id: String { name.lowercased() }
+}
+
 /// What the main window shows on top of the list: sheets and confirmations.
 /// Shared, so the menu bar commands can open them too.
 @MainActor
 final class WindowState: ObservableObject {
     /// The location being renamed.
     @Published var renaming: JottacloudRemoteVolume?
+    /// The device whose description is being changed.
+    @Published var describing: DeviceReference?
     /// The "new backup device / new location" sheet.
     @Published var locationSheet: LocationSheet?
     /// A removal waiting for its confirmation.
@@ -82,6 +90,16 @@ private struct LocationCommands: Commands {
                 }
                 .keyboardShortcut("e")
                 .disabled(unavailable || !model.canUnmount)
+            } else if let location, model.mountedDevice(of: location) != nil {
+                // A folder in its mounted device volume.
+                Button("Show in Finder") {
+                    Task { await model.mountSelected() }
+                }
+                .keyboardShortcut("o")
+                .disabled(unavailable)
+                Button("Unmount…") {}
+                    .keyboardShortcut("e")
+                    .disabled(true)
             } else {
                 Button("Mount") {
                     Task { await model.mountSelected() }
@@ -115,7 +133,7 @@ private struct LocationCommands: Commands {
                 }
             }
             .keyboardShortcut(.delete)
-            .disabled(unavailable || location == nil || location?.isBuiltIn == true)
+            .disabled(unavailable || location == nil || location?.isBuiltIn == true || location?.isWholeDevice == true)
             Button(location.map { $0.isBuiltIn ? String(localized: "Delete Backup Device…") : String(localized: "Delete the backup device “\($0.device)”…") } ?? String(localized: "Delete Backup Device…")) {
                 if let location {
                     show { window.removal = RemovalRequest(location: location, kind: .deleteBackupDevice) }
@@ -940,6 +958,10 @@ private struct SignedInView: View {
             RenameView(location: location)
                 .environmentObject(model)
         }
+        .sheet(item: $window.describing) { device in
+            DescriptionView(device: device.name)
+                .environmentObject(model)
+        }
         .toolbar {
             // In the window's toolbar (the Liquid Glass layer); the labels
             // are for VoiceOver, the icons are what shows.
@@ -1122,21 +1144,36 @@ private struct LocationPicker: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollViewReader { proxy in
+                        // A tree: each device (its own row, which mounts the
+                        // whole device as one disk) with its locations
+                        // indented under it.
                         List(selection: selection) {
-                            ForEach(groups, id: \.title) { group in
-                                Section {
+                            ForEach(groups, id: \.device) { group in
+                                DisclosureGroup(isExpanded: expansion(of: group.device)) {
                                     ForEach(group.locations) { location in
                                         LocationRow(
                                             location: location,
                                             isOpen: model.isMounted(location),
                                             finderName: model.finderNameIfDifferent(of: location),
+                                            inVolume: model.mountedDevice(of: location).map(model.finderName),
                                             isSelected: model.selectedLocationID == location.id
                                         )
                                         .tag(location.id)
                                         .id(location.id)
                                     }
-                                } header: {
-                                    sectionHeader(group)
+                                } label: {
+                                    deviceRow(group)
+                                        // The disclosure chevron is centred on
+                                        // the label's first line of capitals
+                                        // (half a cap height above its first
+                                        // baseline): move that baseline so the
+                                        // chevron sits at the middle of the
+                                        // two-line row.
+                                        .alignmentGuide(.firstTextBaseline) {
+                                            $0[VerticalAlignment.center] + NSFont.preferredFont(forTextStyle: .body).capHeight / 2
+                                        }
+                                        .tag(group.whole.id)
+                                        .id(group.whole.id)
                                 }
                             }
                         }
@@ -1147,11 +1184,21 @@ private struct LocationPicker: View {
                         // like the Mount button (a mounted one opens in
                         // Finder).
                         .contextMenu(forSelectionType: String.self) { ids in
-                            if let id = ids.first, let location = model.locations.first(where: { $0.id == id }) {
+                            if let id = ids.first, let location = (model.locations + model.wholeDevices).first(where: { $0.id == id }) {
                                 contextMenu(for: location)
                             }
                         } primaryAction: { ids in
-                            guard !model.isBusy, model.extensionEnabled != false, let id = ids.first else {
+                            guard let id = ids.first else {
+                                return
+                            }
+                            if let group = groups.first(where: { $0.whole.id == id }), !model.isMounted(group.whole) {
+                                // A device opens or closes; mounting it (which
+                                // unmounts its locations) stays an explicit
+                                // action.
+                                expansion(of: group.device).wrappedValue.toggle()
+                                return
+                            }
+                            guard !model.isBusy, model.extensionEnabled != false else {
                                 return
                             }
                             model.selectedLocationID = id
@@ -1188,7 +1235,13 @@ private struct LocationPicker: View {
     @ViewBuilder
     private func contextMenu(for location: JottacloudRemoteVolume) -> some View {
         let mounted = model.isMounted(location)
-        if mounted {
+        if model.mountedDevice(of: location) != nil {
+            // A folder in its mounted device volume.
+            Button("Show in Finder") {
+                model.selectedLocationID = location.id
+                Task { await model.mountSelected() }
+            }
+        } else if mounted {
             Button("Show in Finder") {
                 model.selectedLocationID = location.id
                 Task { await model.mountSelected() }
@@ -1197,6 +1250,11 @@ private struct LocationPicker: View {
                 window.confirmsUnmount = location
             }
             .disabled(!model.canUnmount || model.isBusy)
+        } else if location.isWholeDevice {
+            Button("Mount as One Disk") {
+                Task { await model.mountWholeDevice(location.device) }
+            }
+            .disabled(model.isBusy || model.extensionEnabled == false)
         } else {
             Button("Mount") {
                 model.selectedLocationID = location.id
@@ -1210,7 +1268,12 @@ private struct LocationPicker: View {
         ))
         .disabled(model.isBusy)
         Divider()
-        if !location.isBuiltIn {
+        if location.isWholeDevice, !location.isBuiltIn {
+            Button("New Location…") {
+                window.locationSheet = .newLocation(device: location.device)
+            }
+            .disabled(model.isBusy)
+        } else if !location.isBuiltIn {
             Button("New Location in “\(location.device)”…") {
                 window.locationSheet = .newLocation(device: location.device)
             }
@@ -1219,10 +1282,22 @@ private struct LocationPicker: View {
         Button("Rename…") {
             window.renaming = location
         }
-        if !location.isBuiltIn {
+        if location.isWholeDevice {
+            Button("Edit Description…") {
+                window.describing = DeviceReference(name: location.device)
+            }
+        }
+        if !location.isBuiltIn, !location.isWholeDevice {
             Divider()
             Button("Move to Trash…", role: .destructive) {
                 window.removal = RemovalRequest(location: location, kind: .moveToTrash)
+            }
+            .disabled(model.isBusy)
+        } else if location.isWholeDevice, !location.isBuiltIn,
+                  let first = model.locations(on: location.device).first {
+            Divider()
+            Button("Delete Backup Device…", role: .destructive) {
+                window.removal = RemovalRequest(location: first, kind: .deleteBackupDevice)
             }
             .disabled(model.isBusy)
         }
@@ -1274,48 +1349,61 @@ private struct LocationPicker: View {
         }
     }
 
-    /// A section's title; a backup device's section also has "…" with the
-    /// backup device's actions and "+" for a new location in it
-    /// (Jottacloud's own device can neither be deleted nor get new
-    /// locations).
-    private func sectionHeader(_ group: (title: String, locations: [JottacloudRemoteVolume])) -> some View {
-        HStack {
-            Text(group.title)
-            Spacer()
-            if let first = group.locations.first, !first.isBuiltIn {
-                let device = first.device
-                Menu {
-                    Button("New Location…") {
-                        window.locationSheet = .newLocation(device: device)
-                    }
-                    Divider()
-                    Button("Delete Backup Device…", role: .destructive) {
-                        window.removal = RemovalRequest(location: first, kind: .deleteBackupDevice)
-                    }
-                } label: {
-                    Label("Actions for “\(device)”", systemImage: "ellipsis.circle")
-                        .labelStyle(.iconOnly)
-                }
-                .menuStyle(.button)
-                .buttonStyle(.borderless)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Actions for “\(device)”")
-                .disabled(model.isBusy)
+    /// A device's row: the whole device (select it to mount it as one
+    /// disk), with "…" for its actions and, for a backup device, "+" for a
+    /// new location in it.
+    private func deviceRow(_ group: DeviceGroup) -> some View {
+        HStack(spacing: 6) {
+            LocationRow(
+                location: group.whole,
+                isOpen: model.isMounted(group.whole),
+                finderName: model.finderNameIfDifferent(of: group.whole),
+                deviceDescription: model.deviceDescription(of: group.device),
+                isSelected: model.selectedLocationID == group.whole.id
+            )
+            let name = AppModel.ownName(of: group.whole)
+            Menu {
+                contextMenu(for: group.whole)
+            } label: {
+                Label("Actions for “\(name)”", systemImage: "ellipsis.circle")
+                    .labelStyle(.iconOnly)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.borderless)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Actions for “\(name)”")
+            .disabled(model.isBusy)
+            if !group.whole.isBuiltIn {
                 Button {
-                    window.locationSheet = .newLocation(device: device)
+                    window.locationSheet = .newLocation(device: group.device)
                 } label: {
-                    Label("New Location in “\(device)”…", systemImage: "plus")
+                    Label("New Location in “\(group.device)”…", systemImage: "plus")
                         .labelStyle(.iconOnly)
                 }
                 .buttonStyle(.borderless)
-                .help("New Location in “\(device)”…")
+                .help("New Location in “\(group.device)”…")
                 .disabled(model.isBusy)
             }
         }
     }
 
-    private var groups: [(title: String, locations: [JottacloudRemoteVolume])] {
+    /// Devices the user opened or closed in the list, by lower-cased name.
+    /// The others are open only while one of their locations is mounted.
+    @State private var openedDevices: [String: Bool] = [:]
+
+    private func expansion(of device: String) -> Binding<Bool> {
+        Binding(
+            get: { openedDevices[device.lowercased()] ?? !model.mountedLocations(on: device).isEmpty },
+            set: { openedDevices[device.lowercased()] = $0 }
+        )
+    }
+
+    typealias DeviceGroup = (device: String, whole: JottacloudRemoteVolume, locations: [JottacloudRemoteVolume])
+
+    /// One group per device: Jottacloud's own first, then the backup
+    /// devices.
+    private var groups: [DeviceGroup] {
         var order: [String] = []
         var byDevice: [String: [JottacloudRemoteVolume]] = [:]
         for location in model.locations {
@@ -1329,7 +1417,7 @@ private struct LocationPicker: View {
             (lhs == JottacloudRemoteVolume.builtInDevice ? 0 : 1, lhs) < (rhs == JottacloudRemoteVolume.builtInDevice ? 0 : 1, rhs)
         }
         return order.map { device in
-            (device == JottacloudRemoteVolume.builtInDevice ? "Jottacloud" : String(localized: "Backup from \(device)", comment: "Section title in the location list; the argument is a computer name"), byDevice[device] ?? [])
+            (device, JottacloudRemoteVolume.wholeDevice(device), byDevice[device] ?? [])
         }
     }
 }
@@ -1338,6 +1426,11 @@ private struct LocationRow: View {
     let isOpen: Bool
     /// The name in Finder, when it is not the location's own name.
     var finderName: String?
+    /// The device volume the location is a folder in, when its device is
+    /// mounted as one volume.
+    var inVolume: String?
+    /// For a device: the description the user gave it.
+    var deviceDescription: String?
     /// The selected row: its icon takes the text colour.
     var isSelected = false
 
@@ -1351,6 +1444,7 @@ private struct LocationRow: View {
                 .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
             VStack(alignment: .leading, spacing: 1) {
                 Text(AppModel.ownName(of: location))
+                    .fontWeight(location.isWholeDevice ? .semibold : nil)
                 if let detail {
                     Text(detail)
                         .font(.caption)
@@ -1370,6 +1464,9 @@ private struct LocationRow: View {
     }
 
     private var symbol: String {
+        if location.isWholeDevice {
+            return location.isBuiltIn ? "cloud" : "desktopcomputer"
+        }
         guard location.isBuiltIn else {
             return "folder"
         }
@@ -1383,6 +1480,21 @@ private struct LocationRow: View {
     }
 
     private var detail: String? {
+        if location.isWholeDevice {
+            // The user's description; else, while mounted, what the disk
+            // is, and otherwise what the device is.
+            if let deviceDescription {
+                return deviceDescription
+            }
+            if isOpen {
+                return finderName.map { String(localized: "All locations as one disk, “\($0)”") }
+                    ?? String(localized: "All locations as one disk")
+            }
+            return location.isBuiltIn ? String(localized: "Jottacloud’s own locations") : String(localized: "Backup device")
+        }
+        if let inVolume {
+            return String(localized: "A folder in “\(inVolume)”")
+        }
         if let finderName {
             return String(localized: "Shown in Finder as “\(finderName)”")
         }
@@ -1414,6 +1526,15 @@ private struct FinderStatus: View {
                 }
                 .disabled(true)
                 .help("Mounted. To unmount, eject “\(selectedName ?? String(localized: "the disk"))” in Finder.")
+            } else if let location = model.selectedLocation, model.mountedDevice(of: location) != nil {
+                // A folder in its mounted device volume: never mounted on
+                // its own as well.
+                Button {
+                    Task { await model.mountSelected() }
+                } label: {
+                    ButtonLabel(title: "Show in Finder", activity: nil)
+                }
+                .keyboardShortcut(.defaultAction)
             } else if model.selectedIsMounted {
                 // Not red: unmounting removes nothing from Jottacloud.
                 Button {
@@ -1502,6 +1623,7 @@ private struct NewLocationView: View {
     let kind: LocationSheet
     @State private var name = ""
     @State private var firstLocation = String(localized: "Files")
+    @State private var deviceDescription = ""
     @State private var failure: String?
     @State private var isCreating = false
 
@@ -1530,6 +1652,8 @@ private struct NewLocationView: View {
                 .onSubmit(create)
             if !kind.isLocation {
                 TextField("First location", text: $firstLocation)
+                    .onSubmit(create)
+                TextField("Description", text: $deviceDescription, prompt: Text("Optional"))
                     .onSubmit(create)
             }
             if let failure {
@@ -1568,6 +1692,7 @@ private struct NewLocationView: View {
                 switch kind {
                 case .newBackupDevice:
                     try await model.createBackupDevice(named: name, firstLocation: firstLocation)
+                    model.setDeviceDescription(deviceDescription, of: name.trimmingCharacters(in: .whitespacesAndNewlines))
                 case .newLocation(let device):
                     try await model.createLocation(named: name, on: device)
                 }
@@ -1611,7 +1736,9 @@ private struct RenameView: View {
     var body: some View {
         SheetForm(
             title: "Rename",
-            subtitle: location.isBuiltIn ? AppModel.ownName(of: location) : String(localized: "\(location.mountpoint) · Backup from \(location.device)", comment: "A backed-up folder and the computer it is backed up from")
+            subtitle: location.isWholeDevice
+                ? String(localized: "All locations of “\(AppModel.ownName(of: location))” as one disk")
+                : location.isBuiltIn ? AppModel.ownName(of: location) : String(localized: "\(location.mountpoint) · Backup from \(location.device)", comment: "A backed-up folder and the computer it is backed up from")
         ) {
             TextField("Name in Finder", text: $name, prompt: Text(defaultName))
                 .onSubmit(save)
@@ -1649,6 +1776,42 @@ private struct RenameView: View {
             return
         }
         model.setCustomName(name, for: location)
+        dismiss()
+    }
+}
+
+/// Changes a device's description: the line under its name in the list,
+/// kept on this Mac (Jottacloud has no description for devices).
+private struct DescriptionView: View {
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.dismiss) private var dismiss
+    let device: String
+    @State private var text = ""
+
+    var body: some View {
+        SheetForm(title: "Edit Description", subtitle: AppModel.ownName(of: .wholeDevice(device))) {
+            TextField("Description", text: $text, prompt: Text("Optional"))
+                .onSubmit(save)
+            Text("Shown under the device’s name in JottaFS, on this Mac only.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } buttons: {
+            Spacer()
+            Button("Cancel", role: .cancel) {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+            Button("Save", action: save)
+                .keyboardShortcut(.defaultAction)
+        }
+        .onAppear {
+            text = model.deviceDescription(of: device) ?? ""
+        }
+    }
+
+    private func save() {
+        model.setDeviceDescription(text, of: device)
         dismiss()
     }
 }

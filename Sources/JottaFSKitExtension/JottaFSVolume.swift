@@ -91,7 +91,7 @@ final class JottaFSVolume: FSVolume, FSVolume.Handler, FSVolume.ReadWriteHandler
         self.volumeName = target.volumeName
         self.blockCache = BlockCache(key: target.storageKey)
         self.readAhead = ReadAhead(cache: blockCache)
-        self.trash = try TrashStore(client: client, locationPrefix: target.trashPrefix, key: target.storageKey)
+        self.trash = try TrashStore(client: client, locationPrefixes: target.trashPrefixes, key: target.storageKey)
         self.localFiles = try LocalFinderFiles(key: target.storageKey)
         self.directoryCache = DirectoryCache(client: client, trash: trash, localFiles: localFiles)
         self.statistics = FSStatFSResult(fileSystemTypeName: "jottacloud")

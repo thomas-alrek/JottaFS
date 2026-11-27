@@ -39,6 +39,11 @@ public enum JottaFSStorage {
     /// language that the app saved ("Arkiv" for "Archive"); otherwise the
     /// location's own name.
     public static func defaultVolumeName(device: String, mountpoint: String) -> String {
+        // A whole device (empty mountpoint): the device's name, and
+        // "Jottacloud" for Jottacloud's own device.
+        if mountpoint.isEmpty {
+            return device == JottacloudRemoteVolume.builtInDevice ? "Jottacloud" : defaultVolumeName(mountpoint: device)
+        }
         if device == JottacloudRemoteVolume.builtInDevice,
            let names = loadSettings()[builtInLocationNamesKey] as? [String: String],
            let name = names[mountpoint.lowercased()].flatMap(validVolumeName) {

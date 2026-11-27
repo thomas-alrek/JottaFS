@@ -25,7 +25,9 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
     /// Whether the item gets write permission bits.
     func grantsWritePermission(_ item: JottacloudItem) -> Bool {
         switch item.role {
-        case .mountpoint, .remote:
+        case .device, .mountpoint, .remote:
+            // The root of a whole-device volume and its location folders:
+            // the handlers decide what may change there.
             return true
         case .localFile:
             return true
@@ -154,13 +156,16 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         if case .userTrash = parent.role {
             return try await createTrashMetadata(named: newName, type: type, in: parent)
         }
+        if case .device = parent.role {
+            return try await createInDeviceRoot(named: newName, type: type, in: parent)
+        }
         guard let location = parent.childLocation(named: newName),
               !(isVolumeRoot(parent) && isReservedRootName(newName))
         else {
             throw POSIXError(.EPERM)
         }
         if type == .file, LocalFinderFiles.isLocalName(newName) {
-            return try await createLocalFile(named: newName, at: location.path, in: parent)
+            return try await createLocalFile(named: newName, at: parent.localChildPath(named: newName) ?? location.path, in: parent)
         }
         guard type == .file || type == .directory else {
             throw POSIXError(.ENOTSUP)
@@ -620,6 +625,9 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         default:
             break
         }
+        if isLocationFolder(item) {
+            return try await removeLocation(item, from: parent)
+        }
         let location = try writableLocation(of: item)
         let isDirectory = item.entry.kind == .directory
         if isDirectory {
@@ -632,7 +640,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         try await deletePermanently(item, at: location)
         if isDirectory {
             // Its local Finder files go with it.
-            localFiles.removeFolder(location.path)
+            localFiles.removeFolder(item.path)
         }
         await directoryCache.recordAbsent(name: item.entry.name, inDirectory: parent.path)
         let itemAttributes = attributes(for: item)
@@ -697,6 +705,9 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
             throw POSIXError(.EINVAL)
         }
         let newName = try validateNewName(destinationName)
+        if isLocationFolder(item) {
+            return try await renameLocationFolder(item, from: source, to: newName, in: destination, over: overItem)
+        }
         if case .userTrash = destination.role {
             switch item.role {
             case .remote:
@@ -722,13 +733,18 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         else {
             throw POSIXError(.EPERM)
         }
-        guard to.volume == from.volume else {
+        // Within one device, also between its locations (a whole-device
+        // volume); Jottacloud moves the item on the server.
+        guard to.volume.device == from.volume.device else {
             throw POSIXError(.EXDEV)
         }
         let isDirectory = item.entry.kind == .directory
         if !isDirectory, LocalFinderFiles.isLocalName(newName) {
             // An app saved Finder's file under another name first.
-            return try await turnIntoLocalFile(item, at: from, from: source, to: newName, in: destination, path: to.path, over: overItem)
+            return try await turnIntoLocalFile(
+                item, at: from, from: source, to: newName, in: destination,
+                path: destination.localChildPath(named: newName) ?? to.path, over: overItem
+            )
         }
 
         // The remote copy must hold the latest data before it is moved.
@@ -758,11 +774,12 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         }
 
         do {
-            try await client.move(volume: from.volume, from: from.path, to: to.path, isDirectory: isDirectory)
+            try await client.move(volume: from.volume, from: from.path, to: to.path, in: to.volume, isDirectory: isDirectory)
         } catch {
             throw posixError(error)
         }
         let oldName = item.entry.name
+        let oldPath = item.path
         try itemStore.move(item, to: destination, name: newName)
         await directoryCache.recordAbsent(name: oldName, inDirectory: source.path)
         await directoryCache.recordPresent(
@@ -771,7 +788,7 @@ extension JottaFSVolume: FSVolume.OpenCloseHandler {
         )
         if isDirectory {
             // Its local Finder files go with it.
-            localFiles.moveFolder(from: from.path, to: to.path)
+            localFiles.moveFolder(from: oldPath, to: item.path)
             await directoryCache.invalidate(path: item.path)
         }
         writeLogger.info("Renamed an item.")

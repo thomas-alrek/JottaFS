@@ -107,7 +107,7 @@ extension JottaFSVolume {
     }
 
     /// Staged (possibly unsaved) files inside a folder.
-    private func stagedDescendants(of folder: JottacloudItem) -> [JottacloudItem] {
+    func stagedDescendants(of folder: JottacloudItem) -> [JottacloudItem] {
         let prefix = folder.path.lowercased() + "/"
         return staging.stagedIdentifiers.compactMap { itemStore.item(identifier: $0) }
             .filter { $0.path.lowercased().hasPrefix(prefix) }
@@ -125,7 +125,7 @@ extension JottaFSVolume {
         let over = overItem as? JottacloudItem
         switch item.role {
         case .trashLocal(let url):
-            if LocalFinderFiles.isLocalName(newName), let to = destination.childLocation(named: newName) {
+            if LocalFinderFiles.isLocalName(newName), let toPath = destination.localChildPath(named: newName) {
                 // Put Back of a file's `._` file (the kernel moves it with
                 // the file): back to the local Finder files.
                 if let over, over !== item {
@@ -135,13 +135,13 @@ extension JottaFSVolume {
                     itemStore.remove(over)
                 }
                 do {
-                    try localFiles.move(url, to: to.path)
+                    try localFiles.move(url, to: toPath)
                 } catch {
                     throw posixError(error)
                 }
                 let oldName = item.entry.name
                 let entry = RemoteEntry(name: newName, kind: .file, size: item.entry.size, modified: item.entry.modified)
-                itemStore.relocate(item, to: destination, name: newName, role: .localFile(path: to.path), entry: entry)
+                itemStore.relocate(item, to: destination, name: newName, role: .localFile(path: toPath), entry: entry)
                 await trash.localFilesChanged()
                 await directoryCache.recordAbsent(name: oldName, inDirectory: source.path)
                 await directoryCache.recordPresent(JottacloudDirectoryEntry(entry: entry, role: item.role), inDirectory: destination.path)
@@ -192,6 +192,10 @@ extension JottaFSVolume {
                 await directoryCache.recordPresent(JottacloudDirectoryEntry(entry: entry, role: item.role), inDirectory: destination.path)
                 return try renameResult(item, name: newName, source: source, destination: destination, over: nil)
             }
+            if case .device = destination.role {
+                // A trashed location of a whole-device volume.
+                return try await restoreLocation(item, trashed: trashed, from: source, to: newName, in: destination)
+            }
             return try await putBack(item, trashed: trashed, from: source, to: newName, in: destination)
 
         default:
@@ -217,21 +221,25 @@ extension JottaFSVolume {
         let newRole = JottacloudItemRole.remote(to.volume, path: to.path)
         let original = JottacloudClient.requestPath(trashed.path)
         let inPlace = original.lowercased() == JottacloudClient.requestPath(destinationPath).lowercased()
-        var originalLocation: String?
+        var originalLocation: (volume: JottacloudRemoteVolume, path: String)?
         if !inPlace {
-            // Restore, then move within the mounted location.
+            // Restore, then move within the mounted volume (also into
+            // another location of a whole-device volume).
             guard let source = target.location(forServicePath: original),
-                  source.volume == to.volume,
+                  source.volume.device == to.volume.device,
                   !source.path.isEmpty
             else {
                 throw POSIXError(.EPERM)
             }
-            originalLocation = source.path
+            originalLocation = source
         }
         do {
             try await client.restore(path: trashed.path)
             if let originalLocation {
-                try await client.move(volume: to.volume, from: originalLocation, to: to.path, isDirectory: trashed.isFolder)
+                try await client.move(
+                    volume: originalLocation.volume, from: originalLocation.path, to: to.path,
+                    in: to.volume, isDirectory: trashed.isFolder
+                )
             }
         } catch {
             throw posixError(error)

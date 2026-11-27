@@ -94,6 +94,9 @@ location as a read-write volume.
   backup device permanently (verified 2026-11-26; see the API notes). The
   built-in `Jotta` device cannot get new mountpoints and is never deleted.
   Locations are unmounted before they are removed or deleted.
+- A whole device can also be mounted as one volume, its locations being the
+  root's folders ([design](docs/device-volume-design.md)); a device and
+  one of its locations are never mounted at the same time.
 - XML listing entries without a completed current revision are not exposed.
 - Only the official `id.jottacloud.com` identity host is supported.
 - Keep research and unresolved API assumptions in

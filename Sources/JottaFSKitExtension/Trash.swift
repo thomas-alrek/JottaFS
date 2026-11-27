@@ -33,7 +33,7 @@ actor TrashStore {
     /// Lower-cased service path prefix of what is mounted (for example
     /// `/archive/` or `/backup/<id>/`); nil when unknown, and the Trash then
     /// stays empty.
-    private let locationPrefix: String?
+    private let locationPrefixes: [String]
     private let namesURL: URL
     /// Trash entry key (`path` + deletion time) to its name in the Trash.
     private var names: [String: String]
@@ -49,9 +49,9 @@ actor TrashStore {
     private var lastQuickLoad: Date?
 
     /// `key` names this volume's own folder (see `MountTarget.storageKey`).
-    init(client: JottacloudClient, locationPrefix: String?, key: String) throws {
+    init(client: JottacloudClient, locationPrefixes: [String], key: String) throws {
         self.client = client
-        self.locationPrefix = locationPrefix
+        self.locationPrefixes = locationPrefixes
         let support = try FileManager.default.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -231,10 +231,8 @@ actor TrashStore {
     }
 
     private func belongsToLocation(_ item: JottacloudPathItem) -> Bool {
-        guard let locationPrefix else {
-            return false
-        }
-        return JottacloudClient.requestPath(item.path).lowercased().hasPrefix(locationPrefix)
+        let path = JottacloudClient.requestPath(item.path).lowercased()
+        return locationPrefixes.contains { path.hasPrefix($0) }
     }
 
     // MARK: Changes made through the volume

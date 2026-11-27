@@ -108,6 +108,69 @@ final class AppModel: ObservableObject {
 
     var selectedLocation: JottacloudRemoteVolume? {
         locations.first { $0.id == selectedLocationID }
+            ?? wholeDevices.first { $0.id == selectedLocationID }
+    }
+
+    // MARK: Whole devices
+
+    /// Every device in the list (Jottacloud's own first), each as one
+    /// volume whose root folders are its locations.
+    var wholeDevices: [JottacloudRemoteVolume] {
+        var seen = Set<String>()
+        return locations.map(\.device)
+            .filter { seen.insert($0.lowercased()).inserted }
+            .sorted { ($0 == JottacloudRemoteVolume.builtInDevice ? 0 : 1, $0) < ($1 == JottacloudRemoteVolume.builtInDevice ? 0 : 1, $1) }
+            .map(JottacloudRemoteVolume.wholeDevice)
+    }
+
+    /// The mounted whole-device volume that holds `location`, if its device
+    /// is mounted as one volume (then the location is not mounted on its
+    /// own: it is a folder in that volume).
+    func mountedDevice(of location: JottacloudRemoteVolume) -> JottacloudRemoteVolume? {
+        guard !location.isWholeDevice else {
+            return nil
+        }
+        let device = JottacloudRemoteVolume.wholeDevice(location.device)
+        return mounts[device.id] != nil ? device : nil
+    }
+
+    /// The location's folder in its mounted device volume.
+    private func folderInMountedDevice(_ location: JottacloudRemoteVolume) -> URL? {
+        guard let device = mountedDevice(of: location), let mounted = mounts[device.id] else {
+            return nil
+        }
+        // The same name as the extension gives the folder: Jottacloud's own
+        // locations in the user's language.
+        let folder = mounted.mountPoint.appendingPathComponent(Self.ownName(of: location), isDirectory: true)
+        if FileManager.default.fileExists(atPath: folder.path) {
+            return folder
+        }
+        return mounted.mountPoint.appendingPathComponent(location.mountpoint, isDirectory: true)
+    }
+
+    /// Descriptions the user gave devices, by lower-cased device name: the
+    /// line under the device's name in the list. Kept on this Mac only;
+    /// Jottacloud has no description for devices.
+    @Published private(set) var deviceDescriptions: [String: String] =
+        UserDefaults.standard.dictionary(forKey: AppModel.deviceDescriptionsKey) as? [String: String] ?? [:]
+    private static let deviceDescriptionsKey = "DeviceDescriptions"
+
+    func deviceDescription(of device: String) -> String? {
+        deviceDescriptions[device.lowercased()]
+    }
+
+    /// Saves (or, when empty, removes) a device's description.
+    func setDeviceDescription(_ text: String?, of device: String) {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        deviceDescriptions[device.lowercased()] = trimmed.isEmpty ? nil : trimmed
+        UserDefaults.standard.set(deviceDescriptions, forKey: Self.deviceDescriptionsKey)
+    }
+
+    /// Mounts a whole device as one volume (its mounted locations are
+    /// unmounted first) and opens it in Finder.
+    func mountWholeDevice(_ device: String) async {
+        selectedLocationID = JottacloudRemoteVolume.wholeDevice(device).id
+        await mountSelected()
     }
 
     func isMounted(_ location: JottacloudRemoteVolume) -> Bool {
@@ -637,12 +700,10 @@ final class AppModel: ObservableObject {
             isWaitingForNetwork = false
             loadCustomNames()
             offerFinderExtensionIfNeeded()
-            // Start on a mounted location if there is one.
-            if let mounted = account.volumes.first(where: isMounted), !selectedIsMounted {
+            // Start on a mounted location or device if there is one;
+            // otherwise nothing is selected (the devices start closed).
+            if let mounted = (account.volumes + wholeDevices).first(where: isMounted), !selectedIsMounted {
                 selectedLocationID = mounted.id
-            } else if selectedLocation == nil {
-                selectedLocationID = (account.volumes.first { $0.isBuiltIn && $0.mountpoint == "Archive" }
-                    ?? account.volumes.first)?.id
             }
             alert = nil
         } catch {
@@ -739,6 +800,12 @@ final class AppModel: ObservableObject {
             showInFinder(mounted.mountPoint)
             return
         }
+        if let folder = folderInMountedDevice(location) {
+            // Its device is mounted as one volume: the location is a folder
+            // there, never mounted on its own as well.
+            showInFinder(folder)
+            return
+        }
         if await mount(location), let mounted = mounts[location.id] {
             showInFinder(mounted.mountPoint)
         }
@@ -755,8 +822,28 @@ final class AppModel: ObservableObject {
         if mounts[location.id] != nil {
             return true
         }
+        if let device = mountedDevice(of: location) {
+            alert = AppAlert(
+                title: String(localized: "“\(finderName(of: device))” is mounted as one disk."),
+                message: String(localized: "Its locations are folders in it. Unmount it to mount a location on its own.")
+            )
+            return false
+        }
         activity = .mounting(locationID: location.id)
         defer { activity = nil }
+        if location.isWholeDevice {
+            // The device's locations are in the device volume: none stays
+            // mounted on its own as well.
+            for mounted in mountedLocations(on: location.device) {
+                do {
+                    try await unmount(mounted)
+                } catch {
+                    lastMountError = error
+                    alert = AppAlert(title: String(localized: "JottaFS couldn’t mount the device."), message: error.localizedDescription)
+                    return false
+                }
+            }
+        }
         do {
             let anchor = try JottaFSStorage.prepareMountAnchor(device: location.device, mountpoint: location.mountpoint)
             let resource = FSPathURLResource(url: anchor, writable: true)
@@ -780,7 +867,9 @@ final class AppModel: ObservableObject {
             if mounts[location.id] == nil {
                 alert = extensionEnabled == false
                     ? Self.extensionOffAlert
-                    : errorAlert(error, title: String(localized: "JottaFS couldn’t mount the location."))
+                    : errorAlert(error, title: location.isWholeDevice
+                        ? String(localized: "JottaFS couldn’t mount the device.")
+                        : String(localized: "JottaFS couldn’t mount the location."))
                 return false
             }
         }
@@ -980,13 +1069,14 @@ final class AppModel: ObservableObject {
         activity = .changingLocations
         defer { activity = nil }
         let device = try await backupDevice(named: name, client: client)
-        let affected = locations(on: name)
+        let affected = locations(on: name) + [.wholeDevice(name)]
         try await LocationRemoval.run(
             unmounting: affected.filter(isMounted),
             unmount: unmount,
             remove: { try await client.deleteDevice(device) }
         )
         affected.forEach(forget)
+        setDeviceDescription(nil, of: name)
         await loadLocations()
     }
 
@@ -1120,7 +1210,7 @@ final class AppModel: ObservableObject {
     /// extension records itself when it mounts a location).
     private func refreshServingExtensions() {
         let own = Self.ownExtensionURL
-        let found = locations.filter { location in
+        let found = (locations + wholeDevices).filter { location in
             guard let mounted = mounts[location.id] else {
                 return false
             }
@@ -1260,7 +1350,7 @@ final class AppModel: ObservableObject {
             NSApp.terminate(nil)
             return
         }
-        locations = wanted
+        locations = wanted.filter { !$0.isWholeDevice }
         loadCustomNames()
         let mounted = await mountLoginLocations(wanted)
         guard launchedAtLogin else {
@@ -1292,7 +1382,10 @@ final class AppModel: ObservableObject {
         if await !Self.waitForNetwork(until: deadline) {
             loginLogger.notice("No network at login yet; trying to mount anyway.")
         }
-        var pending = wanted.filter { !isMounted($0) }
+        // Whole devices first: a location of a device mounted as one volume
+        // is a folder in it, not mounted on its own.
+        var pending = wanted.filter { $0.isWholeDevice } + wanted.filter { !$0.isWholeDevice }
+        pending = pending.filter { !isMounted($0) }
         var failed = false
         var pause: Duration = .seconds(2)
         var attempt = 0
@@ -1302,7 +1395,7 @@ final class AppModel: ObservableObject {
                 await refreshExtensionState()
             }
             var retry: [JottacloudRemoteVolume] = []
-            for location in pending where !isMounted(location) {
+            for location in pending where !isMounted(location) && mountedDevice(of: location) == nil {
                 guard await !mount(location) else {
                     continue
                 }
@@ -1417,6 +1510,9 @@ final class AppModel: ObservableObject {
     /// The location's name in the user's language: "Arkiv" for Jottacloud's
     /// built-in "Archive" in Norwegian. Backed-up folders keep their names.
     static func ownName(of location: JottacloudRemoteVolume) -> String {
+        if location.isWholeDevice {
+            return location.isBuiltIn ? "Jottacloud" : location.device
+        }
         guard location.isBuiltIn else {
             return location.mountpoint
         }

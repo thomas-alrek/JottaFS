@@ -2086,6 +2086,174 @@
           }
         }
       }
+    },
+    "“%@” is mounted as one disk." : {
+      "comment" : "Alert title; the argument is a device's name in Finder",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«%@» er aktivert som én disk."
+          }
+        }
+      }
+    },
+    "Its locations are folders in it. Unmount it to mount a location on its own." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Plasseringene er mapper på den. Deaktiver den for å aktivere en plassering for seg."
+          }
+        }
+      }
+    },
+    "JottaFS couldn’t mount the device." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JottaFS kunne ikke aktivere enheten."
+          }
+        }
+      }
+    },
+    "Mount as One Disk" : {
+      "comment" : "Menu item: mounts a whole device, with each location as a folder",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiver som én disk"
+          }
+        }
+      }
+    },
+    "Mounts “%@” as one disk, with each location as a folder." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktiverer «%@» som én disk, med hver plassering som en mappe."
+          }
+        }
+      }
+    },
+    "All locations as one disk, “%@”" : {
+      "comment" : "Row detail for a device mounted as one disk; the argument is its name in Finder",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle plasseringer som én disk, «%@»"
+          }
+        }
+      }
+    },
+    "All locations as one disk" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle plasseringer som én disk"
+          }
+        }
+      }
+    },
+    "A folder in “%@”" : {
+      "comment" : "Row detail for a location whose device is mounted as one disk",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En mappe på «%@»"
+          }
+        }
+      }
+    },
+    "All locations of “%@” as one disk" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alle plasseringer på «%@» som én disk"
+          }
+        }
+      }
+    },
+    "Jottacloud’s own locations" : {
+      "comment" : "Detail of the Jottacloud device's row in the location list",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jottaclouds egne plasseringer"
+          }
+        }
+      }
+    },
+    "Backup device" : {
+      "comment" : "Detail of a backup device's row in the location list",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Backup-enhet"
+          }
+        }
+      }
+    },
+    "Edit Description…" : {
+      "comment" : "Menu item for a device in the location list",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Endre beskrivelse…"
+          }
+        }
+      }
+    },
+    "Edit Description" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Endre beskrivelse"
+          }
+        }
+      }
+    },
+    "Description" : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskrivelse"
+          }
+        }
+      }
+    },
+    "Optional" : {
+      "comment" : "Placeholder of an optional text field",
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Valgfritt"
+          }
+        }
+      }
+    },
+    "Shown under the device’s name in JottaFS, on this Mac only." : {
+      "localizations" : {
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vises under navnet på enheten i JottaFS, bare på denne Macen."
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

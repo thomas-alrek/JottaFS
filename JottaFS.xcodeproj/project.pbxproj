@@ -44,6 +44,7 @@
 		A1000000000000000000003C /* ReadAhead.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003C /* ReadAhead.swift */; };
 		A1000000000000000000003F /* BlockCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003F /* BlockCache.swift */; };
 		A10000000000000000000037 /* JottaFSVolume+Trash.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000037 /* JottaFSVolume+Trash.swift */; };
+		A10000000000000000000070 /* JottaFSVolume+Device.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000070 /* JottaFSVolume+Device.swift */; };
 		A10000000000000000000036 /* Trash.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* Trash.swift */; };
 		A10000000000000000000028 /* JottaFSVolume+Write.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* JottaFSVolume+Write.swift */; };
 		A10000000000000000000029 /* ProgressService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* ProgressService.swift */; };
@@ -233,6 +234,7 @@
 		A2000000000000000000003C /* ReadAhead.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReadAhead.swift; sourceTree = "<group>"; };
 		A2000000000000000000003F /* BlockCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockCache.swift; sourceTree = "<group>"; };
 		A20000000000000000000037 /* JottaFSVolume+Trash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JottaFSVolume+Trash.swift"; sourceTree = "<group>"; };
+		A20000000000000000000070 /* JottaFSVolume+Device.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JottaFSVolume+Device.swift"; sourceTree = "<group>"; };
 		A20000000000000000000036 /* Trash.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Trash.swift"; sourceTree = "<group>"; };
 		A20000000000000000000021 /* JottaFSVolume+Write.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "JottaFSVolume+Write.swift"; sourceTree = "<group>"; };
 		A20000000000000000000022 /* ProgressService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressService.swift; sourceTree = "<group>"; };
@@ -387,6 +389,7 @@
 				A2000000000000000000003C /* ReadAhead.swift */,
 				A2000000000000000000003F /* BlockCache.swift */,
 				A20000000000000000000037 /* JottaFSVolume+Trash.swift */,
+				A20000000000000000000070 /* JottaFSVolume+Device.swift */,
 				A20000000000000000000036 /* Trash.swift */,
 				A2000000000000000000004E /* LocalFinderFiles.swift */,
 				A20000000000000000000050 /* CreationDates.swift */,
@@ -727,6 +730,7 @@
 				A1000000000000000000003C /* ReadAhead.swift in Sources */,
 				A1000000000000000000003F /* BlockCache.swift in Sources */,
 				A10000000000000000000037 /* JottaFSVolume+Trash.swift in Sources */,
+				A10000000000000000000070 /* JottaFSVolume+Device.swift in Sources */,
 				A10000000000000000000036 /* Trash.swift in Sources */,
 				A10000000000000000000028 /* JottaFSVolume+Write.swift in Sources */,
 			);

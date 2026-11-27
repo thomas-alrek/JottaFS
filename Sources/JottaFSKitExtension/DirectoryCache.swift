@@ -207,13 +207,28 @@ actor DirectoryCache {
         let request = Task {
             let entries: [JottacloudDirectoryEntry]
             switch role {
+            case .device(let device):
+                // A whole-device volume: its locations are the root's
+                // folders, next to the virtual Trash and `.fseventsd`.
+                let folders = Self.locationFolders(
+                    try await client.listMountpoints(device: device),
+                    device: device
+                )
+                let remote = folders.map { RemoteEntry(name: $0.name, kind: .directory, size: 0, modified: nil) }
+                entries = [Self.trashesEntry, Self.fseventsEntry] + folders.map {
+                    JottacloudDirectoryEntry(
+                        entry: RemoteEntry(name: $0.name, kind: .directory, size: 0, modified: nil),
+                        role: .mountpoint(JottacloudRemoteVolume(device: device, mountpoint: $0.mountpoint))
+                    )
+                } + localEntries(inFolder: path, remote: remote)
             case .mountpoint(let volume):
                 let remoteEntries = try await client.listDirectory(
                     volume: volume,
                     path: ""
                 )
-                // The volume root also holds the virtual Trash and the
-                // virtual `.fseventsd`.
+                        // As the volume root, it also holds the virtual Trash and
+                // the virtual `.fseventsd` (not as a folder in a
+                // whole-device root).
                 entries = (path.isEmpty ? [Self.trashesEntry, Self.fseventsEntry] : []) + remoteEntries.compactMap {
                     // A remote item named like one of them stays hidden (a
                     // `.fseventsd` uploaded by versions before 1.1.2), and so
@@ -228,7 +243,7 @@ actor DirectoryCache {
                         entry: $0,
                         role: .remote(volume, path: $0.name)
                     )
-                } + localEntries(inFolder: "", remote: remoteEntries)
+                } + localEntries(inFolder: path, remote: remoteEntries)
             case .remote(let volume, let remotePath):
                 let remoteEntries = try await client.listDirectory(
                     volume: volume,
@@ -245,7 +260,7 @@ actor DirectoryCache {
                         entry: entry,
                         role: .remote(volume, path: path)
                     )
-                } + localEntries(inFolder: remotePath, remote: remoteEntries)
+                } + localEntries(inFolder: path, remote: remoteEntries)
             case .trashes:
                 entries = [JottacloudDirectoryEntry(
                     entry: RemoteEntry(name: trash.userFolderName, kind: .directory, size: 0, modified: nil),
@@ -285,6 +300,39 @@ actor DirectoryCache {
         } catch {
             requests.removeValue(forKey: path)
             throw error
+        }
+    }
+
+    /// The folders of a whole-device root: one per location, named after
+    /// it. Jottacloud's own locations get the names the app saved in the
+    /// user's language ("Arkiv" for "Archive", like their disk names); a
+    /// location keeps its own name if the translated name would be taken.
+    /// Names that the root needs itself, or that are Finder's own files,
+    /// are left out.
+    static func locationFolders(
+        _ mountpoints: [String],
+        device: String,
+        translatedName: (String) -> String? = { mountpoint in
+            let name = JottaFSStorage.defaultVolumeName(device: JottacloudRemoteVolume.builtInDevice, mountpoint: mountpoint)
+            return name == JottaFSStorage.defaultVolumeName(mountpoint: mountpoint) ? nil : name
+        }
+    ) -> [(name: String, mountpoint: String)] {
+        let usable = mountpoints.filter {
+            !JottaFSNames.sameName($0, trashesName)
+                && !JottaFSNames.sameName($0, fseventsName)
+                && !LocalFinderFiles.isLocalName($0)
+        }
+        guard device == JottacloudRemoteVolume.builtInDevice else {
+            return usable.map { ($0, $0) }
+        }
+        let translated = usable.map { mountpoint in
+            translatedName(mountpoint).flatMap { (try? JottaFSNames.validate($0)) != nil ? $0 : nil } ?? mountpoint
+        }
+        return zip(usable, translated).map { mountpoint, name in
+            let clashes = zip(usable, translated).contains { other, otherName in
+                other != mountpoint && (JottaFSNames.sameName(otherName, name) || JottaFSNames.sameName(other, name))
+            }
+            return (clashes ? mountpoint : name, mountpoint)
         }
     }
 

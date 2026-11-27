@@ -140,12 +140,28 @@ public struct JottacloudRemoteVolume: Sendable, Equatable, Identifiable {
         device == Self.builtInDevice
     }
 
+    /// The whole device as one volume: its locations are the folders in the
+    /// volume's root. Jottacloud has no mountpoint with an empty name.
+    public var isWholeDevice: Bool {
+        mountpoint.isEmpty
+    }
+
+    /// The whole device `device` as one volume (see `isWholeDevice`).
+    public static func wholeDevice(_ device: String) -> JottacloudRemoteVolume {
+        JottacloudRemoteVolume(device: device, mountpoint: "")
+    }
+
+    /// The location `name` on this volume's device.
+    public func location(named name: String) -> JottacloudRemoteVolume {
+        JottacloudRemoteVolume(device: device, mountpoint: name)
+    }
+
     public var id: String {
         "\(device)/\(mountpoint)"
     }
 
     public var displayName: String {
-        "\(device) / \(mountpoint)"
+        isWholeDevice ? device : "\(device) / \(mountpoint)"
     }
 
     public init(device: String, mountpoint: String) {
@@ -741,6 +757,11 @@ public actor JottacloudClient {
         mountpoint: String,
         path: String
     ) throws -> URL {
+        // A whole-device volume has no mountpoint: a path in it would be read
+        // as a mountpoint name, so its items always name their own location.
+        guard !device.isEmpty, !mountpoint.isEmpty else {
+            throw JottacloudError.invalidPath
+        }
         let segments = [username, device, mountpoint] + path.split(separator: "/").map(String.init)
         return try makeJFSPathURL(segments)
     }
@@ -1330,14 +1351,21 @@ extension JottacloudClient {
         try await sendMutation(url: url)
     }
 
-    /// Renames or moves within one device/mountpoint.
+    /// Renames or moves an item within one device: within its location, or
+    /// into another location of the same device (`destinationVolume`;
+    /// verified live 2026-11-27).
     public func move(
         volume: JottacloudRemoteVolume,
         from source: String,
         to destination: String,
+        in destinationVolume: JottacloudRemoteVolume? = nil,
         isDirectory: Bool
     ) async throws {
-        let destinationPath = "/" + ([credentials.username, volume.device, volume.mountpoint] + [destination])
+        let target = destinationVolume ?? volume
+        guard target.device == volume.device, !target.isWholeDevice, !volume.isWholeDevice else {
+            throw JottacloudError.invalidPath
+        }
+        let destinationPath = "/" + ([credentials.username, target.device, target.mountpoint] + [destination])
             .joined(separator: "/")
         let url = try Self.jfsMutationURL(
             try jfsURL(volume: volume, path: source),
@@ -1619,7 +1647,7 @@ extension JottacloudClient {
         return false
     }
 
-    private func sendMutation(url: URL) async throws {
+    func sendMutation(url: URL) async throws {
         let response = try await authorizedSend { token in
             Self.mutationRequest(url: url, accessToken: token, contentType: nil, body: nil)
         }
@@ -2011,7 +2039,7 @@ extension JottacloudClient {
 
     /// One unary gRPC-Web call; returns the response message. A rejected
     /// token (HTTP 401 or UNAUTHENTICATED) is refreshed once.
-    private func grpcCall(_ method: String, _ message: Data, service: String = fileService) async throws -> [UInt8] {
+    func grpcCall(_ method: String, _ message: Data, service: String = fileService) async throws -> [UInt8] {
         var frame = Data([0x00])
         var length = UInt32(message.count).bigEndian
         frame.append(Data(bytes: &length, count: 4))
@@ -2337,6 +2365,20 @@ extension JottacloudClient {
         var message = Data()
         Self.appendProtobufString(field: 1, Self.requestPath(device.path + "/" + name), to: &message)
         _ = try await grpcCall("Delete", message)
+    }
+
+    /// Renames a mountpoint of a backup device with its files:
+    /// `FileService.Move` (source service path in field 1, destination in
+    /// field 2; verified live 2026-11-27). JFS `mvDir` on a mountpoint
+    /// returns success and does nothing.
+    public func renameMountpoint(_ name: String, to newName: String, of device: JottacloudBackupDevice) async throws {
+        guard !name.isEmpty, !name.contains("/"), !newName.isEmpty, !newName.contains("/") else {
+            throw JottacloudError.invalidPath
+        }
+        var message = Data()
+        Self.appendProtobufString(field: 1, Self.requestPath(device.path + "/" + name), to: &message)
+        Self.appendProtobufString(field: 2, Self.requestPath(device.path + "/" + newName), to: &message)
+        _ = try await grpcCall("Move", message)
     }
 
     /// Deletes a whole backup device by its id (`DeviceService.Delete`,

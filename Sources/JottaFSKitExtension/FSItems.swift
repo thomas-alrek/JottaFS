@@ -2,34 +2,69 @@ import FSKit
 import os
 import JottaFSCore
 
-/// The mounted Jottacloud location (such as `Jotta/Archive`, or one
-/// backed-up folder of a computer backup) and how its items are addressed in
-/// the gRPC file service.
+/// What a volume mounts: one Jottacloud location (such as `Jotta/Archive`,
+/// or one backed-up folder of a computer backup), or a whole device, whose
+/// locations are then the folders in the volume's root. Also how its items
+/// are addressed in the gRPC file service.
 struct MountTarget: Sendable {
+    /// The mounted location; for a whole device, `mountpoint` is empty
+    /// (`JottacloudRemoteVolume.isWholeDevice`).
     let volume: JottacloudRemoteVolume
-    /// For a backup location: its device's service path (`/backup/<id>`), or
-    /// nil when unknown; then trash and permanent deletes are unavailable.
+    /// For a backup device: its service path (`/backup/<id>`), or nil when
+    /// unknown; then trash and permanent deletes are unavailable.
     let deviceServicePath: String?
+    /// For a whole `Jotta` device: its locations when it was mounted. They
+    /// cannot change (Jottacloud's own locations), and their service paths
+    /// (`/archive`, `/photos`…) are the Trash's filter.
+    let builtInLocations: [String]
     /// The mount anchor the volume is mounted from (`""` for the legacy
     /// anchor): finds the volume's mount point.
     let anchorName: String
 
+    init(
+        volume: JottacloudRemoteVolume,
+        deviceServicePath: String?,
+        builtInLocations: [String] = [],
+        anchorName: String,
+        volumeName: String
+    ) {
+        self.volume = volume
+        self.deviceServicePath = deviceServicePath
+        self.builtInLocations = builtInLocations
+        self.anchorName = anchorName
+        self.volumeName = volumeName
+    }
+
+    var isWholeDevice: Bool {
+        volume.isWholeDevice
+    }
+
+    /// Whether locations can be created, renamed and moved to the trash in
+    /// the root of a whole-device volume: on backup devices with a known
+    /// service path, never on Jottacloud's own device.
+    var canChangeLocations: Bool {
+        isWholeDevice && !volume.isBuiltIn && deviceServicePath != nil
+    }
+
     /// Names the volume's own folders for local state (staging, the Trash),
-    /// so mounted locations never share them.
+    /// so mounted volumes never share them.
     var storageKey: String {
         JottaFSStorage.anchorName(device: volume.device, mountpoint: volume.mountpoint)
     }
 
     var rootRole: JottacloudItemRole {
-        .mountpoint(volume)
+        isWholeDevice ? .device(volume.device) : .mountpoint(volume)
     }
 
     /// The name in Finder: the user's name for the location, or its own
     /// name, numbered if another mounted volume already has it.
     let volumeName: String
 
-    /// The service path of `path` in the mounted location, or nil.
+    /// The service path of `path` in a location of the mounted volume, or nil.
     func servicePath(volume: JottacloudRemoteVolume, path: String) -> String? {
+        guard !volume.isWholeDevice else {
+            return nil
+        }
         let root: String?
         if volume.isBuiltIn {
             root = JottacloudClient.servicePath(device: volume.device, mountpoint: volume.mountpoint, path: "")
@@ -39,24 +74,63 @@ struct MountTarget: Sendable {
         return root.map { path.isEmpty ? $0 : "\($0)/\(path)" }
     }
 
-    /// Lower-cased service path prefix of the mounted location; the Trash
-    /// lists only entries under it.
-    var trashPrefix: String? {
-        servicePath(volume: volume, path: "").map { JottacloudClient.requestPath($0).lowercased() + "/" }
+    /// Lower-cased service path prefixes of the mounted volume; the Trash
+    /// lists only entries under them. For a whole backup device this also
+    /// covers its trashed locations themselves (`/backup/<id>/<name>`).
+    var trashPrefixes: [String] {
+        let roots: [String?]
+        if !isWholeDevice {
+            roots = [servicePath(volume: volume, path: "")]
+        } else if volume.isBuiltIn {
+            roots = builtInLocations.map { servicePath(volume: volume.location(named: $0), path: "") }
+        } else {
+            roots = [deviceServicePath]
+        }
+        return roots.compactMap { $0 }.map { JottacloudClient.requestPath($0).lowercased() + "/" }
     }
 
-    /// The location of a service path inside the mounted location, or nil.
+    /// The location of a service path inside the mounted volume, or nil.
+    /// For a trashed location of a whole device, `path` is empty.
     func location(forServicePath servicePath: String) -> (volume: JottacloudRemoteVolume, path: String)? {
         let request = JottacloudClient.requestPath(servicePath)
-        guard let prefix = trashPrefix, request.lowercased().hasPrefix(prefix) else {
+        if !isWholeDevice {
+            guard let prefix = trashPrefixes.first, request.lowercased().hasPrefix(prefix) else {
+                return nil
+            }
+            return (volume, String(request.dropFirst(prefix.count)))
+        }
+        if volume.isBuiltIn {
+            // `/archive/folder`: the first component is the location.
+            for name in builtInLocations {
+                guard let root = self.servicePath(volume: volume.location(named: name), path: "") else {
+                    continue
+                }
+                let prefix = JottacloudClient.requestPath(root).lowercased() + "/"
+                if request.lowercased().hasPrefix(prefix) {
+                    return (volume.location(named: name), String(request.dropFirst(prefix.count)))
+                }
+            }
             return nil
         }
-        return (volume, String(request.dropFirst(prefix.count)))
+        // `/backup/<id>/<location>/folder`.
+        guard let prefix = trashPrefixes.first, request.lowercased().hasPrefix(prefix) else {
+            return nil
+        }
+        let rest = request.dropFirst(prefix.count)
+        let parts = rest.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let first = parts.first, !first.isEmpty else {
+            return nil
+        }
+        return (volume.location(named: String(first)), parts.count > 1 ? String(parts[1]) : "")
     }
 }
 
 enum JottacloudItemRole: Sendable {
-    /// The volume root: the mounted Jottacloud location.
+    /// The root of a whole-device volume: the device, whose locations are
+    /// its folders.
+    case device(String)
+    /// A mounted Jottacloud location: the volume root, or a folder in the
+    /// root of a whole-device volume.
     case mountpoint(JottacloudRemoteVolume)
     case remote(JottacloudRemoteVolume, path: String)
     case volumeIcon
@@ -78,9 +152,10 @@ enum JottacloudItemRole: Sendable {
     case trashed(JottacloudPathItem, topLevel: Bool)
     /// Finder metadata (`.DS_Store`, `._*`) in the Trash, kept locally.
     case trashLocal(URL)
-    /// Finder's own files (`.DS_Store`, `._*`) anywhere else in the location,
-    /// kept on this Mac (`LocalFinderFiles`); `path` is relative to the
-    /// location, like a remote item's.
+    /// Finder's own files (`.DS_Store`, `._*`) anywhere else on the volume,
+    /// kept on this Mac (`LocalFinderFiles`); `path` is the item's path in
+    /// the volume (for a mounted location, the same as a remote item's path
+    /// in it).
     case localFile(path: String)
 }
 
@@ -149,6 +224,31 @@ final class JottacloudItem: FSItem {
             return (volume, path)
         }
         return nil
+    }
+
+    /// The remote folder this item is: a location (path `""`) or a folder
+    /// in one; nil for anything else.
+    var remoteBase: (volume: JottacloudRemoteVolume, path: String)? {
+        switch role {
+        case .mountpoint(let volume):
+            return (volume, "")
+        case .remote(let volume, let path):
+            return (volume, path)
+        default:
+            return nil
+        }
+    }
+
+    /// The volume path of a direct child named `name` that is one of
+    /// Finder's own files (kept on this Mac), if this item is a folder that
+    /// can hold them: the root, a location or a remote folder.
+    func localChildPath(named name: String) -> String? {
+        switch role {
+        case .device, .mountpoint, .remote:
+            return path.isEmpty ? name : "\(path)/\(name)"
+        default:
+            return nil
+        }
     }
 
     /// Remote location of a direct child named `name`, if this item is a
@@ -307,19 +407,27 @@ final class ItemStore {
         }
     }
 
-    /// Moves an item (and its cached descendants) to `name` in `newParent`,
-    /// which must be in the same device/mountpoint.
+    /// Moves an item (and its cached descendants) to `name` in `newParent`
+    /// in the same device: within its location, into another location, or
+    /// (with `role`, a location folder in a whole-device root) renaming a
+    /// location.
     func move(
         _ item: JottacloudItem,
         to newParent: JottacloudItem,
-        name: String
+        name: String,
+        role newRole: JottacloudItemRole? = nil
     ) throws {
         try lock.withLock {
-            guard let location = newParent.childLocation(named: name) else {
+            let role: JottacloudItemRole
+            if let newRole {
+                role = newRole
+            } else if let location = newParent.childLocation(named: name) {
+                role = .remote(location.volume, path: location.path)
+            } else {
                 throw POSIXError(.EINVAL)
             }
             let oldPath = item.path
-            let oldRemotePath = item.remoteLocation?.path
+            let oldBase = item.remoteBase
             let newPath = Self.childPath(newParent, name)
             if let displaced = itemsByPath[Self.key(newPath)], displaced !== item {
                 itemsByIdentifier.removeValue(forKey: displaced.identifier)
@@ -328,7 +436,7 @@ final class ItemStore {
             itemsByPath.removeValue(forKey: Self.key(oldPath))
             item.path = newPath
             item.parentIdentifier = newParent.identifier
-            item.role = .remote(location.volume, path: location.path)
+            item.role = role
             // Same content: keep the MD5 (and so the cached blocks).
             item.entry = RemoteEntry(
                 name: name,
@@ -338,23 +446,33 @@ final class ItemStore {
                 md5: item.entry.md5
             )
             itemsByPath[Self.key(newPath)] = item
+            let newBase = item.remoteBase
 
             let prefix = Self.key(oldPath) + "/"
             for (key, descendant) in itemsByPath where key.hasPrefix(prefix) {
                 itemsByPath.removeValue(forKey: key)
                 let suffix = String(descendant.path.dropFirst(oldPath.count))
                 descendant.path = newPath + suffix
-                if let oldRemotePath, let remote = descendant.remoteLocation {
-                    let remoteSuffix = String(remote.path.dropFirst(oldRemotePath.count))
-                    descendant.role = .remote(remote.volume, path: location.path + remoteSuffix)
-                } else if let oldRemotePath, case .localFile(let localPath) = descendant.role,
-                          localPath.lowercased().hasPrefix(oldRemotePath.lowercased() + "/") {
-                    // A local Finder file inside the moved folder.
-                    descendant.role = .localFile(path: location.path + String(localPath.dropFirst(oldRemotePath.count)))
+                if let oldBase, let newBase, let remote = descendant.remoteLocation {
+                    descendant.role = .remote(
+                        newBase.volume,
+                        path: Self.rebase(remote.path, from: oldBase.path, to: newBase.path)
+                    )
+                } else if case .localFile = descendant.role {
+                    // A local Finder file inside the moved folder: its path
+                    // is its path in the volume.
+                    descendant.role = .localFile(path: descendant.path)
                 }
                 itemsByPath[Self.key(descendant.path)] = descendant
             }
         }
+    }
+
+    /// `path` (inside the folder at `oldBase`) moved under `newBase`; an
+    /// empty base is a location's root.
+    static func rebase(_ path: String, from oldBase: String, to newBase: String) -> String {
+        let relative = oldBase.isEmpty ? path : String(path.dropFirst(oldBase.count + 1))
+        return newBase.isEmpty ? relative : (relative.isEmpty ? newBase : "\(newBase)/\(relative)")
     }
 
     func reclaim(_ item: JottacloudItem) {

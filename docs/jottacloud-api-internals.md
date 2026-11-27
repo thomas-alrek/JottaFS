@@ -92,8 +92,9 @@ needs `com.apple.security.network.server`.
 
 JottaFS reads the account's devices and mountpoints (the location list) and
 `DeviceService.List` (the service path of each backup device, checked live).
-It never creates, changes or deletes devices or mountpoints. The rest of this
-section is static analysis only (rclone source, the web app's protobuf
+It creates, renames and trashes mountpoints and creates and deletes
+backup devices only when the user asks (see the live tests below). The
+first part of this section is static analysis only (rclone source, the web app's protobuf
 descriptors, strings in `jottad`).
 
 - The account root holds only devices, and a device holds only mountpoints;
@@ -144,9 +145,30 @@ descriptors, strings in `jottad`).
     skip trashed mountpoints yet; the XML for it has not been captured).
     Deleting the device afterwards also removed the trashed mountpoint
     from the trash for good.
-  - Still open: the JFS XML of a trashed mountpoint, and whether
-    mountpoints added to a device made by Jottacloud's desktop app are
-    reported as orphaned.
+  - Still open: whether mountpoints added to a device made by
+    Jottacloud's desktop app are reported as orphaned.
+- Tested live 2026-11-27 with test device `JottaFS-Test-1699` (owner ran
+  the tool; for mounting a whole device as one volume):
+  - **A trashed mountpoint** stays in the JFS device listing with a
+    `<deleted>2026-11-27-T15:47:36Z</deleted>` child element and an
+    `<abspath>` (not a `deleted` attribute, as files have). A device whose
+    mountpoints are all trashed still lists (HTTP 200), each one marked, and
+    stays in the account listing. The location parser skips them.
+  - **Renaming a mountpoint:** JFS `?mvDir=` on a mountpoint returns
+    success and does nothing (like `dlDir`). gRPC `FileService.Move` with
+    the source service path in field 1 and the destination in field 2
+    (`/backup/<id>/Alpha` → `/backup/<id>/Gamma`) renames it with its files
+    at once; the old name is gone (`JottacloudClient.renameMountpoint`).
+  - **Moving between mountpoints of one device:** JFS `?mv=` (file) and
+    `?mvDir=` (folder, with its contents) with a destination in another
+    mountpoint of the same device move the item on the server.
+  - A mountpoint with a non-ASCII name (`Ny mappe æøå`) is created and
+    listed like any other.
+  - **Restoring a trashed mountpoint:** `FileService.Restore` on
+    `/backup/<id>/<name>` brings it back with its files. jottacloud.com
+    shows trashed mountpoints in the trash as "Gjenoppretting
+    utilgjengelig" (restore unavailable): the web app cannot restore them,
+    only the API can.
 
 ## JFS paths and directory listings
 

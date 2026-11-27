@@ -82,6 +82,10 @@ JottaFS uses Apple FSKit. It does not use macFUSE or a kernel extension.
   JottaFS tries again and continues from the last saved part.
 - **Trash.** Move to Trash, Put Back and Empty Trash work with the Jottacloud
   trash. Refer to [The Trash](#the-trash).
+- **A whole device as one disk.** Mount Jottacloud or a backup device as
+  one disk, with each location as a folder. Move files between locations,
+  and create, rename and remove locations from Finder. Refer to
+  [Mount a whole device as one disk](#mount-a-whole-device-as-one-disk).
 - **Mount at login.** JottaFS can mount the locations that you select
   automatically when you log in. No window opens.
 - **Custom disk name.** Control-click a location and choose **Rename** to
@@ -239,7 +243,9 @@ jottacloud.com.
   or Control-click one of its locations and choose **New Location**.
 - **Move a location to the trash:** Control-click the location and choose
   **Move to Trash**. The location and its files move to the Jottacloud trash.
-  You can restore them on jottacloud.com.
+  jottacloud.com cannot restore a location ("Restore unavailable"); to get
+  it back, mount its backup device as one disk and use **Put Back** in
+  Finder's Trash.
 - **Delete a backup device:** click **…** in the header of the backup device
   and choose **Delete Backup Device**. The backup device, all its locations and all their files
   are deleted permanently. They do not go to the Jottacloud trash and you
@@ -249,6 +255,32 @@ A mounted location is unmounted first. If it cannot be unmounted (for
 example, a file on the disk is open), nothing is removed. Jottacloud's own
 locations (Archive, Sync, Shared and Photos) cannot get new locations and
 cannot be removed.
+
+### Mount a whole device as one disk
+
+Click **…** in the header of a device (Jottacloud or a backup device) and
+choose **Mount as One Disk**. The whole device shows in Finder as one disk,
+and each of its locations is a folder on it. Inside the folders, everything
+works as on a location's own disk. You can move files and folders between
+the locations; Jottacloud moves them, nothing is copied.
+
+In the top folder of a backup device's disk, the folders are the locations:
+
+- **New Folder** creates a location.
+- **Rename** renames the location.
+- **Move to Trash** moves the location and its files to the Jottacloud
+  trash, and **Put Back** restores it.
+- You cannot put files in the top folder, only folders.
+
+Jottacloud's own device has fixed locations (Archive, Sync, Shared and
+Photos, with their Norwegian names in Norwegian): you can change everything
+in them, but not the locations themselves.
+
+While a device is mounted as one disk, its locations cannot be mounted on
+their own: **Show in Finder** opens the location's folder on the device's
+disk. Mounting a device unmounts its mounted locations first. The mounted
+device has its own row in the list, where you can unmount it, rename it and
+mount it at login.
 
 ### Unmount
 
@@ -503,6 +535,7 @@ builds. Add the Norwegian text for each new text before a release. Write
 - [FSKit notes](docs/fskit-internals.md)
 - [Write support design](docs/write-support-design.md)
 - [Trash design](docs/trash-design.md)
+- [A whole device as one disk](docs/device-volume-design.md)
 - [Releasing](docs/releasing.md)
 
 ## License

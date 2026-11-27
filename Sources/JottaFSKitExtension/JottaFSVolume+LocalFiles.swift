@@ -5,8 +5,9 @@ import OSLog
 
 private let localFilesLogger = Logger.extension("LocalFiles")
 
-/// Finder's own files (`.DS_Store`, `._*`) in folders of the location: kept
-/// on this Mac by `LocalFinderFiles`, never uploaded
+/// Finder's own files (`.DS_Store`, `._*`) in folders of the volume, by
+/// their path in the volume: kept on this Mac by `LocalFinderFiles`, never
+/// uploaded
 /// (docs/write-support-design.md, "Finder's own files").
 extension JottaFSVolume {
     func createLocalFile(named name: String, at path: String, in parent: JottacloudItem) async throws -> FSCreateItemResult {
@@ -75,7 +76,7 @@ extension JottaFSVolume {
         return try renameResult(item, name: name, source: source, destination: trashFolder, over: over)
     }
 
-    /// Renames or moves a local file within the location. Its new name must
+    /// Renames or moves a local file within the volume. Its new name must
     /// also be one of Finder's own (an upload would be needed otherwise).
     func renameLocalFile(
         _ item: JottacloudItem,
@@ -86,20 +87,20 @@ extension JottaFSVolume {
     ) async throws -> FSRenameItemResult {
         guard case .localFile(let path) = item.role,
               LocalFinderFiles.isLocalName(newName),
-              let to = destination.childLocation(named: newName),
+              let toPath = destination.localChildPath(named: newName),
               let url = localFiles.url(path)
         else {
             throw POSIXError(.EPERM)
         }
         let over = try replaceableLocalFile(overItem, keeping: item)
         do {
-            try localFiles.move(url, to: to.path)
+            try localFiles.move(url, to: toPath)
         } catch {
             throw posixError(error)
         }
         let oldName = item.entry.name
         let entry = RemoteEntry(name: newName, kind: .file, size: item.entry.size, modified: item.entry.modified)
-        itemStore.relocate(item, to: destination, name: newName, role: .localFile(path: to.path), entry: entry)
+        itemStore.relocate(item, to: destination, name: newName, role: .localFile(path: toPath), entry: entry)
         await directoryCache.recordAbsent(name: oldName, inDirectory: source.path)
         await directoryCache.recordPresent(JottacloudDirectoryEntry(entry: entry, role: item.role), inDirectory: destination.path)
         return try renameResult(item, name: newName, source: source, destination: destination, over: over)
